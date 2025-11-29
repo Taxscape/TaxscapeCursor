@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { User, Session, AuthChangeEvent } from "@supabase/supabase-js";
+import { User, Session, AuthChangeEvent, EmailOtpType } from "@supabase/supabase-js";
 import { getSupabaseClient, Profile } from "@/lib/supabase";
 
 type AuthContextType = {
@@ -11,9 +11,11 @@ type AuthContextType = {
   isLoading: boolean;
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, fullName: string, companyName: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, fullName: string, companyName: string) => Promise<{ error: Error | null; needsVerification: boolean }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  verifyOtp: (email: string, token: string, type?: EmailOtpType) => Promise<{ error: Error | null }>;
+  resendOtp: (email: string) => Promise<{ error: Error | null }>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -95,24 +97,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, fullName: string, companyName: string) => {
+    // Sign up with email - Supabase will send OTP code
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
           full_name: fullName,
+          company_name: companyName,
         },
+        // This tells Supabase to use email OTP instead of magic link
+        emailRedirectTo: undefined,
       },
     });
 
-    // Update profile with company name after signup
-    if (data.user && !error) {
-      await supabase
-        .from("profiles")
-        .update({ company_name: companyName, full_name: fullName })
-        .eq("id", data.user.id);
+    // Check if user needs email verification
+    const needsVerification = !error && data.user && !data.session;
+
+    return { error: error as Error | null, needsVerification: needsVerification ?? false };
+  };
+
+  const verifyOtp = async (email: string, token: string, type: EmailOtpType = "signup") => {
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type,
+    });
+
+    // If verification successful and we have user data, update profile
+    if (!error && data.user) {
+      const metadata = data.user.user_metadata;
+      if (metadata?.company_name || metadata?.full_name) {
+        await supabase
+          .from("profiles")
+          .update({ 
+            company_name: metadata.company_name, 
+            full_name: metadata.full_name 
+          })
+          .eq("id", data.user.id);
+      }
     }
 
+    return { error: error as Error | null };
+  };
+
+  const resendOtp = async (email: string) => {
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+    });
     return { error: error as Error | null };
   };
 
@@ -133,6 +166,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signOut,
     refreshProfile,
+    verifyOtp,
+    resendOtp,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -145,4 +180,3 @@ export function useAuth() {
   }
   return context;
 }
-

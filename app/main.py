@@ -82,6 +82,76 @@ def _percent_to_decimal(value: Any) -> float:
         return 0.0
 
 
+def _get_user_context_data(user_id: str) -> Dict[str, Any]:
+    """Fetch user's employees, contractors, and projects for AI context."""
+    supabase = get_supabase()
+    if not supabase:
+        return {"employees": [], "contractors": [], "projects": [], "summary": {}}
+    
+    try:
+        employees = supabase.table("employees").select("*").eq("user_id", user_id).execute()
+        contractors = supabase.table("contractors").select("*").eq("user_id", user_id).execute()
+        projects = supabase.table("projects").select("*").eq("user_id", user_id).execute()
+        
+        total_wages = sum(e.get("total_wages", 0) for e in employees.data)
+        total_contractor_costs = sum(c.get("cost", 0) for c in contractors.data)
+        
+        return {
+            "employees": employees.data,
+            "contractors": contractors.data,
+            "projects": projects.data,
+            "summary": {
+                "total_employees": len(employees.data),
+                "total_wages": total_wages,
+                "total_contractors": len(contractors.data),
+                "total_contractor_costs": total_contractor_costs,
+                "total_projects": len(projects.data),
+            }
+        }
+    except Exception as e:
+        print(f"Error fetching user context: {e}")
+        return {"employees": [], "contractors": [], "projects": [], "summary": {}}
+
+
+def _build_context_prompt(context: Dict[str, Any]) -> str:
+    """Build a context string from user data to prepend to the AI conversation."""
+    if not context or not context.get("summary"):
+        return ""
+    
+    summary = context["summary"]
+    if summary["total_employees"] == 0 and summary["total_contractors"] == 0 and summary["total_projects"] == 0:
+        return ""
+    
+    lines = ["\n\n--- USER'S UPLOADED DATA CONTEXT ---"]
+    
+    if summary["total_employees"] > 0:
+        lines.append(f"\nEmployees ({summary['total_employees']} total, ${summary['total_wages']:,.2f} total wages):")
+        for emp in context["employees"][:10]:  # Limit to 10
+            lines.append(f"  - {emp.get('name', 'Unknown')}: {emp.get('title', 'N/A')}, ${emp.get('total_wages', 0):,.2f} wages, {emp.get('qualified_percent', 80)}% qualified")
+        if len(context["employees"]) > 10:
+            lines.append(f"  ... and {len(context['employees']) - 10} more employees")
+    
+    if summary["total_contractors"] > 0:
+        lines.append(f"\nContractors ({summary['total_contractors']} total, ${summary['total_contractor_costs']:,.2f} total costs):")
+        for con in context["contractors"][:10]:
+            qualified = "Qualified" if con.get("is_qualified", True) else "Not Qualified"
+            lines.append(f"  - {con.get('name', 'Unknown')}: ${con.get('cost', 0):,.2f}, {con.get('location', 'US')}, {qualified}")
+        if len(context["contractors"]) > 10:
+            lines.append(f"  ... and {len(context['contractors']) - 10} more contractors")
+    
+    if summary["total_projects"] > 0:
+        lines.append(f"\nProjects ({summary['total_projects']} total):")
+        for proj in context["projects"][:5]:
+            lines.append(f"  - {proj.get('name', 'Unknown')}: {proj.get('qualification_status', 'pending')}")
+        if len(context["projects"]) > 5:
+            lines.append(f"  ... and {len(context['projects']) - 5} more projects")
+    
+    lines.append("\n--- END OF USER DATA CONTEXT ---\n")
+    lines.append("Use this data when discussing the user's R&D activities. Reference specific employees, contractors, or projects when relevant.\n")
+    
+    return "\n".join(lines)
+
+
 def _structured_to_excel_payload(structured: Dict[str, Any]):
     """Convert structured chat output to Excel report format."""
     projects_section = structured.get("projects", [])
@@ -161,6 +231,7 @@ class ChatMessageModel(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[ChatMessageModel]
     session_id: Optional[str] = None
+    include_context: Optional[bool] = True
 
 class StructuredStudy(BaseModel):
     payload: Dict[str, Any]
@@ -213,18 +284,27 @@ async def chat_excel_endpoint(payload: StructuredStudy):
 # --- Authenticated Endpoints ---
 @api_router.post("/chat")
 async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_user)):
-    """Authenticated chat endpoint with persistence."""
+    """Authenticated chat endpoint with persistence and user context."""
     supabase = get_supabase()
     
+    # Build messages with user context if requested
     messages_dicts = [{"role": m.role, "content": m.content} for m in request.messages]
+    
+    # Add user context to the first user message if include_context is True
+    if request.include_context and messages_dicts:
+        context = _get_user_context_data(user["id"])
+        context_prompt = _build_context_prompt(context)
+        if context_prompt:
+            # Prepend context to the system understanding
+            messages_dicts = [{"role": "system", "content": context_prompt}] + messages_dicts
+    
     ai_text = chatbot_agent.get_chat_response(messages_dicts)
     structured = chatbot_agent.extract_json_from_response(ai_text)
     
     # Save to database if Supabase is available
+    session_id = request.session_id
     if supabase:
         try:
-            session_id = request.session_id
-            
             # Create new session if needed
             if not session_id:
                 session_result = supabase.table("chat_sessions").insert({
@@ -256,12 +336,17 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
                 "role": "assistant",
                 "content": ai_text,
             }).execute()
-            
-            return {"response": ai_text, "structured": structured, "session_id": session_id}
         except Exception as e:
             print(f"Error saving chat: {e}")
     
-    return {"response": ai_text, "structured": structured}
+    return {"response": ai_text, "structured": structured, "session_id": session_id}
+
+
+@api_router.get("/user_context")
+async def get_user_context(user: dict = Depends(get_current_user)):
+    """Get user's uploaded data for context display."""
+    context = _get_user_context_data(user["id"])
+    return context
 
 
 @api_router.get("/chat/sessions")
@@ -531,30 +616,50 @@ async def upload_payroll(file: UploadFile = File(...), user: dict = Depends(get_
     if not supabase:
         raise HTTPException(status_code=503, detail="Database not available")
     
-    contents = await file.read()
-    df = load_dataframe(file, contents)
-    df.columns = [c.lower().strip() for c in df.columns]
+    try:
+        contents = await file.read()
+        df = load_dataframe(file, contents)
+        df.columns = [c.lower().strip() for c in df.columns]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
     
     count = 0
-    for _, row in df.iterrows():
-        name = row.get('name') or row.get('employee name')
-        if not name:
+    errors = []
+    for idx, row in df.iterrows():
+        name = row.get('name') or row.get('employee name') or row.get('employee')
+        if not name or pd.isna(name):
             continue
         
         try:
+            wages = row.get('wages') or row.get('total wages') or row.get('salary') or row.get('total_wages') or 0
+            if pd.isna(wages):
+                wages = 0
+            
+            qualified_pct = row.get('qualified_percent') or row.get('qualified percent') or row.get('allocation') or 80
+            if pd.isna(qualified_pct):
+                qualified_pct = 80
+            
+            title = row.get('title') or row.get('position') or row.get('role') or 'Unknown'
+            if pd.isna(title):
+                title = 'Unknown'
+            
+            state = row.get('state') or row.get('location') or 'Unknown'
+            if pd.isna(state):
+                state = 'Unknown'
+            
             supabase.table("employees").insert({
                 "user_id": user["id"],
                 "name": str(name),
-                "title": str(row.get('title', 'Unknown')),
-                "state": str(row.get('state', 'Unknown')),
-                "total_wages": float(row.get('wages', 0) or row.get('total wages', 0) or 0),
-                "qualified_percent": float(row.get('qualified_percent', 80) or 80),
+                "title": str(title),
+                "state": str(state),
+                "total_wages": float(wages),
+                "qualified_percent": float(qualified_pct),
             }).execute()
             count += 1
         except Exception as e:
-            print(f"Error inserting employee: {e}")
+            errors.append(f"Row {idx}: {str(e)}")
     
-    return {"message": f"Uploaded {count} employees."}
+    return {"message": f"Uploaded {count} employees.", "count": count, "errors": errors[:5] if errors else []}
 
 
 @api_router.post("/upload_contractors")
@@ -564,44 +669,55 @@ async def upload_contractors(file: UploadFile = File(...), user: dict = Depends(
     if not supabase:
         raise HTTPException(status_code=503, detail="Database not available")
     
-    contents = await file.read()
-    df = load_dataframe(file, contents)
-    df.columns = [c.lower().strip() for c in df.columns]
+    try:
+        contents = await file.read()
+        df = load_dataframe(file, contents)
+        df.columns = [c.lower().strip() for c in df.columns]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
     
     count = 0
-    for _, row in df.iterrows():
-        name = row.get('name') or row.get('contractor')
-        if not name:
+    errors = []
+    for idx, row in df.iterrows():
+        name = row.get('name') or row.get('contractor') or row.get('vendor')
+        if not name or pd.isna(name):
             continue
         
-        cost_val = row.get('cost') or row.get('amount') or 0
         try:
+            cost_val = row.get('cost') or row.get('amount') or row.get('total') or 0
+            if pd.isna(cost_val):
+                cost_val = 0
             cost = float(cost_val)
-        except (TypeError, ValueError):
-            cost = 0.0
-        
-        qualified_val = row.get('qualified') or row.get('is qualified')
-        if isinstance(qualified_val, str):
-            qualified = qualified_val.strip().lower() in ('yes', 'true', '1')
-        elif qualified_val is None:
-            qualified = True
-        else:
-            qualified = bool(qualified_val)
-        
-        try:
+            
+            qualified_val = row.get('qualified') or row.get('is qualified') or row.get('is_qualified')
+            if pd.isna(qualified_val) or qualified_val is None:
+                qualified = True
+            elif isinstance(qualified_val, str):
+                qualified = qualified_val.strip().lower() in ('yes', 'true', '1', 'y')
+            else:
+                qualified = bool(qualified_val)
+            
+            location = row.get('location') or row.get('country') or 'US'
+            if pd.isna(location):
+                location = 'US'
+            
+            notes = row.get('notes') or row.get('description') or ''
+            if pd.isna(notes):
+                notes = ''
+            
             supabase.table("contractors").insert({
                 "user_id": user["id"],
                 "name": str(name),
                 "cost": cost,
                 "is_qualified": qualified,
-                "location": str(row.get('location', 'US')),
-                "notes": str(row.get('notes', '')) if row.get('notes') else None,
+                "location": str(location),
+                "notes": str(notes) if notes else None,
             }).execute()
             count += 1
         except Exception as e:
-            print(f"Error inserting contractor: {e}")
+            errors.append(f"Row {idx}: {str(e)}")
     
-    return {"message": f"Uploaded {count} contractors."}
+    return {"message": f"Uploaded {count} contractors.", "count": count, "errors": errors[:5] if errors else []}
 
 
 @api_router.get("/dashboard")
@@ -612,6 +728,7 @@ async def get_dashboard(user: dict = Depends(get_current_user)):
         return {
             "total_credit": 0,
             "total_wages": 0,
+            "total_qre": 0,
             "project_count": 0,
             "employee_count": 0,
             "contractor_count": 0,
@@ -650,6 +767,7 @@ async def get_dashboard(user: dict = Depends(get_current_user)):
         return {
             "total_credit": 0,
             "total_wages": 0,
+            "total_qre": 0,
             "project_count": 0,
             "employee_count": 0,
             "contractor_count": 0,

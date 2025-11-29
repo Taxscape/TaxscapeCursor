@@ -18,6 +18,20 @@ async function getAuthHeaders(): Promise<HeadersInit> {
   return headers;
 }
 
+// Helper to get auth headers for file uploads (no Content-Type)
+async function getAuthHeadersForUpload(): Promise<HeadersInit> {
+  const supabase = getSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  const headers: HeadersInit = {};
+  
+  if (session?.access_token) {
+    headers["Authorization"] = `Bearer ${session.access_token}`;
+  }
+  
+  return headers;
+}
+
 // Types
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -89,6 +103,19 @@ export type ChatSession = {
   updated_at: string;
 };
 
+export type UserContext = {
+  employees: Employee[];
+  contractors: Contractor[];
+  projects: Project[];
+  summary: {
+    total_employees: number;
+    total_wages: number;
+    total_contractors: number;
+    total_contractor_costs: number;
+    total_projects: number;
+  };
+};
+
 // Public endpoints (no auth required)
 export async function sendChatMessageDemo(messages: ChatMessage[]): Promise<ChatResult> {
   const response = await fetch(`${API_URL}/api/chat_demo`, {
@@ -121,13 +148,21 @@ export async function downloadChatExcel(payload: Record<string, unknown>, title?
 }
 
 // Authenticated endpoints
-export async function sendChatMessage(messages: ChatMessage[], sessionId?: string): Promise<ChatResult> {
+export async function sendChatMessage(
+  messages: ChatMessage[], 
+  sessionId?: string,
+  includeContext?: boolean
+): Promise<ChatResult> {
   const headers = await getAuthHeaders();
   
   const response = await fetch(`${API_URL}/api/chat`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ messages, session_id: sessionId }),
+    body: JSON.stringify({ 
+      messages, 
+      session_id: sessionId,
+      include_context: includeContext ?? true,
+    }),
   });
 
   if (!response.ok) {
@@ -151,6 +186,20 @@ export async function getDashboard(): Promise<DashboardData> {
 
   if (!response.ok) {
     throw new Error("Failed to fetch dashboard");
+  }
+
+  return await response.json();
+}
+
+export async function getUserContext(): Promise<UserContext> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/user_context`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch user context");
   }
 
   return await response.json();
@@ -203,6 +252,23 @@ export async function getEmployees(): Promise<Employee[]> {
   return data.employees;
 }
 
+export async function createEmployee(employee: Partial<Employee>): Promise<Employee> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/employees`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(employee),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to create employee");
+  }
+
+  const data = await response.json();
+  return data.employee;
+}
+
 export async function getContractors(): Promise<Contractor[]> {
   const headers = await getAuthHeaders();
   
@@ -216,6 +282,23 @@ export async function getContractors(): Promise<Contractor[]> {
 
   const data = await response.json();
   return data.contractors;
+}
+
+export async function createContractor(contractor: Partial<Contractor>): Promise<Contractor> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/contractors`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(contractor),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to create contractor");
+  }
+
+  const data = await response.json();
+  return data.contractor;
 }
 
 export async function getStudies(): Promise<Study[]> {
@@ -287,9 +370,8 @@ export async function getSessionMessages(sessionId: string): Promise<{ session: 
   return await response.json();
 }
 
-export async function uploadPayroll(file: File): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
-  delete (headers as Record<string, string>)["Content-Type"]; // Let browser set multipart boundary
+export async function uploadPayroll(file: File): Promise<{ message: string; count: number }> {
+  const headers = await getAuthHeadersForUpload();
   
   const formData = new FormData();
   formData.append("file", file);
@@ -301,15 +383,15 @@ export async function uploadPayroll(file: File): Promise<{ message: string }> {
   });
 
   if (!response.ok) {
-    throw new Error("Failed to upload payroll");
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to upload payroll");
   }
 
   return await response.json();
 }
 
-export async function uploadContractors(file: File): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
-  delete (headers as Record<string, string>)["Content-Type"];
+export async function uploadContractors(file: File): Promise<{ message: string; count: number }> {
+  const headers = await getAuthHeadersForUpload();
   
   const formData = new FormData();
   formData.append("file", file);
@@ -321,7 +403,8 @@ export async function uploadContractors(file: File): Promise<{ message: string }
   });
 
   if (!response.ok) {
-    throw new Error("Failed to upload contractors");
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to upload contractors");
   }
 
   return await response.json();
