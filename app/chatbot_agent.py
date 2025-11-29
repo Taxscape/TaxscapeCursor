@@ -64,6 +64,15 @@ JSON OUTPUT FORMAT (only when requested to generate study):
 def _build_contents(messages: List[Dict[str, str]]) -> List[types.Content]:
     """Convert chat history into content payload for the API."""
     contents: List[types.Content] = []
+    system_context = None
+    
+    # Extract system message if present
+    for message in messages:
+        if message.get("role") == "system":
+            system_context = message.get("content", "")
+            break
+    
+    # Build contents from non-system messages
     for message in messages:
         role = message.get("role", "user")
         if role == "system":
@@ -76,16 +85,24 @@ def _build_contents(messages: List[Dict[str, str]]) -> List[types.Content]:
                 parts=[types.Part.from_text(text=message.get("content", ""))]
             )
         )
-    return contents
+    return contents, system_context
 
 
-def get_chat_response(messages):
+def get_chat_response(messages, user_context: str = None):
     """
     Sends the conversation history to Gemini and returns the response text.
-    messages: list of {"role": "user"|"assistant", "content": "text"}
+    messages: list of {"role": "user"|"assistant"|"system", "content": "text"}
+    user_context: optional additional context string to prepend to system instruction
     """
     try:
-        contents = _build_contents(messages)
+        contents, system_context = _build_contents(messages)
+        
+        # Combine system prompt with user context if provided
+        system_instruction_text = SYSTEM_PROMPT
+        if system_context:
+            system_instruction_text = system_context + "\n\n" + SYSTEM_PROMPT
+        elif user_context:
+            system_instruction_text = user_context + "\n\n" + SYSTEM_PROMPT
 
         # Use a simple, stable configuration that works with AI Studio
         response = client.models.generate_content(
@@ -94,7 +111,7 @@ def get_chat_response(messages):
             config=types.GenerateContentConfig(
                 temperature=TEMPERATURE,
                 max_output_tokens=8192,
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=system_instruction_text,
             ),
         )
 

@@ -290,15 +290,13 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
     # Build messages with user context if requested
     messages_dicts = [{"role": m.role, "content": m.content} for m in request.messages]
     
-    # Add user context to the first user message if include_context is True
-    if request.include_context and messages_dicts:
+    # Get user context if requested
+    user_context_prompt = None
+    if request.include_context:
         context = _get_user_context_data(user["id"])
-        context_prompt = _build_context_prompt(context)
-        if context_prompt:
-            # Prepend context to the system understanding
-            messages_dicts = [{"role": "system", "content": context_prompt}] + messages_dicts
+        user_context_prompt = _build_context_prompt(context)
     
-    ai_text = chatbot_agent.get_chat_response(messages_dicts)
+    ai_text = chatbot_agent.get_chat_response(messages_dicts, user_context_prompt)
     structured = chatbot_agent.extract_json_from_response(ai_text)
     
     # Save to database if Supabase is available

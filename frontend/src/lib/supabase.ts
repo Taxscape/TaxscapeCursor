@@ -103,7 +103,8 @@ let browserClient: ReturnType<typeof createBrowserClient> | null = null;
 
 export function getSupabaseClient() {
   if (!isSupabaseConfigured()) {
-    // Return a mock client that won't throw errors
+    console.warn("Supabase not configured. Some features may not work.");
+    // Return a mock client that won't throw errors but will fail gracefully
     return {
       auth: {
         getSession: async () => ({ data: { session: null }, error: null }),
@@ -111,10 +112,12 @@ export function getSupabaseClient() {
         signInWithPassword: async () => ({ data: { session: null, user: null }, error: new Error('Supabase not configured') }),
         signUp: async () => ({ data: { session: null, user: null }, error: new Error('Supabase not configured') }),
         signOut: async () => ({ error: null }),
+        verifyOtp: async () => ({ data: { session: null, user: null }, error: new Error('Supabase not configured') }),
+        resend: async () => ({ error: new Error('Supabase not configured') }),
         onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
       },
       from: () => ({
-        select: () => ({ eq: () => ({ single: async () => ({ data: null, error: null }) }) }),
+        select: () => ({ eq: () => ({ single: async () => ({ data: null, error: null }), execute: async () => ({ data: [], error: null }) }), execute: async () => ({ data: [], error: null }) }),
         insert: () => ({ execute: async () => ({ data: null, error: null }) }),
         update: () => ({ eq: () => ({ execute: async () => ({ data: null, error: null }) }) }),
       }),

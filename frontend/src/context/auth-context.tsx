@@ -98,23 +98,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, fullName: string, companyName: string) => {
     // Sign up with email - Supabase will send OTP code
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          company_name: companyName,
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            company_name: companyName,
+          },
+          // Don't set emailRedirectTo to use OTP instead of magic link
+          // Note: This requires Supabase to be configured for OTP in the dashboard
         },
-        // This tells Supabase to use email OTP instead of magic link
-        emailRedirectTo: undefined,
-      },
-    });
+      });
 
-    // Check if user needs email verification
-    const needsVerification = !error && data.user && !data.session;
+      if (error) {
+        return { error: error as Error, needsVerification: false };
+      }
 
-    return { error: error as Error | null, needsVerification: needsVerification ?? false };
+      // Check if user needs email verification (no session means email not confirmed)
+      const needsVerification = data.user && !data.session;
+
+      // If user is already confirmed (has session), update profile immediately
+      if (data.user && data.session) {
+        try {
+          await supabase
+            .from("profiles")
+            .update({ company_name: companyName, full_name: fullName })
+            .eq("id", data.user.id);
+        } catch (profileError) {
+          console.error("Error updating profile:", profileError);
+        }
+      }
+
+      return { error: null, needsVerification: needsVerification ?? false };
+    } catch (err) {
+      return { error: err as Error, needsVerification: false };
+    }
   };
 
   const verifyOtp = async (email: string, token: string, type: EmailOtpType = "signup") => {
