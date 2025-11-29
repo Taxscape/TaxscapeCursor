@@ -48,3 +48,4 @@ coverage/
 .coverage
 htmlcov/
 
+.env*.local
