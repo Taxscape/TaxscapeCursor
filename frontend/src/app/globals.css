@@ -1,0 +1,219 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Executive Suite - Refined neutral palette */
+  --background: 220 14% 96%;
+  --background-dark: 220 13% 91%;
+  --foreground: 220 14% 10%;
+  
+  /* Card/surface colors */
+  --card: 0 0% 100%;
+  --card-foreground: 220 14% 10%;
+  --card-border: 220 13% 88%;
+  
+  /* Primary accent - Professional blue */
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+  --primary-light: 221 83% 96%;
+  
+  /* Secondary - Warm neutral */
+  --secondary: 220 13% 91%;
+  --secondary-foreground: 220 14% 30%;
+  
+  /* Muted text */
+  --muted: 220 13% 91%;
+  --muted-foreground: 220 9% 46%;
+  
+  /* Borders */
+  --border: 220 13% 88%;
+  --input: 220 13% 88%;
+  
+  /* Accent colors for status */
+  --success: 142 71% 45%;
+  --success-light: 142 71% 95%;
+  --warning: 38 92% 50%;
+  --warning-light: 38 92% 95%;
+  --destructive: 0 84% 60%;
+  --destructive-light: 0 84% 96%;
+  
+  /* Ring focus */
+  --ring: 221 83% 53%;
+  
+  /* Radius */
+  --radius: 0.5rem;
+  
+  /* Sidebar */
+  --sidebar-width: 240px;
+  --sidebar-collapsed: 64px;
+}
+
+/* Dark mode override */
+.dark {
+  --background: 222 47% 6%;
+  --background-dark: 222 47% 4%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 8%;
+  --card-foreground: 210 40% 98%;
+  --card-border: 222 30% 14%;
+  --secondary: 222 30% 12%;
+  --secondary-foreground: 210 40% 90%;
+  --muted: 222 30% 12%;
+  --muted-foreground: 215 20% 55%;
+  --border: 222 30% 14%;
+  --input: 222 30% 14%;
+  --primary-light: 221 83% 15%;
+  --success-light: 142 71% 12%;
+  --warning-light: 38 92% 12%;
+  --destructive-light: 0 84% 12%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-feature-settings: "rlig" 1, "calt" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Focus ring utility */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))] focus:ring-offset-2;
+}
+
+/* Text selection */
+::selection {
+  background-color: hsl(var(--primary) / 0.2);
+  color: hsl(var(--foreground));
+}
+
+/* Link reset */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Smooth transitions for theme changes */
+* {
+  transition-property: background-color, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+
+/* Animation utilities */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { 
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from { 
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+/* Staggered delays */
+.delay-75 { animation-delay: 75ms; }
+.delay-150 { animation-delay: 150ms; }
+.delay-225 { animation-delay: 225ms; }
+.delay-300 { animation-delay: 300ms; }
+
+/* Table styling */
+.data-table {
+  @apply w-full text-sm;
+}
+
+.data-table th {
+  @apply text-left font-medium text-muted-foreground py-3 px-4 border-b bg-secondary/50;
+}
+
+.data-table td {
+  @apply py-3 px-4 border-b;
+}
+
+.data-table tr:hover td {
+  @apply bg-secondary/30;
+}
+
+/* Module card styling */
+.module-card {
+  @apply bg-card rounded-xl border border-border shadow-sm;
+}
+
+.module-header {
+  @apply px-5 py-4 border-b border-border flex items-center justify-between;
+}
+
+.module-title {
+  @apply font-semibold text-foreground;
+}
+
+.module-content {
+  @apply p-5;
+}

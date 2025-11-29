@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+pandas
+xlsxwriter
+sqlalchemy
+pydantic
+python-multipart
+python-dotenv
+openpyxl
+passlib[bcrypt]
+python-jose[cryptography]
+requests
+google-generativeai
+google-genai
+supabase
+psycopg2-binary
+httpx
