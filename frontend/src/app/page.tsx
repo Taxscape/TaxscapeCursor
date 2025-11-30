@@ -50,7 +50,10 @@ const initialMessage: ChatMessage = {
 export default function ExecutiveSuite() {
   const router = useRouter();
   const { user, profile, isLoading: authLoading, signOut, isAdmin } = useAuth();
-  
+
+  // Auth timeout fallback - prevent infinite loading on Vercel
+  const [authTimedOut, setAuthTimedOut] = useState(false);
+
   // Data State
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -58,7 +61,7 @@ export default function ExecutiveSuite() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
-  
+
   // Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([initialMessage]);
   const [input, setInput] = useState("");
@@ -66,13 +69,25 @@ export default function ExecutiveSuite() {
   const [structured, setStructured] = useState<Record<string, unknown> | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
   // Upload State
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  
+
   // Report State
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Timeout for auth loading - max 10 seconds
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (authLoading) {
+        console.warn("Auth loading timed out after 10 seconds");
+        setAuthTimedOut(true);
+      }
+    }, 10000);
+
+    return () => clearTimeout(timeout);
+  }, [authLoading]);
 
   // Fetch all data
   const fetchData = useCallback(async () => {
@@ -80,7 +95,7 @@ export default function ExecutiveSuite() {
       setIsLoadingData(false);
       return;
     }
-    
+
     try {
       const [dashboardData, projectsData, sessionsData, employeesData, contractorsData] = await Promise.all([
         getDashboard().catch(() => null),
@@ -89,7 +104,7 @@ export default function ExecutiveSuite() {
         getEmployees().catch(() => []),
         getContractors().catch(() => []),
       ]);
-      
+
       if (dashboardData) setDashboard(dashboardData);
       setProjects(projectsData);
       setSessions(sessionsData);
@@ -116,10 +131,10 @@ export default function ExecutiveSuite() {
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
-    
+
     const userMessage: ChatMessage = { role: "user", content: input.trim() };
     const updatedMessages = [...messages, userMessage];
-    
+
     setMessages(updatedMessages);
     setInput("");
     setIsLoading(true);
@@ -129,15 +144,15 @@ export default function ExecutiveSuite() {
       const response = user
         ? await sendChatMessage(updatedMessages, currentSessionId || undefined, true)
         : await sendChatMessageDemo(updatedMessages);
-      
+
       setMessages([...updatedMessages, { role: "assistant", content: response.response }]);
-      
+
       if (response.structured && Object.keys(response.structured).length > 0) {
         setStructured(response.structured);
         // Refresh dashboard data when structured data is extracted
         fetchData();
       }
-      
+
       if (response.session_id) {
         setCurrentSessionId(response.session_id);
       }
@@ -150,20 +165,20 @@ export default function ExecutiveSuite() {
 
   const handleGenerateStudy = async () => {
     if (!structured) return;
-    
+
     setIsGenerating(true);
     try {
       const blob = user
         ? await generateStudy(structured, currentSessionId || undefined, "R&D Tax Credit Study")
         : await downloadChatExcel(structured, "R&D Tax Credit Study");
-      
+
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = `TaxScape_Study_${new Date().toISOString().split('T')[0]}.xlsx`;
       link.click();
       URL.revokeObjectURL(url);
-      
+
       // Refresh data after generating study
       if (user) {
         fetchData();
@@ -180,14 +195,14 @@ export default function ExecutiveSuite() {
       setUploadStatus("Please log in to upload data");
       return;
     }
-    
+
     setIsUploading(true);
     setUploadStatus("Uploading...");
     try {
       const result = type === "payroll"
         ? await uploadPayroll(file)
         : await uploadContractors(file);
-      
+
       setUploadStatus(`${result.message} Data is now available to the AI auditor.`);
       // Refresh data immediately after upload
       await fetchData();
@@ -210,8 +225,8 @@ export default function ExecutiveSuite() {
     setCurrentSessionId(null);
   };
 
-  // Show loading while checking auth
-  if (authLoading) {
+  // Show loading while checking auth (with timeout)
+  if (authLoading && !authTimedOut) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
@@ -478,9 +493,8 @@ export default function ExecutiveSuite() {
                       <div key={project.id} className="p-3 rounded-lg border border-border hover:bg-secondary/30 transition-colors">
                         <div className="flex items-center justify-between">
                           <span className="font-medium text-sm">{project.name}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            project.qualification_status === "qualified" ? "bg-success-light text-success" : "bg-warning-light text-warning"
-                          }`}>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${project.qualification_status === "qualified" ? "bg-success-light text-success" : "bg-warning-light text-warning"
+                            }`}>
                             {project.qualification_status}
                           </span>
                         </div>
