@@ -92,10 +92,15 @@ export function createClient() {
     // Return a mock client for development without Supabase
     return null;
   }
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  try {
+    return createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+  } catch (e) {
+    console.error("Failed to create Supabase client:", e);
+    return null;
+  }
 }
 
 // Singleton client for use in components
@@ -114,7 +119,7 @@ export function getSupabaseClient() {
         signOut: async () => ({ error: null }),
         verifyOtp: async () => ({ data: { session: null, user: null }, error: new Error('Supabase not configured') }),
         resend: async () => ({ error: new Error('Supabase not configured') }),
-        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => { } } } }),
       },
       from: () => ({
         select: () => ({ eq: () => ({ single: async () => ({ data: null, error: null }), execute: async () => ({ data: [], error: null }) }), execute: async () => ({ data: [], error: null }) }),
@@ -123,7 +128,7 @@ export function getSupabaseClient() {
       }),
     } as unknown as ReturnType<typeof createBrowserClient>;
   }
-  
+
   if (!browserClient) {
     browserClient = createClient();
   }

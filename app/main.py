@@ -64,12 +64,55 @@ async def get_admin_user(user: dict = Depends(get_current_user)):
 # --- Helper Functions ---
 def load_dataframe(upload_file: UploadFile, contents: bytes) -> pd.DataFrame:
     """Read CSV or Excel payloads into a DataFrame."""
-    filename = (upload_file.filename or "").lower()
-    buffer = io.BytesIO(contents)
-    if filename.endswith(".xlsx") or filename.endswith(".xls"):
-        return pd.read_excel(buffer)
-    buffer.seek(0)
-    return pd.read_csv(buffer)
+    try:
+        filename = (upload_file.filename or "").lower()
+        file_size = len(contents)
+        
+        # Log file details for debugging
+        print(f"Processing file: {filename}, size: {file_size} bytes, content_type: {upload_file.content_type}")
+        
+        # Validate file size (max 10MB)
+        if file_size > 10 * 1024 * 1024:
+            raise ValueError(f"File too large: {file_size} bytes. Maximum allowed: 10MB")
+        
+        buffer = io.BytesIO(contents)
+        
+        if filename.endswith(".xlsx"):
+            print(f"Reading {filename} as XLSX using openpyxl engine")
+            try:
+                df = pd.read_excel(buffer, engine='openpyxl')
+                print(f"Successfully read XLSX file. Shape: {df.shape}")
+                return df
+            except Exception as e:
+                print(f"Error reading XLSX file: {type(e).__name__}: {str(e)}")
+                raise ValueError(f"Failed to read Excel file (.xlsx): {str(e)}")
+        
+        if filename.endswith(".xls"):
+            print(f"Reading {filename} as XLS")
+            try:
+                df = pd.read_excel(buffer)
+                print(f"Successfully read XLS file. Shape: {df.shape}")
+                return df
+            except Exception as e:
+                print(f"Error reading XLS file: {type(e).__name__}: {str(e)}")
+                raise ValueError(f"Failed to read Excel file (.xls): {str(e)}")
+        
+        # CSV files
+        buffer.seek(0)
+        print(f"Reading {filename} as CSV")
+        try:
+            df = pd.read_csv(buffer)
+            print(f"Successfully read CSV file. Shape: {df.shape}")
+            return df
+        except Exception as e:
+            print(f"Error reading CSV file: {type(e).__name__}: {str(e)}")
+            raise ValueError(f"Failed to read CSV file: {str(e)}")
+            
+    except ValueError:
+        raise  # Re-raise validation errors
+    except Exception as e:
+        print(f"Unexpected error in load_dataframe: {type(e).__name__}: {str(e)}")
+        raise ValueError(f"Failed to process file: {str(e)}")
 
 
 def _percent_to_decimal(value: Any) -> float:
@@ -614,12 +657,32 @@ async def upload_payroll(file: UploadFile = File(...), user: dict = Depends(get_
     if not supabase:
         raise HTTPException(status_code=503, detail="Database not available")
     
+    print(f"Upload payroll initiated by user {user['id']}, file: {file.filename}")
+    
+    # Validate file extension
+    filename = (file.filename or "").lower()
+    if not any(filename.endswith(ext) for ext in ['.xlsx', '.xls', '.csv']):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid file type. Allowed: .xlsx, .xls, .csv. Got: {file.filename}"
+        )
+    
     try:
         contents = await file.read()
+        print(f"Read {len(contents)} bytes from {file.filename}")
+        
         df = load_dataframe(file, contents)
+        print(f"DataFrame loaded successfully. Columns: {list(df.columns)}")
+        
         df.columns = [c.lower().strip() for c in df.columns]
+        print(f"Normalized columns: {list(df.columns)}")
+    except ValueError as e:
+        # Validation or parsing error with detailed message
+        print(f"File parsing error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
+        print(f"Unexpected error parsing file: {type(e).__name__}: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {type(e).__name__}: {str(e)}")
     
     count = 0
     errors = []
@@ -655,8 +718,11 @@ async def upload_payroll(file: UploadFile = File(...), user: dict = Depends(get_
             }).execute()
             count += 1
         except Exception as e:
-            errors.append(f"Row {idx}: {str(e)}")
+            error_msg = f"Row {idx}: {str(e)}"
+            print(f"Error inserting employee: {error_msg}")
+            errors.append(error_msg)
     
+    print(f"Upload complete. Inserted {count} employees, {len(errors)} errors")
     return {"message": f"Uploaded {count} employees.", "count": count, "errors": errors[:5] if errors else []}
 
 
@@ -667,12 +733,32 @@ async def upload_contractors(file: UploadFile = File(...), user: dict = Depends(
     if not supabase:
         raise HTTPException(status_code=503, detail="Database not available")
     
+    print(f"Upload contractors initiated by user {user['id']}, file: {file.filename}")
+    
+    # Validate file extension
+    filename = (file.filename or "").lower()
+    if not any(filename.endswith(ext) for ext in ['.xlsx', '.xls', '.csv']):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid file type. Allowed: .xlsx, .xls, .csv. Got: {file.filename}"
+        )
+    
     try:
         contents = await file.read()
+        print(f"Read {len(contents)} bytes from {file.filename}")
+        
         df = load_dataframe(file, contents)
+        print(f"DataFrame loaded successfully. Columns: {list(df.columns)}")
+        
         df.columns = [c.lower().strip() for c in df.columns]
+        print(f"Normalized columns: {list(df.columns)}")
+    except ValueError as e:
+        # Validation or parsing error with detailed message
+        print(f"File parsing error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
+        print(f"Unexpected error parsing file: {type(e).__name__}: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {type(e).__name__}: {str(e)}")
     
     count = 0
     errors = []
@@ -713,8 +799,11 @@ async def upload_contractors(file: UploadFile = File(...), user: dict = Depends(
             }).execute()
             count += 1
         except Exception as e:
-            errors.append(f"Row {idx}: {str(e)}")
+            error_msg = f"Row {idx}: {str(e)}"
+            print(f"Error inserting contractor: {error_msg}")
+            errors.append(error_msg)
     
+    print(f"Upload complete. Inserted {count} contractors, {len(errors)} errors")
     return {"message": f"Uploaded {count} contractors.", "count": count, "errors": errors[:5] if errors else []}
 
 
