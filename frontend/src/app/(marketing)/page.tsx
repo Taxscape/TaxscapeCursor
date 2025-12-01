@@ -451,19 +451,28 @@ export default function LandingPage() {
             every dollar of R&D tax credits you deserve.
           </p>
 
-          <div className="bg-white rounded-2xl p-8 max-w-md mx-auto">
+          <div className="bg-white rounded-2xl p-8 max-w-lg mx-auto">
             <div className="flex items-center justify-center gap-2 text-blue-600 mb-6">
               {Icons.calendar}
               <span className="font-medium">Schedule Your Demo</span>
             </div>
 
-            {/* Demo Request Form */}
-            <DemoForm />
+            {/* Calendly Embed */}
+            <div className="calendly-embed">
+              <iframe
+                src="https://calendly.com/sam-taxscape/30min?hide_gdpr_banner=1&background_color=ffffff&text_color=1f2937&primary_color=2563eb"
+                width="100%"
+                height="630"
+                frameBorder="0"
+                title="Schedule a demo"
+                className="rounded-lg"
+              />
+            </div>
 
-            <p className="text-xs text-gray-500 mt-4">
+            <p className="text-xs text-gray-500 mt-4 text-center">
               Or email us directly at{" "}
-              <a href="mailto:demo@taxscape.com" className="text-blue-600">
-                demo@taxscape.com
+              <a href="mailto:sam@taxscape.com" className="text-blue-600 hover:underline">
+                sam@taxscape.com
               </a>
             </p>
           </div>
