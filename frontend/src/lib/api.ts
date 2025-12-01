@@ -1,8 +1,27 @@
 import { getSupabaseClient } from "./supabase";
 
 // API URL configuration
-// In production, this should be set to your Railway backend URL
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+// Use environment variable, or fallback to production Railway URL, or localhost for dev
+const getApiUrlFromEnv = (): string => {
+  // First check for environment variable
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  
+  // In browser, check if we're on production domain
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    // If on Vercel production domains, use Railway backend
+    if (hostname.includes("vercel.app") || hostname.includes("taxscape")) {
+      return "https://taxscapecursor-production.up.railway.app";
+    }
+  }
+  
+  // Default to localhost for local development
+  return "http://localhost:8001";
+};
+
+const API_URL = getApiUrlFromEnv();
 
 // Track if we've logged API info
 let hasLoggedApiInfo = false;
