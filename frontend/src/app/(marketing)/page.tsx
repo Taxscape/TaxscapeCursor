@@ -2,81 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { submitDemoRequest } from "@/lib/api";
-
-// Demo Form Component
-function DemoForm() {
-  const [formData, setFormData] = useState({ name: "", email: "", company: "" });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setError("");
-
-    try {
-      await submitDemoRequest(formData);
-      setSubmitted(true);
-    } catch (err) {
-      setError("Something went wrong. Please try again.");
-      console.error(err);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  if (submitted) {
-    return (
-      <div className="text-center py-8">
-        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-600">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        </div>
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">Thank You!</h3>
-        <p className="text-gray-600">We&apos;ll be in touch within 24 hours to schedule your demo.</p>
-      </div>
-    );
-  }
-
-  return (
-    <form className="space-y-4" onSubmit={handleSubmit}>
-      <input
-        type="text"
-        placeholder="Your Name"
-        required
-        value={formData.name}
-        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-      />
-      <input
-        type="email"
-        placeholder="Work Email"
-        required
-        value={formData.email}
-        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-      />
-      <input
-        type="text"
-        placeholder="Company Name"
-        value={formData.company}
-        onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-      />
-      {error && <p className="text-red-500 text-sm">{error}</p>}
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className="w-full px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {isSubmitting ? "Submitting..." : "Request Demo"}
-      </button>
-    </form>
-  );
-}
 
 // Intersection Observer hook for scroll animations
 function useInView() {
@@ -106,63 +31,10 @@ function useInView() {
   return { ref, isInView };
 }
 
-// Icons
-const Icons = {
-  robot: (
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect width="18" height="10" x="3" y="11" rx="2" />
-      <circle cx="12" cy="5" r="2" />
-      <path d="M12 7v4" />
-      <line x1="8" x2="8" y1="16" y2="16" />
-      <line x1="16" x2="16" y1="16" y2="16" />
-    </svg>
-  ),
-  shield: (
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  ),
-  fileSpreadsheet: (
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-      <polyline points="14 2 14 8 20 8" />
-      <path d="M8 13h2" />
-      <path d="M8 17h2" />
-      <path d="M14 13h2" />
-      <path d="M14 17h2" />
-    </svg>
-  ),
-  arrowRight: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5 12h14" />
-      <path d="m12 5 7 7-7 7" />
-    </svg>
-  ),
-  check: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  calendar: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
-      <line x1="16" x2="16" y1="2" y2="6" />
-      <line x1="8" x2="8" y1="2" y2="6" />
-      <line x1="3" x2="21" y1="10" y2="10" />
-    </svg>
-  ),
-  sparkles: (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-    </svg>
-  ),
-};
-
 export default function LandingPage() {
   const [scrolled, setScrolled] = useState(false);
   const featuresRef = useInView();
-  const benefitsRef = useInView();
+  const processRef = useInView();
   const ctaRef = useInView();
 
   useEffect(() => {
@@ -174,227 +46,249 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#0a0a0f] text-white overflow-x-hidden">
+      {/* Gradient Background Orbs */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-blue-600/20 rounded-full blur-[120px]" />
+        <div className="absolute top-[40%] right-[-15%] w-[500px] h-[500px] bg-purple-600/15 rounded-full blur-[100px]" />
+        <div className="absolute bottom-[-10%] left-[30%] w-[400px] h-[400px] bg-emerald-600/10 rounded-full blur-[100px]" />
+      </div>
+
       {/* Navigation */}
       <nav
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          scrolled ? "bg-white/95 backdrop-blur-md shadow-sm" : "bg-transparent"
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
+          scrolled 
+            ? "bg-[#0a0a0f]/80 backdrop-blur-xl border-b border-white/5" 
+            : "bg-transparent"
         }`}
       >
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
+        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-3 group">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold shadow-lg shadow-blue-500/25 group-hover:shadow-blue-500/40 transition-all">
               T
             </div>
-            <span className="font-semibold text-gray-900">TaxScape</span>
+            <span className="text-xl font-semibold tracking-tight">TaxScape</span>
           </Link>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <Link
               href="/login"
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              className="px-5 py-2.5 text-sm text-gray-300 hover:text-white transition-colors"
             >
               Sign In
             </Link>
             <Link
               href="#demo"
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-5 py-2.5 bg-white text-gray-900 text-sm font-medium rounded-full hover:bg-gray-100 transition-all shadow-lg shadow-white/10"
             >
-              Book a Demo
+              Book Demo
             </Link>
           </div>
         </div>
       </nav>
 
       {/* Hero Section */}
-      <section className="pt-32 pb-20 px-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="max-w-3xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-sm font-medium mb-6">
-              {Icons.sparkles}
-              AI-Powered R&D Tax Credit Analysis
+      <section className="relative pt-40 pb-32 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="max-w-4xl">
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm mb-8 backdrop-blur-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-gray-300">AI-Powered R&D Tax Credit Analysis</span>
             </div>
 
-            <h1 className="text-5xl md:text-6xl font-bold text-gray-900 leading-tight mb-6">
-              Maximize Your
+            {/* Main Headline */}
+            <h1 className="text-6xl md:text-7xl lg:text-8xl font-bold leading-[0.95] tracking-tight mb-8">
+              <span className="text-white">Maximize your</span>
               <br />
-              <span className="text-blue-600">R&D Tax Credits</span>
+              <span className="bg-gradient-to-r from-blue-400 via-blue-500 to-purple-500 bg-clip-text text-transparent">
+                R&D tax credits
+              </span>
             </h1>
 
-            <p className="text-xl text-gray-600 mb-10 leading-relaxed">
-              Our AI auditor validates your projects against IRS Section 41 requirements
-              and generates compliant documentation in minutes, not weeks.
+            {/* Subheadline */}
+            <p className="text-xl md:text-2xl text-gray-400 leading-relaxed max-w-2xl mb-12">
+              Our AI auditor validates projects against IRS Section 41 requirements 
+              and generates compliant documentation in minutes.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            {/* CTA Buttons */}
+            <div className="flex flex-col sm:flex-row items-start gap-4">
               <Link
                 href="#demo"
-                className="w-full sm:w-auto px-8 py-4 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 transition-all hover:shadow-lg hover:shadow-blue-600/25 flex items-center justify-center gap-2"
+                className="group px-8 py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium rounded-full hover:from-blue-400 hover:to-blue-500 transition-all shadow-xl shadow-blue-500/25 flex items-center gap-3"
               >
                 Book a Demo
-                {Icons.arrowRight}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="group-hover:translate-x-1 transition-transform">
+                  <path d="M5 12h14M12 5l7 7-7 7" />
+                </svg>
               </Link>
               <Link
                 href="/login"
-                className="w-full sm:w-auto px-8 py-4 bg-gray-100 text-gray-900 font-medium rounded-xl hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+                className="px-8 py-4 bg-white/5 text-white font-medium rounded-full hover:bg-white/10 transition-all border border-white/10"
               >
-                Sign In
+                Sign In to Portal
               </Link>
             </div>
           </div>
 
-          {/* Hero Image/Dashboard Preview */}
-          <div className="mt-16 relative">
-            <div className="absolute inset-0 bg-gradient-to-t from-white via-transparent to-transparent z-10 pointer-events-none" />
-            <div className="bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl p-2 shadow-2xl shadow-gray-300/50">
-              <div className="bg-white rounded-xl overflow-hidden border border-gray-200">
-                <div className="h-8 bg-gray-100 flex items-center px-4 gap-2 border-b border-gray-200">
-                  <div className="w-3 h-3 rounded-full bg-red-400" />
-                  <div className="w-3 h-3 rounded-full bg-yellow-400" />
-                  <div className="w-3 h-3 rounded-full bg-green-400" />
+          {/* Hero Stats */}
+          <div className="mt-24 grid grid-cols-2 md:grid-cols-4 gap-6">
+            {[
+              { value: "$2.4M+", label: "Credits Identified" },
+              { value: "500+", label: "Projects Analyzed" },
+              { value: "98%", label: "Audit Success Rate" },
+              { value: "6.5%", label: "Average Credit Rate" },
+            ].map((stat, i) => (
+              <div 
+                key={i} 
+                className="p-6 rounded-2xl bg-white/[0.03] border border-white/5 backdrop-blur-sm"
+              >
+                <div className="text-3xl md:text-4xl font-bold text-white mb-1">
+                  {stat.value}
                 </div>
-                <div className="p-6 bg-gradient-to-br from-gray-50 to-white min-h-[300px] flex items-center justify-center">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-2xl">
-                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                      <p className="text-xs text-gray-500 mb-1">R&D Credit</p>
-                      <p className="text-2xl font-bold text-gray-900">$127K</p>
-                    </div>
-                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                      <p className="text-xs text-gray-500 mb-1">Total QRE</p>
-                      <p className="text-2xl font-bold text-gray-900">$1.9M</p>
-                    </div>
-                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                      <p className="text-xs text-gray-500 mb-1">Employees</p>
-                      <p className="text-2xl font-bold text-gray-900">47</p>
-                    </div>
-                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                      <p className="text-xs text-gray-500 mb-1">Projects</p>
-                      <p className="text-2xl font-bold text-gray-900">12</p>
-                    </div>
-                  </div>
-                </div>
+                <div className="text-sm text-gray-500">{stat.label}</div>
               </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
       {/* Features Section */}
-      <section className="py-24 px-6 bg-gray-50" ref={featuresRef.ref}>
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              Everything You Need to Claim Your Credits
+      <section className="py-32 px-6 relative" ref={featuresRef.ref}>
+        <div className="max-w-7xl mx-auto">
+          <div className="max-w-2xl mb-20">
+            <h2 className="text-4xl md:text-5xl font-bold mb-6">
+              Everything you need to claim your credits
             </h2>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              From initial project qualification to IRS-ready documentation, 
-              TaxScape handles the entire R&D tax credit process.
+            <p className="text-xl text-gray-400">
+              From qualification to documentation, we handle the entire process.
             </p>
           </div>
 
           <div
-            className={`grid md:grid-cols-3 gap-8 transition-all duration-700 ${
+            className={`grid md:grid-cols-3 gap-8 transition-all duration-1000 ${
               featuresRef.isInView
                 ? "opacity-100 translate-y-0"
-                : "opacity-0 translate-y-8"
+                : "opacity-0 translate-y-12"
             }`}
           >
-            {/* Feature 1 */}
-            <div className="bg-white p-8 rounded-2xl border border-gray-200 hover:shadow-lg hover:shadow-gray-200/50 transition-all">
-              <div className="w-14 h-14 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center mb-6">
-                {Icons.robot}
+            {[
+              {
+                icon: (
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <rect width="18" height="10" x="3" y="11" rx="2" />
+                    <circle cx="12" cy="5" r="2" />
+                    <path d="M12 7v4" />
+                    <circle cx="8" cy="16" r="1" fill="currentColor" />
+                    <circle cx="16" cy="16" r="1" fill="currentColor" />
+                  </svg>
+                ),
+                title: "AI Tax Auditor",
+                description: "Interactive interviews validate your projects against the IRS Four-Part Test. Every qualified activity captured.",
+                gradient: "from-blue-500/20 to-blue-600/0",
+              },
+              {
+                icon: (
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
+                    <path d="m9 12 2 2 4-4" />
+                  </svg>
+                ),
+                title: "IRS Compliant",
+                description: "Audit-ready documentation meeting Section 41 and 174 requirements. Defensible calculations, every time.",
+                gradient: "from-emerald-500/20 to-emerald-600/0",
+              },
+              {
+                icon: (
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <path d="M8 13h2M8 17h2M14 13h2M14 17h2" />
+                  </svg>
+                ),
+                title: "Excel Reports",
+                description: "Comprehensive studies with QRE calculations, Section 280C analysis, and 174 amortization schedules.",
+                gradient: "from-purple-500/20 to-purple-600/0",
+              },
+            ].map((feature, i) => (
+              <div
+                key={i}
+                className="group relative p-8 rounded-3xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all duration-500"
+                style={{ transitionDelay: `${i * 100}ms` }}
+              >
+                <div className={`absolute inset-0 rounded-3xl bg-gradient-to-b ${feature.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
+                <div className="relative">
+                  <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center mb-6 text-white">
+                    {feature.icon}
+                  </div>
+                  <h3 className="text-xl font-semibold mb-3">{feature.title}</h3>
+                  <p className="text-gray-400 leading-relaxed">{feature.description}</p>
+                </div>
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">
-                AI Tax Auditor
-              </h3>
-              <p className="text-gray-600 leading-relaxed">
-                Our AI conducts thorough interviews to validate your projects against 
-                the IRS Four-Part Test, ensuring every qualified activity is captured.
-              </p>
-            </div>
-
-            {/* Feature 2 */}
-            <div className="bg-white p-8 rounded-2xl border border-gray-200 hover:shadow-lg hover:shadow-gray-200/50 transition-all">
-              <div className="w-14 h-14 rounded-xl bg-green-100 text-green-600 flex items-center justify-center mb-6">
-                {Icons.shield}
-              </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">
-                IRS Compliant
-              </h3>
-              <p className="text-gray-600 leading-relaxed">
-                Generate audit-ready documentation that meets IRS Section 41 and 
-                Section 174 requirements. Defensible calculations, every time.
-              </p>
-            </div>
-
-            {/* Feature 3 */}
-            <div className="bg-white p-8 rounded-2xl border border-gray-200 hover:shadow-lg hover:shadow-gray-200/50 transition-all">
-              <div className="w-14 h-14 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center mb-6">
-                {Icons.fileSpreadsheet}
-              </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">
-                Excel Reports
-              </h3>
-              <p className="text-gray-600 leading-relaxed">
-                Export comprehensive Excel studies with QRE calculations, 
-                Section 280C analysis, and 174 amortization schedules.
-              </p>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Benefits Section */}
-      <section className="py-24 px-6" ref={benefitsRef.ref}>
-        <div className="max-w-6xl mx-auto">
+      {/* Process Section */}
+      <section className="py-32 px-6" ref={processRef.ref}>
+        <div className="max-w-7xl mx-auto">
           <div
-            className={`grid md:grid-cols-2 gap-16 items-center transition-all duration-700 ${
-              benefitsRef.isInView
+            className={`grid lg:grid-cols-2 gap-20 items-center transition-all duration-1000 ${
+              processRef.isInView
                 ? "opacity-100 translate-y-0"
-                : "opacity-0 translate-y-8"
+                : "opacity-0 translate-y-12"
             }`}
           >
             <div>
-              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-6">
-                Stop Leaving Money on the Table
+              <h2 className="text-4xl md:text-5xl font-bold mb-8">
+                Stop leaving money on the table
               </h2>
-              <p className="text-lg text-gray-600 mb-8">
-                Most companies miss 20-40% of their eligible R&D tax credits due to 
-                incomplete documentation or misunderstanding of the Four-Part Test.
+              <p className="text-xl text-gray-400 mb-12">
+                Most companies miss 20-40% of eligible credits due to incomplete 
+                documentation or misunderstanding the Four-Part Test.
               </p>
 
-              <ul className="space-y-4">
+              <div className="space-y-6">
                 {[
                   "Identify all qualified research activities",
                   "Calculate wages, supplies, and contractor QREs",
                   "Generate contemporaneous documentation",
                   "Prepare for IRS audits with confidence",
-                ].map((benefit, i) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <div className="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      {Icons.check}
+                ].map((item, i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <div className="w-8 h-8 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-400">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
                     </div>
-                    <span className="text-gray-700">{benefit}</span>
-                  </li>
+                    <span className="text-gray-300">{item}</span>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
 
-            <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-8 rounded-2xl text-white">
-              <div className="text-5xl font-bold mb-2">6.5%</div>
-              <div className="text-blue-200 mb-6">Average Credit Rate</div>
-              <div className="space-y-4 text-sm">
-                <div className="flex justify-between border-b border-blue-500/30 pb-3">
-                  <span className="text-blue-200">Qualified Wages</span>
-                  <span className="font-medium">100% of QRE</span>
+            {/* Credit Rate Card */}
+            <div className="relative">
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-3xl blur-xl" />
+              <div className="relative p-10 rounded-3xl bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/10 backdrop-blur-sm">
+                <div className="text-7xl font-bold bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent mb-2">
+                  6.5%
                 </div>
-                <div className="flex justify-between border-b border-blue-500/30 pb-3">
-                  <span className="text-blue-200">Contract Research</span>
-                  <span className="font-medium">65% of QRE</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-blue-200">Supplies</span>
-                  <span className="font-medium">100% of QRE</span>
+                <div className="text-gray-400 text-lg mb-10">Average Credit Rate</div>
+                
+                <div className="space-y-6">
+                  {[
+                    { label: "Qualified Wages", value: "100% of QRE" },
+                    { label: "Contract Research", value: "65% of QRE" },
+                    { label: "Supplies", value: "100% of QRE" },
+                  ].map((item, i) => (
+                    <div key={i} className="flex justify-between items-center pb-4 border-b border-white/5 last:border-0 last:pb-0">
+                      <span className="text-gray-400">{item.label}</span>
+                      <span className="font-semibold">{item.value}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -403,37 +297,39 @@ export default function LandingPage() {
       </section>
 
       {/* Social Proof */}
-      <section className="py-16 px-6 bg-gray-50 border-y border-gray-200">
-        <div className="max-w-6xl mx-auto text-center">
-          <p className="text-sm text-gray-500 uppercase tracking-wide mb-8">
+      <section className="py-20 px-6 border-y border-white/5">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-center text-sm text-gray-500 uppercase tracking-widest mb-12">
             Trusted by innovative companies
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-12 opacity-50">
-            {["TechCorp", "InnovateLab", "DevStudio", "CloudBase", "DataFlow"].map(
-              (company) => (
-                <div key={company} className="text-xl font-semibold text-gray-400">
-                  {company}
-                </div>
-              )
-            )}
+          <div className="flex flex-wrap items-center justify-center gap-x-16 gap-y-8">
+            {["TechCorp", "InnovateLab", "DevStudio", "CloudBase", "DataFlow"].map((company) => (
+              <div key={company} className="text-2xl font-semibold text-gray-600 hover:text-gray-400 transition-colors">
+                {company}
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
       {/* Testimonial */}
-      <section className="py-24 px-6">
+      <section className="py-32 px-6">
         <div className="max-w-4xl mx-auto text-center">
-          <blockquote className="text-2xl md:text-3xl font-medium text-gray-900 leading-relaxed mb-8">
-            &ldquo;TaxScape identified $180,000 in R&D credits we would have missed. 
-            The AI auditor made the qualification process painless and the 
-            documentation is bulletproof.&rdquo;
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" className="text-white/10 mx-auto mb-8">
+            <path d="M11.192 15.757c0-.88-.23-1.618-.69-2.217-.326-.412-.768-.683-1.327-.812-.55-.128-1.07-.137-1.54-.028-.16-.95.1-1.956.76-3.022.66-1.065 1.515-1.867 2.558-2.403L9.373 5c-.8.396-1.56.898-2.26 1.505-.71.607-1.34 1.305-1.9 2.094s-.98 1.68-1.25 2.69-.346 2.04-.217 3.1c.168 1.4.62 2.52 1.356 3.35.735.84 1.652 1.26 2.748 1.26.965 0 1.766-.29 2.4-.878.628-.576.94-1.365.94-2.368l.002.003zm9.124 0c0-.88-.23-1.618-.69-2.217-.326-.42-.77-.692-1.327-.817-.56-.124-1.074-.13-1.54-.022-.16-.94.09-1.95.75-3.02.66-1.06 1.514-1.86 2.557-2.4L18.49 5c-.8.396-1.555.898-2.26 1.505-.708.607-1.34 1.305-1.894 2.094-.556.79-.97 1.68-1.24 2.69-.273 1-.345 2.04-.217 3.1.165 1.4.615 2.52 1.35 3.35.732.833 1.646 1.25 2.742 1.25.967 0 1.768-.29 2.402-.876.627-.576.942-1.365.942-2.368v.01z"/>
+          </svg>
+          <blockquote className="text-3xl md:text-4xl font-medium leading-relaxed mb-10">
+            &ldquo;TaxScape identified{" "}
+            <span className="text-blue-400">$180,000</span> in R&D credits 
+            we would have missed. The AI auditor made the qualification 
+            process painless.&rdquo;
           </blockquote>
           <div className="flex items-center justify-center gap-4">
-            <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-semibold">
+            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold">
               JD
             </div>
             <div className="text-left">
-              <div className="font-semibold text-gray-900">John Davis</div>
+              <div className="font-semibold">John Davis</div>
               <div className="text-sm text-gray-500">CFO, TechStartup Inc.</div>
             </div>
           </div>
@@ -441,78 +337,71 @@ export default function LandingPage() {
       </section>
 
       {/* CTA / Demo Section */}
-      <section id="demo" className="py-24 px-6 bg-gray-900" ref={ctaRef.ref}>
+      <section id="demo" className="py-32 px-6 relative" ref={ctaRef.ref}>
+        <div className="absolute inset-0 bg-gradient-to-t from-blue-600/5 to-transparent" />
         <div
-          className={`max-w-4xl mx-auto text-center transition-all duration-700 ${
+          className={`max-w-4xl mx-auto text-center relative transition-all duration-1000 ${
             ctaRef.isInView
               ? "opacity-100 translate-y-0"
-              : "opacity-0 translate-y-8"
+              : "opacity-0 translate-y-12"
           }`}
         >
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-            Ready to Maximize Your R&D Credits?
+          <h2 className="text-4xl md:text-5xl font-bold mb-6">
+            Ready to maximize your R&D credits?
           </h2>
-          <p className="text-lg text-gray-400 mb-10 max-w-2xl mx-auto">
+          <p className="text-xl text-gray-400 mb-12 max-w-2xl mx-auto">
             Book a personalized demo and see how TaxScape can help you capture 
-            every dollar of R&D tax credits you deserve.
+            every dollar you deserve.
           </p>
 
-          <div className="bg-white rounded-2xl p-8 max-w-lg mx-auto">
-            <div className="flex items-center justify-center gap-2 text-blue-600 mb-6">
-              {Icons.calendar}
-              <span className="font-medium">Schedule Your Demo</span>
-            </div>
-
-            {/* Calendly Embed */}
-            <div className="calendly-embed">
-              <iframe
-                src="https://calendly.com/sam-taxscape/30min?hide_gdpr_banner=1&background_color=ffffff&text_color=1f2937&primary_color=2563eb"
-                width="100%"
-                height="630"
-                frameBorder="0"
-                title="Schedule a demo"
-                className="rounded-lg"
-              />
-            </div>
-
-            <p className="text-xs text-gray-500 mt-4 text-center">
-              Or email us directly at{" "}
-              <a href="mailto:sam@taxscape.com" className="text-blue-600 hover:underline">
-                sam@taxscape.com
-              </a>
-            </p>
+          {/* Calendly Embed Container */}
+          <div className="relative rounded-3xl bg-white overflow-hidden shadow-2xl shadow-black/50">
+            <iframe
+              src="https://calendly.com/sam-taxscape/30min?hide_gdpr_banner=1&background_color=ffffff&text_color=0a0a0f&primary_color=3b82f6"
+              width="100%"
+              height="700"
+              frameBorder="0"
+              title="Schedule a demo"
+            />
           </div>
+
+          <p className="mt-8 text-gray-500">
+            Or email us at{" "}
+            <a href="mailto:sam@taxscape.com" className="text-blue-400 hover:text-blue-300 transition-colors">
+              sam@taxscape.com
+            </a>
+          </p>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="py-12 px-6 bg-gray-950">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
+      <footer className="py-16 px-6 border-t border-white/5">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+            <Link href="/" className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold shadow-lg shadow-blue-500/25">
                 T
               </div>
-              <span className="font-semibold text-white">TaxScape</span>
-            </div>
+              <span className="text-xl font-semibold">TaxScape</span>
+            </Link>
 
-            <div className="flex items-center gap-6 text-sm text-gray-400">
+            <div className="flex items-center gap-8 text-sm text-gray-400">
               <Link href="/login" className="hover:text-white transition-colors">
                 Sign In
               </Link>
               <a href="#" className="hover:text-white transition-colors">
-                Privacy Policy
+                Privacy
               </a>
               <a href="#" className="hover:text-white transition-colors">
-                Terms of Service
+                Terms
               </a>
-              <a href="mailto:contact@taxscape.com" className="hover:text-white transition-colors">
+              <a href="mailto:sam@taxscape.com" className="hover:text-white transition-colors">
                 Contact
               </a>
             </div>
           </div>
 
-          <div className="mt-8 pt-8 border-t border-gray-800 text-center text-sm text-gray-500">
+          <div className="mt-12 pt-8 border-t border-white/5 text-center text-sm text-gray-600">
             © {new Date().getFullYear()} TaxScape Pro. All rights reserved.
           </div>
         </div>
