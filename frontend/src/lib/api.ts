@@ -1,6 +1,13 @@
 import { getSupabaseClient } from "./supabase";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+// API URL configuration
+// In production, this should be set to your Railway backend URL
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+
+// Log API URL in development for debugging
+if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {
+  console.log("API URL:", API_URL);
+}
 
 // Helper to get auth headers
 async function getAuthHeaders(): Promise<HeadersInit> {

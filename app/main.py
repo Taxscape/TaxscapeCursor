@@ -5,14 +5,29 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import pandas as pd
 import io
+import os
 import uuid
+import logging
 from datetime import datetime
 
 from app import chatbot_agent, excel_engine
 from app.supabase_client import get_supabase, verify_supabase_token, get_user_profile
 
-app = FastAPI(title="TaxScape Pro API")
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
+app = FastAPI(
+    title="TaxScape Pro API",
+    description="R&D Tax Credit Calculation and AI Auditor API",
+    version="1.0.0"
+)
+
+# CORS configuration - allow all origins for flexibility
+# The frontend URL can be on Vercel, localhost, or any other domain
 allowed_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -20,13 +35,26 @@ allowed_origins = [
     "https://*.vercel.app",
 ]
 
+# Get additional allowed origins from environment
+extra_origins = os.environ.get("CORS_ORIGINS", "")
+if extra_origins:
+    allowed_origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict this
+    allow_origins=["*"],  # Allow all origins for Railway deployment
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_event():
+    """Log startup information."""
+    port = os.environ.get("PORT", "8000")
+    logger.info(f"🚀 TaxScape Pro API starting on port {port}")
+    logger.info(f"📊 Supabase connected: {get_supabase() is not None}")
+    logger.info(f"🤖 AI Service: {'Configured' if os.environ.get('GOOGLE_CLOUD_API_KEY') else 'NOT CONFIGURED - set GOOGLE_CLOUD_API_KEY'}")
 
 # --- Routers ---
 api_router = APIRouter(prefix="/api", tags=["api"])
@@ -943,7 +971,27 @@ async def admin_get_stats(user: dict = Depends(get_admin_user)):
 # Health check
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    """Health check endpoint for Railway and monitoring."""
+    supabase = get_supabase()
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "services": {
+            "database": "connected" if supabase else "not configured",
+            "ai": "configured" if os.environ.get("GOOGLE_CLOUD_API_KEY") else "not configured"
+        }
+    }
+
+@app.get("/")
+async def root():
+    """Root endpoint with API information."""
+    return {
+        "name": "TaxScape Pro API",
+        "version": "1.0.0",
+        "description": "R&D Tax Credit Calculation and AI Auditor",
+        "docs": "/docs",
+        "health": "/health"
+    }
 
 
 # Register Routers
