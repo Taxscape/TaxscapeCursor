@@ -417,6 +417,60 @@ export async function uploadContractors(file: File): Promise<{ message: string; 
   return await response.json();
 }
 
+// Chat with file attachments
+export async function sendChatWithFiles(
+  messages: ChatMessage[],
+  files: File[],
+  sessionId?: string
+): Promise<ChatResult> {
+  const headers = await getAuthHeadersForUpload();
+  
+  const formData = new FormData();
+  formData.append("messages_json", JSON.stringify(messages));
+  
+  if (sessionId) {
+    formData.append("session_id", sessionId);
+  }
+  
+  // Append all files
+  files.forEach((file) => {
+    formData.append("files", file);
+  });
+  
+  const response = await fetch(`${API_URL}/api/chat_with_files`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to send chat with files");
+  }
+
+  return await response.json();
+}
+
+// Demo request (public)
+export async function submitDemoRequest(data: {
+  name: string;
+  email: string;
+  company?: string;
+  message?: string;
+}): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`${API_URL}/api/demo_request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to submit demo request");
+  }
+
+  return await response.json();
+}
+
 // Admin endpoints
 export async function adminGetUsers(): Promise<unknown[]> {
   const headers = await getAuthHeaders();

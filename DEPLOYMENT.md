@@ -72,3 +72,4 @@ This guide details how to deploy the TaxScape Pro application to **Vercel** (Fro
 -   **Frontend 500 Error**: Check Vercel Logs. Ensure `NEXT_PUBLIC_API_URL` is correct and accessible.
 -   **Backend 500 Error**: Check Railway Logs. Ensure `SUPABASE_SERVICE_ROLE_KEY` is correct.
 -   **Uploads Fail**: Ensure `openpyxl` and `xlrd` are installed (Railway handles this via `requirements.txt`).
+

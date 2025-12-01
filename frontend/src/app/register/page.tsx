@@ -53,7 +53,7 @@ export default function RegisterPage() {
       startResendCooldown();
     } else {
       // User is already verified (unlikely but handle it)
-      router.push("/");
+      router.push("/portal");
       router.refresh();
     }
   };
@@ -77,8 +77,8 @@ export default function RegisterPage() {
       return;
     }
 
-    // Success - redirect to dashboard
-    router.push("/");
+    // Success - redirect to portal
+    router.push("/portal");
     router.refresh();
   };
 

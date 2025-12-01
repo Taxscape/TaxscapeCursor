@@ -26,7 +26,10 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/");
+    // Check for redirect param, otherwise go to portal
+    const urlParams = new URLSearchParams(window.location.search);
+    const redirect = urlParams.get("redirect") || "/portal";
+    router.push(redirect);
     router.refresh();
   };
 
@@ -109,4 +112,5 @@ export default function LoginPage() {
     </div>
   );
 }
+
 

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, APIRouter, Header, status
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, APIRouter, Header, status, Form
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -330,6 +330,12 @@ class ContractorCreate(BaseModel):
     project_id: Optional[str] = None
     notes: Optional[str] = None
 
+class DemoRequest(BaseModel):
+    name: str
+    email: str
+    company: Optional[str] = None
+    message: Optional[str] = None
+
 
 # --- Public Endpoints (no auth required) ---
 @api_router.post("/chat_demo")
@@ -350,6 +356,33 @@ async def chat_excel_endpoint(payload: StructuredStudy):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=TaxScape_Study_{datetime.now().strftime('%Y%m%d')}.xlsx"}
     )
+
+
+@api_router.post("/demo_request")
+async def submit_demo_request(request: DemoRequest):
+    """Submit a demo request from the landing page."""
+    supabase = get_supabase()
+    
+    if not supabase:
+        # If no database, just log and return success (don't block the form)
+        logger.info(f"Demo request received: {request.name} ({request.email}) - {request.company}")
+        return {"success": True, "message": "Demo request received. We'll be in touch soon!"}
+    
+    try:
+        result = supabase.table("demo_requests").insert({
+            "name": request.name,
+            "email": request.email,
+            "company": request.company,
+            "message": request.message,
+            "status": "pending"
+        }).execute()
+        
+        logger.info(f"Demo request saved: {request.email}")
+        return {"success": True, "message": "Thank you! We'll contact you shortly to schedule your demo."}
+    except Exception as e:
+        logger.error(f"Error saving demo request: {e}")
+        # Still return success to user - we don't want to block them
+        return {"success": True, "message": "Demo request received. We'll be in touch soon!"}
 
 
 # --- Authenticated Endpoints ---
@@ -409,6 +442,136 @@ async def chat_endpoint(request: ChatRequest, user: dict = Depends(get_current_u
             print(f"Error saving chat: {e}")
     
     return {"response": ai_text, "structured": structured, "session_id": session_id}
+
+
+def _parse_file_to_text(file: UploadFile, contents: bytes) -> str:
+    """Parse uploaded file to text for AI context."""
+    filename = (file.filename or "").lower()
+    
+    try:
+        if filename.endswith('.pdf'):
+            # Parse PDF
+            try:
+                from PyPDF2 import PdfReader
+                buffer = io.BytesIO(contents)
+                reader = PdfReader(buffer)
+                text_parts = []
+                for page in reader.pages:
+                    text = page.extract_text()
+                    if text:
+                        text_parts.append(text)
+                return f"[PDF: {file.filename}]\n" + "\n".join(text_parts)
+            except Exception as e:
+                logger.error(f"Error parsing PDF: {e}")
+                return f"[PDF: {file.filename}] - Could not extract text"
+        
+        elif filename.endswith(('.xlsx', '.xls', '.csv')):
+            # Parse spreadsheet
+            try:
+                df = load_dataframe(file, contents)
+                # Convert to readable format (limit rows for context)
+                preview = df.head(50).to_string()
+                columns = ", ".join(df.columns.tolist())
+                return f"[Spreadsheet: {file.filename}]\nColumns: {columns}\nRows: {len(df)}\n\nData Preview:\n{preview}"
+            except Exception as e:
+                logger.error(f"Error parsing spreadsheet: {e}")
+                return f"[Spreadsheet: {file.filename}] - Could not parse file"
+        
+        else:
+            # Try to read as text
+            try:
+                text = contents.decode('utf-8')
+                return f"[File: {file.filename}]\n{text[:10000]}"  # Limit text size
+            except:
+                return f"[File: {file.filename}] - Binary file, cannot display"
+    except Exception as e:
+        logger.error(f"Error parsing file {file.filename}: {e}")
+        return f"[File: {file.filename}] - Error parsing file"
+
+
+@api_router.post("/chat_with_files")
+async def chat_with_files_endpoint(
+    messages_json: str = Form(...),
+    session_id: Optional[str] = Form(None),
+    files: List[UploadFile] = File(default=[]),
+    user: dict = Depends(get_current_user)
+):
+    """Chat endpoint with file attachments for AI context."""
+    import json
+    
+    try:
+        messages_data = json.loads(messages_json)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid messages JSON")
+    
+    messages_dicts = [{"role": m["role"], "content": m["content"]} for m in messages_data]
+    
+    # Parse all uploaded files to text
+    file_context_parts = []
+    for file in files:
+        contents = await file.read()
+        file_text = _parse_file_to_text(file, contents)
+        file_context_parts.append(file_text)
+    
+    # Build the file context string
+    file_context = ""
+    if file_context_parts:
+        file_context = "\n\n--- ATTACHED FILES ---\n" + "\n\n".join(file_context_parts) + "\n--- END OF ATTACHED FILES ---\n\n"
+        file_context += "The user has attached the above files. Analyze them in the context of R&D tax credit qualification.\n"
+    
+    # Get user's existing data context
+    user_data_context = _get_user_context_data(user["id"])
+    user_context_prompt = _build_context_prompt(user_data_context)
+    
+    # Combine file context with user context
+    combined_context = file_context + (user_context_prompt or "")
+    
+    # Get AI response
+    ai_text = chatbot_agent.get_chat_response(messages_dicts, combined_context if combined_context else None)
+    structured = chatbot_agent.extract_json_from_response(ai_text)
+    
+    # Save to database
+    supabase = get_supabase()
+    result_session_id = session_id
+    
+    if supabase:
+        try:
+            if not result_session_id:
+                session_result = supabase.table("chat_sessions").insert({
+                    "user_id": user["id"],
+                    "title": "Audit Session with Files",
+                    "structured_output": structured,
+                }).execute()
+                result_session_id = session_result.data[0]["id"]
+            else:
+                if structured:
+                    supabase.table("chat_sessions").update({
+                        "structured_output": structured,
+                        "updated_at": datetime.utcnow().isoformat(),
+                    }).eq("id", result_session_id).execute()
+            
+            # Save messages
+            if messages_data:
+                last_msg = messages_data[-1]
+                content_with_files = last_msg["content"]
+                if files:
+                    content_with_files += f"\n[Attached {len(files)} file(s): {', '.join(f.filename or 'unnamed' for f in files)}]"
+                
+                supabase.table("chat_messages").insert({
+                    "session_id": result_session_id,
+                    "role": last_msg["role"],
+                    "content": content_with_files,
+                }).execute()
+            
+            supabase.table("chat_messages").insert({
+                "session_id": result_session_id,
+                "role": "assistant",
+                "content": ai_text,
+            }).execute()
+        except Exception as e:
+            logger.error(f"Error saving chat with files: {e}")
+    
+    return {"response": ai_text, "structured": structured, "session_id": result_session_id}
 
 
 @api_router.get("/user_context")

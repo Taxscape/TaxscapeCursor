@@ -53,27 +53,53 @@ INTERACTION FLOW:
 1. Ask the user to describe a project.
 2. Ask clarifying questions to satisfy the 4-part test.
 3. If satisfied, move to the next project or ask for costs/personnel involved.
-4. If the user says "Generate Study" or "Done", output a JSON summary of all identified data.
+4. When user says "Generate Study", "Done", "Create Report", or similar - OUTPUT THE JSON SUMMARY.
 
-JSON OUTPUT FORMAT (only when requested to generate study):
+IMPORTANT - JSON OUTPUT RULES:
+When generating a study, you MUST output valid JSON in exactly this format. Include the JSON at the END of your response.
+- All number values must be actual numbers (not strings)
+- Use lowercase boolean values: true/false
+- Include all fields even if empty arrays []
+
+```json
 {
   "projects": [
     {
       "name": "Project Name",
-      "description": "Brief description",
-      "technical_uncertainty": "What was unknown",
-      "process_of_experimentation": "How it was tested"
+      "description": "Brief description of the R&D work",
+      "technical_uncertainty": "What was technically unknown at the start",
+      "process_of_experimentation": "How alternatives were evaluated and tested"
     }
   ],
   "wages": {
     "breakdown": [
-      {"name": "Employee Name", "box1_wages": 120000, "qualified_percent": 80}
+      {
+        "name": "Employee Name",
+        "role": "Job Title",
+        "box1_wages": 120000,
+        "qualified_percent": 80
+      }
     ]
   },
   "contractors": [
-    {"name": "Contractor Name", "cost": 10000, "is_qualified": true}
-  ]
-}"""
+    {
+      "name": "Contractor/Vendor Name",
+      "cost": 50000,
+      "is_qualified": true,
+      "location": "US"
+    }
+  ],
+  "summary": {
+    "total_projects": 1,
+    "total_employees": 1,
+    "total_wages": 120000,
+    "total_contractors": 1,
+    "total_contractor_costs": 50000
+  }
+}
+```
+
+If you have file data (from spreadsheets or PDFs), use that information to populate the wages and contractors sections with actual data from the files."""
 
 
 def _build_contents(messages: List[Dict[str, str]]) -> Tuple[List[types.Content], Optional[str]]:
@@ -210,23 +236,73 @@ def extract_json_from_response(response_text: str) -> Optional[Dict]:
     """
     if not response_text:
         return None
-        
+    
+    import re
+    
     try:
-        # Look for JSON in the response
-        start = response_text.find("{")
-        end = response_text.rfind("}") + 1
+        # Method 1: Look for JSON in code blocks (```json ... ```)
+        code_block_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', response_text)
+        if code_block_match:
+            json_str = code_block_match.group(1)
+            try:
+                parsed = json.loads(json_str)
+                if _is_valid_study_json(parsed):
+                    logger.info(f"Extracted JSON from code block with keys: {list(parsed.keys())}")
+                    return parsed
+            except json.JSONDecodeError:
+                pass
         
-        if start != -1 and end > start:
-            json_str = response_text[start:end]
-            parsed = json.loads(json_str)
-            logger.info(f"Successfully extracted JSON with keys: {list(parsed.keys())}")
-            return parsed
+        # Method 2: Find the largest valid JSON object in the response
+        # Look for opening braces and try to parse from each one
+        best_json = None
+        for match in re.finditer(r'\{', response_text):
+            start = match.start()
+            # Try to find matching closing brace
+            brace_count = 0
+            end = start
+            for i, char in enumerate(response_text[start:], start):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end = i + 1
+                        break
+            
+            if end > start:
+                json_str = response_text[start:end]
+                try:
+                    parsed = json.loads(json_str)
+                    if _is_valid_study_json(parsed):
+                        # Prefer larger/more complete JSON
+                        if best_json is None or len(json_str) > len(str(best_json)):
+                            best_json = parsed
+                except json.JSONDecodeError:
+                    continue
         
-        logger.info("No JSON found in response")
+        if best_json:
+            logger.info(f"Successfully extracted JSON with keys: {list(best_json.keys())}")
+            return best_json
+        
+        logger.info("No valid study JSON found in response")
         return None
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse JSON from response: {str(e)}")
-        return None
+        
     except Exception as e:
         logger.error(f"Unexpected error extracting JSON: {str(e)}", exc_info=True)
         return None
+
+
+def _is_valid_study_json(data: Dict) -> bool:
+    """Check if the JSON looks like a valid R&D study structure."""
+    if not isinstance(data, dict):
+        return False
+    
+    # Must have at least one of these key sections
+    valid_keys = {'projects', 'wages', 'contractors', 'summary'}
+    has_valid_key = any(key in data for key in valid_keys)
+    
+    # Reject if it's just a small config-like object
+    if len(data) < 2 and not has_valid_key:
+        return False
+    
+    return has_valid_key

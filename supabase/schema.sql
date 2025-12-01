@@ -366,3 +366,44 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+
+-- ============================================
+-- DEMO REQUESTS TABLE (for landing page)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.demo_requests (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    company TEXT,
+    message TEXT,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'contacted', 'scheduled', 'completed', 'cancelled')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_demo_requests_email ON public.demo_requests(email);
+CREATE INDEX IF NOT EXISTS idx_demo_requests_status ON public.demo_requests(status);
+
+-- Demo requests don't need RLS since they're public submissions
+-- but admins should be able to view them
+ALTER TABLE public.demo_requests ENABLE ROW LEVEL SECURITY;
+
+-- Allow anyone to insert demo requests (public form)
+CREATE POLICY "Anyone can submit demo requests" ON public.demo_requests
+    FOR INSERT WITH CHECK (true);
+
+-- Only admins can view demo requests
+CREATE POLICY "Admins can view demo requests" ON public.demo_requests
+    FOR SELECT USING (
+        EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_admin = TRUE)
+    );
+
+-- Only admins can update demo requests
+CREATE POLICY "Admins can update demo requests" ON public.demo_requests
+    FOR UPDATE USING (
+        EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_admin = TRUE)
+    );
+
+-- Trigger for updated_at
+CREATE TRIGGER update_demo_requests_updated_at BEFORE UPDATE ON public.demo_requests
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
