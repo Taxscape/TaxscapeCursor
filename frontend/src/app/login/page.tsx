@@ -29,7 +29,7 @@ export default function LoginPage() {
     // Check for redirect param, otherwise go to portal
     const urlParams = new URLSearchParams(window.location.search);
     const redirect = urlParams.get("redirect") || "/portal";
-    router.push(redirect);
+    router.push(redirect as "/portal");
     router.refresh();
   };
 

@@ -79,7 +79,7 @@ function DemoForm() {
 }
 
 // Intersection Observer hook for scroll animations
-function useInView(options = {}) {
+function useInView() {
   const ref = useRef<HTMLDivElement>(null);
   const [isInView, setIsInView] = useState(false);
 
@@ -88,13 +88,19 @@ function useInView(options = {}) {
       if (entry.isIntersecting) {
         setIsInView(true);
       }
-    }, { threshold: 0.1, ...options });
+    }, { threshold: 0.1 });
 
-    if (ref.current) {
-      observer.observe(ref.current);
+    const currentRef = ref.current;
+    if (currentRef) {
+      observer.observe(currentRef);
     }
 
-    return () => observer.disconnect();
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+      observer.disconnect();
+    };
   }, []);
 
   return { ref, isInView };
