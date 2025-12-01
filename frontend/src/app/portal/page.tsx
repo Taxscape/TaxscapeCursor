@@ -257,7 +257,7 @@ export default function Portal() {
     } catch (err) {
       console.error("Chat error:", err);
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      const isConnectionError = errorMessage.includes("Cannot connect") || errorMessage.includes("localhost");
+      const isConnectionError = errorMessage.includes("Cannot connect") || errorMessage.includes("Failed to fetch");
       setMessages([...updatedMessages, { 
         role: "assistant", 
         content: isConnectionError 
