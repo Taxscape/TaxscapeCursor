@@ -18,3 +18,4 @@ httpx
 xlrd
 gunicorn
 PyPDF2
+PyPDF2
