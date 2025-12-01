@@ -97,49 +97,82 @@ def load_dataframe(upload_file: UploadFile, contents: bytes) -> pd.DataFrame:
         file_size = len(contents)
         
         # Log file details for debugging
-        print(f"Processing file: {filename}, size: {file_size} bytes, content_type: {upload_file.content_type}")
+        logger.info(f"Processing file: {filename}, size: {file_size} bytes, content_type: {upload_file.content_type}")
+        
+        # Validate file is not empty
+        if file_size == 0:
+            raise ValueError("File is empty. Please upload a file with data.")
         
         # Validate file size (max 10MB)
         if file_size > 10 * 1024 * 1024:
-            raise ValueError(f"File too large: {file_size} bytes. Maximum allowed: 10MB")
+            raise ValueError(f"File too large ({file_size / 1024 / 1024:.1f} MB). Maximum allowed: 10MB")
         
         buffer = io.BytesIO(contents)
         
         if filename.endswith(".xlsx"):
-            print(f"Reading {filename} as XLSX using openpyxl engine")
+            logger.info(f"Reading {filename} as XLSX using openpyxl engine")
             try:
                 df = pd.read_excel(buffer, engine='openpyxl')
-                print(f"Successfully read XLSX file. Shape: {df.shape}")
+                if df.empty:
+                    raise ValueError("Excel file has no data rows. Please ensure the file contains data.")
+                logger.info(f"Successfully read XLSX file. Shape: {df.shape}, Columns: {list(df.columns)}")
                 return df
+            except ValueError:
+                raise
             except Exception as e:
-                print(f"Error reading XLSX file: {type(e).__name__}: {str(e)}")
-                raise ValueError(f"Failed to read Excel file (.xlsx): {str(e)}")
+                error_msg = str(e)
+                logger.error(f"Error reading XLSX file: {type(e).__name__}: {error_msg}")
+                if "openpyxl" in error_msg.lower():
+                    raise ValueError(f"Cannot read Excel file. The file may be corrupted or in an unsupported format.")
+                if "zipfile" in error_msg.lower():
+                    raise ValueError(f"Invalid Excel file. The file may be corrupted or not a valid .xlsx file.")
+                raise ValueError(f"Failed to read Excel file (.xlsx): {error_msg}")
         
         if filename.endswith(".xls"):
-            print(f"Reading {filename} as XLS")
+            logger.info(f"Reading {filename} as XLS (legacy format)")
             try:
-                df = pd.read_excel(buffer)
-                print(f"Successfully read XLS file. Shape: {df.shape}")
+                df = pd.read_excel(buffer, engine='xlrd')
+                if df.empty:
+                    raise ValueError("Excel file has no data rows. Please ensure the file contains data.")
+                logger.info(f"Successfully read XLS file. Shape: {df.shape}, Columns: {list(df.columns)}")
                 return df
+            except ValueError:
+                raise
             except Exception as e:
-                print(f"Error reading XLS file: {type(e).__name__}: {str(e)}")
-                raise ValueError(f"Failed to read Excel file (.xls): {str(e)}")
+                error_msg = str(e)
+                logger.error(f"Error reading XLS file: {type(e).__name__}: {error_msg}")
+                if "xlrd" in error_msg.lower():
+                    raise ValueError(f"Cannot read legacy Excel file (.xls). Try saving as .xlsx format.")
+                raise ValueError(f"Failed to read Excel file (.xls): {error_msg}")
         
-        # CSV files
+        # CSV files or unrecognized extensions - try CSV
         buffer.seek(0)
-        print(f"Reading {filename} as CSV")
+        logger.info(f"Reading {filename} as CSV")
         try:
-            df = pd.read_csv(buffer)
-            print(f"Successfully read CSV file. Shape: {df.shape}")
+            # Try to detect encoding
+            try:
+                df = pd.read_csv(buffer, encoding='utf-8')
+            except UnicodeDecodeError:
+                buffer.seek(0)
+                df = pd.read_csv(buffer, encoding='latin-1')
+            
+            if df.empty:
+                raise ValueError("CSV file has no data rows. Please ensure the file contains data.")
+            logger.info(f"Successfully read CSV file. Shape: {df.shape}, Columns: {list(df.columns)}")
             return df
+        except ValueError:
+            raise
         except Exception as e:
-            print(f"Error reading CSV file: {type(e).__name__}: {str(e)}")
-            raise ValueError(f"Failed to read CSV file: {str(e)}")
+            error_msg = str(e)
+            logger.error(f"Error reading CSV file: {type(e).__name__}: {error_msg}")
+            if "tokenizing" in error_msg.lower():
+                raise ValueError(f"CSV parsing error. Please ensure the file uses proper CSV formatting (comma-separated values).")
+            raise ValueError(f"Failed to read CSV file: {error_msg}")
             
     except ValueError:
         raise  # Re-raise validation errors
     except Exception as e:
-        print(f"Unexpected error in load_dataframe: {type(e).__name__}: {str(e)}")
+        logger.error(f"Unexpected error in load_dataframe: {type(e).__name__}: {str(e)}")
         raise ValueError(f"Failed to process file: {str(e)}")
 
 

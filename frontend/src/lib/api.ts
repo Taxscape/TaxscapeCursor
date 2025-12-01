@@ -4,9 +4,83 @@ import { getSupabaseClient } from "./supabase";
 // In production, this should be set to your Railway backend URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
-// Log API URL in development for debugging
-if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {
-  console.log("API URL:", API_URL);
+// Track if we've logged API info
+let hasLoggedApiInfo = false;
+
+// Log API URL for debugging (once per session)
+if (typeof window !== "undefined" && !hasLoggedApiInfo) {
+  hasLoggedApiInfo = true;
+  const isLocalhost = API_URL.includes("localhost");
+  console.log(`[TaxScape API] URL: ${API_URL}`);
+  if (isLocalhost && process.env.NODE_ENV === "production") {
+    console.error("[TaxScape API] WARNING: API URL is set to localhost in production! Set NEXT_PUBLIC_API_URL environment variable.");
+  }
+}
+
+// Helper to check if error is a network/connection error
+function isNetworkError(error: unknown): boolean {
+  if (error instanceof TypeError && error.message.includes("fetch")) {
+    return true;
+  }
+  if (error instanceof Error && (
+    error.message.includes("NetworkError") ||
+    error.message.includes("Failed to fetch") ||
+    error.message.includes("Network request failed") ||
+    error.message.includes("CORS") ||
+    error.message.includes("ERR_CONNECTION")
+  )) {
+    return true;
+  }
+  return false;
+}
+
+// Wrapper for fetch with better error handling
+async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
+  try {
+    const response = await fetch(url, options);
+    return response;
+  } catch (error) {
+    if (isNetworkError(error)) {
+      const isLocalhost = API_URL.includes("localhost");
+      if (isLocalhost) {
+        throw new Error(`Cannot connect to API server. The API URL is set to localhost (${API_URL}). Please set NEXT_PUBLIC_API_URL to your production backend URL.`);
+      } else {
+        throw new Error(`Cannot connect to API server at ${API_URL}. Please check your network connection or try again later.`);
+      }
+    }
+    throw error;
+  }
+}
+
+// Export for debugging
+export function getApiUrl(): string {
+  return API_URL;
+}
+
+// Check API connectivity
+export async function checkApiConnection(): Promise<{ connected: boolean; error?: string }> {
+  try {
+    const response = await fetch(`${API_URL}/health`, { 
+      method: "GET",
+      signal: AbortSignal.timeout(5000) // 5 second timeout
+    });
+    if (response.ok) {
+      return { connected: true };
+    }
+    return { connected: false, error: `Server returned status ${response.status}` };
+  } catch (error) {
+    const isLocalhost = API_URL.includes("localhost");
+    if (isLocalhost) {
+      return { 
+        connected: false, 
+        error: `API URL is set to localhost. Set NEXT_PUBLIC_API_URL in Vercel environment variables.` 
+      };
+    }
+    return { 
+      connected: false, 
+      error: error instanceof Error ? error.message : "Unknown error" 
+    };
+  }
 }
 
 // Helper to get auth headers
@@ -125,7 +199,7 @@ export type UserContext = {
 
 // Public endpoints (no auth required)
 export async function sendChatMessageDemo(messages: ChatMessage[]): Promise<ChatResult> {
-  const response = await fetch(`${API_URL}/api/chat_demo`, {
+  const response = await apiFetch(`${API_URL}/api/chat_demo`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),
@@ -140,7 +214,7 @@ export async function sendChatMessageDemo(messages: ChatMessage[]): Promise<Chat
 }
 
 export async function downloadChatExcel(payload: Record<string, unknown>, title?: string): Promise<Blob> {
-  const response = await fetch(`${API_URL}/api/chat_excel`, {
+  const response = await apiFetch(`${API_URL}/api/chat_excel`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ payload, title: title || "R&D Tax Credit Study" }),
@@ -162,7 +236,7 @@ export async function sendChatMessage(
 ): Promise<ChatResult> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/chat`, {
+  const response = await apiFetch(`${API_URL}/api/chat`, {
     method: "POST",
     headers,
     body: JSON.stringify({ 
@@ -187,12 +261,12 @@ export async function sendChatMessage(
 export async function getDashboard(): Promise<DashboardData> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/dashboard`, {
+  const response = await apiFetch(`${API_URL}/api/dashboard`, {
     headers,
   });
 
   if (!response.ok) {
-    throw new Error("Failed to fetch dashboard");
+    throw new Error("Failed to fetch dashboard data");
   }
 
   return await response.json();
@@ -201,7 +275,7 @@ export async function getDashboard(): Promise<DashboardData> {
 export async function getUserContext(): Promise<UserContext> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/user_context`, {
+  const response = await apiFetch(`${API_URL}/api/user_context`, {
     headers,
   });
 
@@ -215,7 +289,7 @@ export async function getUserContext(): Promise<UserContext> {
 export async function getProjects(): Promise<Project[]> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/projects`, {
+  const response = await apiFetch(`${API_URL}/api/projects`, {
     headers,
   });
 
@@ -230,7 +304,7 @@ export async function getProjects(): Promise<Project[]> {
 export async function createProject(project: Partial<Project>): Promise<Project> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/projects`, {
+  const response = await apiFetch(`${API_URL}/api/projects`, {
     method: "POST",
     headers,
     body: JSON.stringify(project),
@@ -247,7 +321,7 @@ export async function createProject(project: Partial<Project>): Promise<Project>
 export async function getEmployees(): Promise<Employee[]> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/employees`, {
+  const response = await apiFetch(`${API_URL}/api/employees`, {
     headers,
   });
 
@@ -262,7 +336,7 @@ export async function getEmployees(): Promise<Employee[]> {
 export async function createEmployee(employee: Partial<Employee>): Promise<Employee> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/employees`, {
+  const response = await apiFetch(`${API_URL}/api/employees`, {
     method: "POST",
     headers,
     body: JSON.stringify(employee),
@@ -279,7 +353,7 @@ export async function createEmployee(employee: Partial<Employee>): Promise<Emplo
 export async function getContractors(): Promise<Contractor[]> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/contractors`, {
+  const response = await apiFetch(`${API_URL}/api/contractors`, {
     headers,
   });
 
@@ -294,7 +368,7 @@ export async function getContractors(): Promise<Contractor[]> {
 export async function createContractor(contractor: Partial<Contractor>): Promise<Contractor> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/contractors`, {
+  const response = await apiFetch(`${API_URL}/api/contractors`, {
     method: "POST",
     headers,
     body: JSON.stringify(contractor),
@@ -311,7 +385,7 @@ export async function createContractor(contractor: Partial<Contractor>): Promise
 export async function getStudies(): Promise<Study[]> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/studies`, {
+  const response = await apiFetch(`${API_URL}/api/studies`, {
     headers,
   });
 
@@ -330,7 +404,7 @@ export async function generateStudy(
 ): Promise<Blob> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/generate_study`, {
+  const response = await apiFetch(`${API_URL}/api/generate_study`, {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -351,7 +425,7 @@ export async function generateStudy(
 export async function getChatSessions(): Promise<ChatSession[]> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/chat/sessions`, {
+  const response = await apiFetch(`${API_URL}/api/chat/sessions`, {
     headers,
   });
 
@@ -366,7 +440,7 @@ export async function getChatSessions(): Promise<ChatSession[]> {
 export async function getSessionMessages(sessionId: string): Promise<{ session: ChatSession; messages: ChatMessage[] }> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/chat/sessions/${sessionId}/messages`, {
+  const response = await apiFetch(`${API_URL}/api/chat/sessions/${sessionId}/messages`, {
     headers,
   });
 
@@ -383,7 +457,7 @@ export async function uploadPayroll(file: File): Promise<{ message: string; coun
   const formData = new FormData();
   formData.append("file", file);
   
-  const response = await fetch(`${API_URL}/api/upload_payroll`, {
+  const response = await apiFetch(`${API_URL}/api/upload_payroll`, {
     method: "POST",
     headers,
     body: formData,
@@ -391,7 +465,7 @@ export async function uploadPayroll(file: File): Promise<{ message: string; coun
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(errorText || "Failed to upload payroll");
+    throw new Error(errorText || "Failed to upload payroll. Please check file format (CSV, XLS, XLSX).");
   }
 
   return await response.json();
@@ -403,7 +477,7 @@ export async function uploadContractors(file: File): Promise<{ message: string; 
   const formData = new FormData();
   formData.append("file", file);
   
-  const response = await fetch(`${API_URL}/api/upload_contractors`, {
+  const response = await apiFetch(`${API_URL}/api/upload_contractors`, {
     method: "POST",
     headers,
     body: formData,
@@ -411,7 +485,7 @@ export async function uploadContractors(file: File): Promise<{ message: string; 
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(errorText || "Failed to upload contractors");
+    throw new Error(errorText || "Failed to upload contractors. Please check file format (CSV, XLS, XLSX).");
   }
 
   return await response.json();
@@ -437,7 +511,7 @@ export async function sendChatWithFiles(
     formData.append("files", file);
   });
   
-  const response = await fetch(`${API_URL}/api/chat_with_files`, {
+  const response = await apiFetch(`${API_URL}/api/chat_with_files`, {
     method: "POST",
     headers,
     body: formData,
@@ -458,7 +532,7 @@ export async function submitDemoRequest(data: {
   company?: string;
   message?: string;
 }): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(`${API_URL}/api/demo_request`, {
+  const response = await apiFetch(`${API_URL}/api/demo_request`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -475,7 +549,7 @@ export async function submitDemoRequest(data: {
 export async function adminGetUsers(): Promise<unknown[]> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/admin/users`, {
+  const response = await apiFetch(`${API_URL}/admin/users`, {
     headers,
   });
 
@@ -490,7 +564,7 @@ export async function adminGetUsers(): Promise<unknown[]> {
 export async function adminGetStudies(): Promise<unknown[]> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/admin/studies`, {
+  const response = await apiFetch(`${API_URL}/admin/studies`, {
     headers,
   });
 
@@ -505,7 +579,7 @@ export async function adminGetStudies(): Promise<unknown[]> {
 export async function adminGetChatSessions(): Promise<unknown[]> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/admin/chat_sessions`, {
+  const response = await apiFetch(`${API_URL}/admin/chat_sessions`, {
     headers,
   });
 
@@ -520,7 +594,7 @@ export async function adminGetChatSessions(): Promise<unknown[]> {
 export async function adminGetStats(): Promise<{ total_users: number; total_studies: number; total_sessions: number }> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/admin/stats`, {
+  const response = await apiFetch(`${API_URL}/admin/stats`, {
     headers,
   });
 

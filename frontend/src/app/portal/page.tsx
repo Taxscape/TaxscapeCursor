@@ -16,6 +16,8 @@ import {
   uploadPayroll,
   uploadContractors,
   sendChatWithFiles,
+  checkApiConnection,
+  getApiUrl,
   type ChatMessage,
   type DashboardData,
   type Project,
@@ -137,6 +139,7 @@ export default function Portal() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   // Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([initialMessage]);
@@ -168,13 +171,24 @@ export default function Portal() {
   const fetchData = useCallback(async () => {
     if (!user) return;
     
+    setApiError(null);
+    setIsLoadingData(true);
+    
     try {
+      // First check API connectivity
+      const connectionCheck = await checkApiConnection();
+      if (!connectionCheck.connected) {
+        setApiError(connectionCheck.error || "Cannot connect to server");
+        setIsLoadingData(false);
+        return;
+      }
+      
       const [dashboardData, projectsData, sessionsData, employeesData, contractorsData] = await Promise.all([
-        getDashboard().catch(() => null),
-        getProjects().catch(() => []),
-        getChatSessions().catch(() => []),
-        getEmployees().catch(() => []),
-        getContractors().catch(() => []),
+        getDashboard().catch((e) => { console.error("Dashboard error:", e); return null; }),
+        getProjects().catch((e) => { console.error("Projects error:", e); return []; }),
+        getChatSessions().catch((e) => { console.error("Sessions error:", e); return []; }),
+        getEmployees().catch((e) => { console.error("Employees error:", e); return []; }),
+        getContractors().catch((e) => { console.error("Contractors error:", e); return []; }),
       ]);
 
       if (dashboardData) setDashboard(dashboardData);
@@ -184,6 +198,8 @@ export default function Portal() {
       setContractors(contractorsData);
     } catch (error) {
       console.error("Error fetching data:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to load data";
+      setApiError(errorMessage);
     } finally {
       setIsLoadingData(false);
     }
@@ -240,7 +256,14 @@ export default function Portal() {
       }
     } catch (err) {
       console.error("Chat error:", err);
-      setMessages([...updatedMessages, { role: "assistant", content: "Connection error. Please try again." }]);
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      const isConnectionError = errorMessage.includes("Cannot connect") || errorMessage.includes("localhost");
+      setMessages([...updatedMessages, { 
+        role: "assistant", 
+        content: isConnectionError 
+          ? `Connection error: ${errorMessage}. Please check that the backend is running and properly configured.`
+          : `Error: ${errorMessage}. Please try again.`
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -342,6 +365,41 @@ export default function Portal() {
         <div className="text-center">
           <div className="w-6 h-6 border-2 border-[#323338] border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="mt-4 text-[13px] text-[#6B6D72]">Redirecting to login...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show API error state with retry button
+  if (apiError && !isLoadingData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F6F6F7]">
+        <div className="text-center max-w-md px-6">
+          <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="1.5">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" x2="12" y1="8" y2="12" />
+              <line x1="12" x2="12.01" y1="16" y2="16" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-medium text-[#17181A] mb-2">Connection Error</h2>
+          <p className="text-[13px] text-[#6B6D72] mb-4">{apiError}</p>
+          <p className="text-[11px] text-[#9CA3AF] mb-6">
+            API URL: {getApiUrl()}
+          </p>
+          <button
+            onClick={fetchData}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[#323338] text-white text-[13px] font-medium rounded-md hover:bg-[#3A3B40] transition-colors"
+          >
+            {Icons.refresh}
+            Retry Connection
+          </button>
+          <button
+            onClick={handleLogout}
+            className="block mx-auto mt-4 text-[12px] text-[#6B6D72] hover:text-[#17181A] transition-colors"
+          >
+            Sign out
+          </button>
         </div>
       </div>
     );
