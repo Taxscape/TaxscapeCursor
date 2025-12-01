@@ -16,9 +16,7 @@ export default function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (!authLoading && user) {
-      const urlParams = new URLSearchParams(window.location.search);
-      const redirect = urlParams.get("redirect") || "/portal";
-      router.push(redirect);
+      router.push("/portal");
     }
   }, [user, authLoading, router]);
 
@@ -39,9 +37,7 @@ export default function LoginPage() {
       // Wait a moment for auth state to update, then redirect
       // The useEffect above will handle the actual redirect once user is set
       setTimeout(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const redirect = urlParams.get("redirect") || "/portal";
-        router.push(redirect);
+        router.push("/portal");
         router.refresh();
       }, 500);
     } catch (err) {
