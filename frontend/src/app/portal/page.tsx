@@ -7,7 +7,6 @@ import { useAuth } from "@/context/auth-context";
 import {
   sendChatMessage,
   sendChatMessageDemo,
-  generateStudy,
   downloadChatExcel,
   getDashboard,
   getProjects,
@@ -25,37 +24,111 @@ import {
   type Contractor,
 } from "@/lib/api";
 
-// Icons
+// Icons - minimal stroke style
 const Icons = {
-  menu: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12" /><line x1="4" x2="20" y1="6" y2="6" /><line x1="4" x2="20" y1="18" y2="18" /></svg>,
-  dashboard: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" /></svg>,
-  chat: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>,
-  upload: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" x2="12" y1="3" y2="15" /></svg>,
-  download: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>,
-  send: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>,
-  check: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>,
-  dollar: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" x2="12" y1="2" y2="22" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>,
-  users: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>,
-  folder: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></svg>,
-  activity: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>,
-  logout: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" x2="9" y1="12" y2="12" /></svg>,
-  admin: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" /></svg>,
-  refresh: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" /><path d="M16 21h5v-5" /></svg>,
-  sparkle: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /></svg>,
-  paperclip: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>,
-  x: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>,
-  file: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /></svg>,
-  home: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>,
+  home: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  ),
+  chat: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  ),
+  upload: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" x2="12" y1="3" y2="15" />
+    </svg>
+  ),
+  download: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" x2="12" y1="15" y2="3" />
+    </svg>
+  ),
+  send: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="m22 2-7 20-4-9-9-4Z" />
+      <path d="M22 2 11 13" />
+    </svg>
+  ),
+  dollar: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <line x1="12" x2="12" y1="2" y2="22" />
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
+  ),
+  users: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+  folder: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+    </svg>
+  ),
+  logout: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" x2="9" y1="12" y2="12" />
+    </svg>
+  ),
+  refresh: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+      <path d="M16 21h5v-5" />
+    </svg>
+  ),
+  sparkle: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+    </svg>
+  ),
+  paperclip: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  ),
+  x: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  ),
+  file: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
+    </svg>
+  ),
+  plus: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <line x1="12" x2="12" y1="5" y2="19" />
+      <line x1="5" x2="19" y1="12" y2="12" />
+    </svg>
+  ),
 };
 
 const initialMessage: ChatMessage = {
   role: "assistant",
-  content: "Hello! I'm your R&D Tax Credit Auditor. I'll help validate your projects against IRS Section 41 requirements. You can also attach files (Excel, CSV, PDF) directly to your messages for me to analyze. What technical project would you like to discuss?",
+  content: "Hello. I'm your R&D Tax Credit Auditor. I'll validate your projects against IRS Section 41. Describe your first technical project, or attach files (Excel, CSV, PDF) for analysis.",
 };
 
 export default function Portal() {
   const router = useRouter();
-  const { user, profile, isLoading: authLoading, signOut, isAdmin } = useAuth();
+  const { user, profile, isLoading: authLoading, signOut } = useAuth();
 
   // Data State
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
@@ -73,7 +146,7 @@ export default function Portal() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // File attachment state for chat
+  // File attachment state
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -84,7 +157,7 @@ export default function Portal() {
   // Report State
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Redirect to login if not authenticated (after loading completes)
+  // Redirect to login if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/login?redirect=/portal");
@@ -93,6 +166,8 @@ export default function Portal() {
 
   // Fetch all data
   const fetchData = useCallback(async () => {
+    if (!user) return;
+    
     try {
       const [dashboardData, projectsData, sessionsData, employeesData, contractorsData] = await Promise.all([
         getDashboard().catch(() => null),
@@ -112,11 +187,13 @@ export default function Portal() {
     } finally {
       setIsLoadingData(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (user) {
+      fetchData();
+    }
+  }, [user, fetchData]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -142,18 +219,19 @@ export default function Portal() {
     try {
       let response;
       
-      if (filesToSend.length > 0) {
-        // Use the endpoint that handles file uploads
+      if (filesToSend.length > 0 && user) {
         response = await sendChatWithFiles(updatedMessages, filesToSend, currentSessionId || undefined);
-      } else {
+      } else if (user) {
         response = await sendChatMessage(updatedMessages, currentSessionId || undefined, true);
+      } else {
+        // Fallback to demo endpoint when in test mode or unauthenticated
+        response = await sendChatMessageDemo(updatedMessages);
       }
 
       setMessages([...updatedMessages, { role: "assistant", content: response.response }]);
 
       if (response.structured && Object.keys(response.structured).length > 0) {
         setStructured(response.structured);
-        // Refresh dashboard data when structured data is extracted
         fetchData();
       }
 
@@ -162,7 +240,7 @@ export default function Portal() {
       }
     } catch (err) {
       console.error("Chat error:", err);
-      setMessages([...updatedMessages, { role: "assistant", content: "I'm having trouble connecting. Please try again." }]);
+      setMessages([...updatedMessages, { role: "assistant", content: "Connection error. Please try again." }]);
     } finally {
       setIsLoading(false);
     }
@@ -173,19 +251,22 @@ export default function Portal() {
 
     setIsGenerating(true);
     try {
-      const blob = await generateStudy(structured, currentSessionId || undefined, "R&D Tax Credit Study");
+      // Always use downloadChatExcel for reliable Excel download
+      const blob = await downloadChatExcel(structured, "R&D Tax Credit Study");
 
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = `TaxScape_Study_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      // Refresh data after generating study
       fetchData();
     } catch (error) {
       console.error("Error generating study:", error);
+      alert("Failed to generate Excel. Please try again.");
     } finally {
       setIsGenerating(false);
     }
@@ -199,11 +280,11 @@ export default function Portal() {
         ? await uploadPayroll(file)
         : await uploadContractors(file);
 
-      setUploadStatus(`${result.message} Data is now available to the AI auditor.`);
-      // Refresh data immediately after upload
+      setUploadStatus(`${result.message}`);
       await fetchData();
+      setTimeout(() => setUploadStatus(null), 3000);
     } catch (error) {
-      setUploadStatus("Upload failed. Please check your file format and try again.");
+      setUploadStatus("Upload failed. Check file format.");
       console.error(error);
     } finally {
       setIsUploading(false);
@@ -243,18 +324,29 @@ export default function Portal() {
   };
 
   // Show loading while checking auth
-  if (authLoading || !user) {
+  if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-[#F6F6F7]">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-4 text-muted-foreground">Loading...</p>
+          <div className="w-6 h-6 border-2 border-[#323338] border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-[13px] text-[#6B6D72]">Loading...</p>
         </div>
       </div>
     );
   }
 
-  // KPI data
+  // Redirect handled by useEffect, but show nothing while redirecting
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F6F6F7]">
+        <div className="text-center">
+          <div className="w-6 h-6 border-2 border-[#323338] border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-[13px] text-[#6B6D72]">Redirecting to login...</p>
+        </div>
+      </div>
+    );
+  }
+
   const kpiData = dashboard || {
     total_credit: 0,
     total_wages: 0,
@@ -265,194 +357,166 @@ export default function Portal() {
     study_count: 0,
   };
 
+  const formatCurrency = (value: number) => {
+    if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+    if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`;
+    return `$${value.toLocaleString()}`;
+  };
+
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* Left Sidebar - Navigation */}
-      <aside className="w-16 flex flex-col bg-card border-r border-border">
-        {/* Logo */}
-        <div className="h-14 flex items-center justify-center border-b border-border">
-          <Link href="/" className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm hover:bg-primary/90 transition-colors">
-            T
-          </Link>
-        </div>
+    <div className="min-h-screen bg-[#F6F6F7] text-[#17181A] font-sans antialiased">
+      {/* Subtle grid background */}
+      <div 
+        className="fixed inset-0 pointer-events-none opacity-[0.03]"
+        style={{
+          backgroundImage: `linear-gradient(to right, #17181A 1px, transparent 1px), linear-gradient(to bottom, #17181A 1px, transparent 1px)`,
+          backgroundSize: '48px 48px'
+        }}
+      />
 
-        {/* Navigation Icons */}
-        <nav className="flex-1 py-4 flex flex-col items-center gap-2">
-          <Link href="/" className="p-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors" title="Home">
-            {Icons.home}
-          </Link>
-          <button className="p-3 rounded-lg bg-primary/10 text-primary" title="Dashboard">
-            {Icons.dashboard}
-          </button>
-          {isAdmin && (
-            <button onClick={() => router.push("/admin")} className="p-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors" title="Admin">
-              {Icons.admin}
-            </button>
-          )}
-        </nav>
-
-        {/* User Actions */}
-        <div className="p-2 border-t border-border space-y-2">
-          <button onClick={handleLogout} className="w-full p-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors" title="Sign out">
-            {Icons.logout}
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <header className="h-14 bg-card border-b border-border flex items-center justify-between px-6">
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold text-foreground">TaxScape Pro</h1>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-success-light text-success">
-              Connected
-            </span>
+      {/* Top Navigation */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#E0E1E4]/70 backdrop-blur-xl border-b border-black/[0.06]">
+        <div className="max-w-[1440px] mx-auto px-8 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <Link href="/" className="flex items-center gap-2">
+              <span className="text-[15px] font-medium tracking-tight text-[#17181A]">TaxScape</span>
+              <span className="text-[11px] uppercase tracking-[0.08em] text-[#6B6D72]">Portal</span>
+            </Link>
           </div>
-          <div className="flex items-center gap-3">
-            {user && (
-              <span className="text-sm text-muted-foreground">
-                {profile?.company_name || profile?.full_name || user.email}
-              </span>
-            )}
-            <button onClick={fetchData} className="p-2 rounded-lg hover:bg-secondary text-muted-foreground" title="Refresh data">
+
+          <div className="flex items-center gap-4">
+            <span className="text-[12px] text-[#6B6D72]">
+              {profile?.company_name || user.email}
+            </span>
+            <button 
+              onClick={fetchData} 
+              className="p-2 rounded-md hover:bg-black/[0.04] text-[#6B6D72] hover:text-[#17181A] transition-colors"
+              title="Refresh data"
+            >
               {Icons.refresh}
             </button>
+            <button 
+              onClick={handleLogout} 
+              className="p-2 rounded-md hover:bg-black/[0.04] text-[#6B6D72] hover:text-[#17181A] transition-colors"
+              title="Sign out"
+            >
+              {Icons.logout}
+            </button>
           </div>
-        </header>
+        </div>
+      </nav>
 
-        {/* Main Grid Layout */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left Panel - Dashboard Content */}
-          <div className="flex-1 overflow-auto p-6">
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-              <div className="module-card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">R&D Credit</span>
-                  <div className="p-1.5 rounded-lg bg-success-light text-success">{Icons.dollar}</div>
+      {/* Main Content */}
+      <div className="pt-14 min-h-screen">
+        <div className="max-w-[1440px] mx-auto px-8 py-8">
+          <div className="grid grid-cols-12 gap-6">
+            
+            {/* Left Column - Dashboard */}
+            <div className="col-span-7 space-y-6">
+              
+              {/* KPI Cards */}
+              <div className="grid grid-cols-4 gap-4">
+                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg p-5 shadow-sm">
+                  <div className="text-[11px] uppercase tracking-[0.08em] text-[#6B6D72] mb-2">R&D Credit</div>
+                  <div className="text-[24px] font-medium text-[#17181A]">{formatCurrency(kpiData.total_credit)}</div>
                 </div>
-                <p className="text-2xl font-semibold">${kpiData.total_credit.toLocaleString()}</p>
-                <p className="text-xs text-muted-foreground mt-1">Estimated credit</p>
+                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg p-5 shadow-sm">
+                  <div className="text-[11px] uppercase tracking-[0.08em] text-[#6B6D72] mb-2">Total QRE</div>
+                  <div className="text-[24px] font-medium text-[#17181A]">{formatCurrency(kpiData.total_qre || 0)}</div>
+                </div>
+                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg p-5 shadow-sm">
+                  <div className="text-[11px] uppercase tracking-[0.08em] text-[#6B6D72] mb-2">Employees</div>
+                  <div className="text-[24px] font-medium text-[#17181A]">{kpiData.employee_count}</div>
+                </div>
+                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg p-5 shadow-sm">
+                  <div className="text-[11px] uppercase tracking-[0.08em] text-[#6B6D72] mb-2">Studies</div>
+                  <div className="text-[24px] font-medium text-[#17181A]">{kpiData.study_count}</div>
+                </div>
               </div>
 
-              <div className="module-card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Total QRE</span>
-                  <div className="p-1.5 rounded-lg bg-primary-light text-primary">{Icons.activity}</div>
-                </div>
-                <p className="text-2xl font-semibold">${(kpiData.total_qre || 0).toLocaleString()}</p>
-                <p className="text-xs text-muted-foreground mt-1">Qualified expenses</p>
-              </div>
-
-              <div className="module-card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Employees</span>
-                  <div className="p-1.5 rounded-lg bg-primary-light text-primary">{Icons.users}</div>
-                </div>
-                <p className="text-2xl font-semibold">{kpiData.employee_count}</p>
-                <p className="text-xs text-muted-foreground mt-1">${kpiData.total_wages.toLocaleString()} wages</p>
-              </div>
-
-              <div className="module-card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Studies</span>
-                  <div className="p-1.5 rounded-lg bg-success-light text-success">{Icons.folder}</div>
-                </div>
-                <p className="text-2xl font-semibold">{kpiData.study_count}</p>
-                <p className="text-xs text-muted-foreground mt-1">{kpiData.contractor_count} contractors</p>
-              </div>
-            </div>
-
-            {/* Data Tables Row */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-              {/* Employees Table */}
-              <div className="module-card">
-                <div className="module-header">
-                  <h2 className="module-title">Employees</h2>
-                  <span className="text-xs text-muted-foreground">{employees.length} records</span>
-                </div>
-                <div className="module-content max-h-64 overflow-auto">
-                  {employees.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No employees uploaded yet. Upload payroll data to get started.
-                    </p>
-                  ) : (
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>Title</th>
-                          <th>Wages</th>
-                          <th>QRE %</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {employees.slice(0, 10).map((emp) => (
-                          <tr key={emp.id}>
-                            <td className="font-medium">{emp.name}</td>
-                            <td>{emp.title || "-"}</td>
-                            <td>${emp.total_wages.toLocaleString()}</td>
-                            <td>{emp.qualified_percent}%</td>
+              {/* Data Tables */}
+              <div className="grid grid-cols-2 gap-6">
+                {/* Employees */}
+                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg shadow-sm">
+                  <div className="px-5 py-4 border-b border-black/[0.04] flex items-center justify-between">
+                    <span className="text-[13px] font-medium text-[#17181A]">Employees</span>
+                    <span className="text-[11px] text-[#6B6D72]">{employees.length} records</span>
+                  </div>
+                  <div className="p-4 max-h-[240px] overflow-auto">
+                    {employees.length === 0 ? (
+                      <p className="text-[12px] text-[#6B6D72] text-center py-6">
+                        Upload payroll data to populate
+                      </p>
+                    ) : (
+                      <table className="w-full text-[12px]">
+                        <thead>
+                          <tr className="text-[11px] uppercase tracking-[0.06em] text-[#6B6D72]">
+                            <th className="text-left pb-2 font-medium">Name</th>
+                            <th className="text-right pb-2 font-medium">Wages</th>
+                            <th className="text-right pb-2 font-medium">QRE %</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
+                        </thead>
+                        <tbody className="text-[#17181A]">
+                          {employees.slice(0, 8).map((emp) => (
+                            <tr key={emp.id} className="border-t border-black/[0.04]">
+                              <td className="py-2">{emp.name}</td>
+                              <td className="py-2 text-right">{formatCurrency(emp.total_wages)}</td>
+                              <td className="py-2 text-right">{emp.qualified_percent}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {/* Contractors Table */}
-              <div className="module-card">
-                <div className="module-header">
-                  <h2 className="module-title">Contractors</h2>
-                  <span className="text-xs text-muted-foreground">{contractors.length} records</span>
-                </div>
-                <div className="module-content max-h-64 overflow-auto">
-                  {contractors.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No contractors uploaded yet. Upload contractor data to get started.
-                    </p>
-                  ) : (
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>Cost</th>
-                          <th>Location</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {contractors.slice(0, 10).map((con) => (
-                          <tr key={con.id}>
-                            <td className="font-medium">{con.name}</td>
-                            <td>${con.cost.toLocaleString()}</td>
-                            <td>{con.location}</td>
-                            <td>
-                              <span className={`text-xs px-2 py-0.5 rounded-full ${con.is_qualified ? "bg-success-light text-success" : "bg-warning-light text-warning"}`}>
-                                {con.is_qualified ? "Qualified" : "Foreign"}
-                              </span>
-                            </td>
+                {/* Contractors */}
+                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg shadow-sm">
+                  <div className="px-5 py-4 border-b border-black/[0.04] flex items-center justify-between">
+                    <span className="text-[13px] font-medium text-[#17181A]">Contractors</span>
+                    <span className="text-[11px] text-[#6B6D72]">{contractors.length} records</span>
+                  </div>
+                  <div className="p-4 max-h-[240px] overflow-auto">
+                    {contractors.length === 0 ? (
+                      <p className="text-[12px] text-[#6B6D72] text-center py-6">
+                        Upload contractor data to populate
+                      </p>
+                    ) : (
+                      <table className="w-full text-[12px]">
+                        <thead>
+                          <tr className="text-[11px] uppercase tracking-[0.06em] text-[#6B6D72]">
+                            <th className="text-left pb-2 font-medium">Name</th>
+                            <th className="text-right pb-2 font-medium">Cost</th>
+                            <th className="text-right pb-2 font-medium">Status</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
+                        </thead>
+                        <tbody className="text-[#17181A]">
+                          {contractors.slice(0, 8).map((con) => (
+                            <tr key={con.id} className="border-t border-black/[0.04]">
+                              <td className="py-2">{con.name}</td>
+                              <td className="py-2 text-right">{formatCurrency(con.cost)}</td>
+                              <td className="py-2 text-right">
+                                <span className={`text-[10px] uppercase tracking-wider ${con.is_qualified ? 'text-[#2D8A5F]' : 'text-[#6B6D72]'}`}>
+                                  {con.is_qualified ? 'Qualified' : 'Foreign'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Upload & Projects Row */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              {/* Quick Upload */}
-              <div className="module-card">
-                <div className="module-header">
-                  <h2 className="module-title">Upload Data</h2>
+              {/* Upload Section */}
+              <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg shadow-sm">
+                <div className="px-5 py-4 border-b border-black/[0.04]">
+                  <span className="text-[13px] font-medium text-[#17181A]">Upload Data</span>
                 </div>
-                <div className="module-content">
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className={`flex flex-col items-center justify-center p-4 border-2 border-dashed border-border rounded-xl hover:border-primary/50 hover:bg-primary-light/30 transition-colors cursor-pointer ${isUploading ? "opacity-50 pointer-events-none" : ""}`}>
+                <div className="p-5">
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className={`flex flex-col items-center justify-center p-6 border border-dashed border-[#D4D5D8] rounded-lg hover:border-[#323338] hover:bg-white/50 transition-all cursor-pointer ${isUploading ? "opacity-50 pointer-events-none" : ""}`}>
                       <input
                         type="file"
                         accept=".csv,.xlsx,.xls"
@@ -464,11 +528,12 @@ export default function Portal() {
                           e.target.value = "";
                         }}
                       />
-                      <div className="p-2 rounded-lg bg-primary-light text-primary mb-2">{Icons.users}</div>
-                      <span className="text-sm font-medium">Payroll</span>
-                      <span className="text-xs text-muted-foreground">CSV or Excel</span>
+                      <div className="text-[#6B6D72] mb-2">{Icons.users}</div>
+                      <span className="text-[13px] font-medium text-[#17181A]">Payroll Data</span>
+                      <span className="text-[11px] text-[#6B6D72] mt-1">CSV or Excel</span>
                     </label>
-                    <label className={`flex flex-col items-center justify-center p-4 border-2 border-dashed border-border rounded-xl hover:border-primary/50 hover:bg-primary-light/30 transition-colors cursor-pointer ${isUploading ? "opacity-50 pointer-events-none" : ""}`}>
+                    
+                    <label className={`flex flex-col items-center justify-center p-6 border border-dashed border-[#D4D5D8] rounded-lg hover:border-[#323338] hover:bg-white/50 transition-all cursor-pointer ${isUploading ? "opacity-50 pointer-events-none" : ""}`}>
                       <input
                         type="file"
                         accept=".csv,.xlsx,.xls"
@@ -480,13 +545,13 @@ export default function Portal() {
                           e.target.value = "";
                         }}
                       />
-                      <div className="p-2 rounded-lg bg-warning-light text-warning mb-2">{Icons.folder}</div>
-                      <span className="text-sm font-medium">Contractors</span>
-                      <span className="text-xs text-muted-foreground">CSV or Excel</span>
+                      <div className="text-[#6B6D72] mb-2">{Icons.folder}</div>
+                      <span className="text-[13px] font-medium text-[#17181A]">Contractor Data</span>
+                      <span className="text-[11px] text-[#6B6D72] mt-1">CSV or Excel</span>
                     </label>
                   </div>
                   {uploadStatus && (
-                    <p className={`mt-3 text-sm text-center ${uploadStatus.includes("failed") ? "text-destructive" : "text-success"}`}>
+                    <p className={`mt-4 text-[12px] text-center ${uploadStatus.includes("failed") ? "text-red-600" : "text-[#2D8A5F]"}`}>
                       {uploadStatus}
                     </p>
                   )}
@@ -494,152 +559,158 @@ export default function Portal() {
               </div>
 
               {/* Projects */}
-              <div className="module-card">
-                <div className="module-header">
-                  <h2 className="module-title">Projects</h2>
-                  <span className="text-xs text-muted-foreground">{projects.length} projects</span>
+              <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg shadow-sm">
+                <div className="px-5 py-4 border-b border-black/[0.04] flex items-center justify-between">
+                  <span className="text-[13px] font-medium text-[#17181A]">Qualified Projects</span>
+                  <span className="text-[11px] text-[#6B6D72]">{projects.length} projects</span>
                 </div>
-                <div className="module-content space-y-2 max-h-48 overflow-auto">
+                <div className="p-4 max-h-[200px] overflow-auto">
                   {projects.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      Projects will appear here after AI audit
+                    <p className="text-[12px] text-[#6B6D72] text-center py-6">
+                      Projects appear after AI audit
                     </p>
                   ) : (
-                    projects.slice(0, 5).map((project) => (
-                      <div key={project.id} className="p-3 rounded-lg border border-border hover:bg-secondary/30 transition-colors">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-sm">{project.name}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${project.qualification_status === "qualified" ? "bg-success-light text-success" : "bg-warning-light text-warning"
-                            }`}>
+                    <div className="space-y-2">
+                      {projects.slice(0, 5).map((project) => (
+                        <div key={project.id} className="flex items-center justify-between p-3 rounded-md border border-black/[0.04] hover:bg-white/50">
+                          <span className="text-[13px] text-[#17181A]">{project.name}</span>
+                          <span className={`text-[10px] uppercase tracking-wider ${project.qualification_status === "qualified" ? 'text-[#2D8A5F]' : 'text-[#6B6D72]'}`}>
                             {project.qualification_status}
                           </span>
                         </div>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Right Panel - AI Auditor (Always Visible) */}
-          <div className="w-[420px] flex flex-col border-l border-border bg-card">
-            {/* Chat Header */}
-            <div className="h-14 flex items-center justify-between px-4 border-b border-border">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">{Icons.sparkle}</div>
-                <div>
-                  <p className="text-sm font-semibold">R&D Tax Auditor</p>
-                  <p className="text-xs text-muted-foreground">
-                    {employees.length} employees, {contractors.length} contractors loaded
+            {/* Right Column - AI Auditor Chat */}
+            <div className="col-span-5">
+              <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg shadow-sm h-[calc(100vh-8rem)] flex flex-col sticky top-20">
+                
+                {/* Chat Header */}
+                <div className="px-5 py-4 border-b border-black/[0.04] flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="text-[#323338]">{Icons.sparkle}</div>
+                    <div>
+                      <div className="text-[13px] font-medium text-[#17181A]">R&D Tax Auditor</div>
+                      <div className="text-[11px] text-[#6B6D72]">{employees.length} employees, {contractors.length} contractors</div>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handleNewChat} 
+                    className="flex items-center gap-1 px-3 py-1.5 text-[12px] text-[#6B6D72] hover:text-[#17181A] hover:bg-black/[0.04] rounded-md transition-colors"
+                  >
+                    {Icons.plus}
+                    New
+                  </button>
+                </div>
+
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                  {messages.map((msg, idx) => (
+                    <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[85%] rounded-lg px-4 py-3 text-[13px] leading-relaxed ${
+                        msg.role === "user" 
+                          ? "bg-[#323338] text-white" 
+                          : "bg-white/80 border border-black/[0.06] text-[#17181A]"
+                      }`}>
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {isLoading && (
+                    <div className="flex justify-start">
+                      <div className="bg-white/80 border border-black/[0.06] rounded-lg px-4 py-3">
+                        <div className="flex gap-1">
+                          <div className="w-2 h-2 bg-[#6B6D72] rounded-full animate-bounce" />
+                          <div className="w-2 h-2 bg-[#6B6D72] rounded-full animate-bounce" style={{ animationDelay: "75ms" }} />
+                          <div className="w-2 h-2 bg-[#6B6D72] rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Study Ready Indicator */}
+                {structured && (
+                  <div className="px-5 py-3 border-t border-black/[0.04] bg-[#F0F9F4]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-[#2D8A5F] animate-pulse" />
+                        <span className="text-[12px] font-medium text-[#2D8A5F]">Study data ready</span>
+                      </div>
+                      <button
+                        onClick={handleGenerateStudy}
+                        disabled={isGenerating}
+                        className="flex items-center gap-2 px-4 py-2 bg-[#2D8A5F] text-white text-[12px] font-medium rounded-md hover:bg-[#247048] disabled:opacity-50 transition-colors"
+                      >
+                        {Icons.download}
+                        {isGenerating ? "Generating..." : "Download Excel"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Attached Files */}
+                {attachedFiles.length > 0 && (
+                  <div className="px-5 py-3 border-t border-black/[0.04] bg-[#FAFAFA]">
+                    <div className="flex flex-wrap gap-2">
+                      {attachedFiles.map((file, idx) => (
+                        <div key={idx} className="flex items-center gap-2 px-2 py-1 bg-white border border-black/[0.06] rounded text-[11px]">
+                          {Icons.file}
+                          <span className="max-w-[100px] truncate">{file.name}</span>
+                          <button onClick={() => removeAttachedFile(idx)} className="text-[#6B6D72] hover:text-[#17181A]">
+                            {Icons.x}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Input */}
+                <div className="p-4 border-t border-black/[0.04]">
+                  <div className="flex gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".csv,.xlsx,.xls,.pdf"
+                      multiple
+                      className="hidden"
+                      onChange={handleFileSelect}
+                    />
+                    <button
+                      onClick={handleAttachFile}
+                      disabled={isLoading}
+                      className="p-2.5 rounded-md border border-[#D4D5D8] text-[#6B6D72] hover:text-[#17181A] hover:border-[#323338] transition-colors disabled:opacity-50"
+                      title="Attach files"
+                    >
+                      {Icons.paperclip}
+                    </button>
+                    <input
+                      type="text"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+                      placeholder="Describe your R&D project..."
+                      className="flex-1 px-4 py-2.5 text-[13px] bg-white border border-[#D4D5D8] rounded-md focus:outline-none focus:border-[#323338] placeholder:text-[#9CA3AF]"
+                    />
+                    <button
+                      onClick={handleSend}
+                      disabled={isLoading || (!input.trim() && attachedFiles.length === 0)}
+                      className="px-4 py-2.5 bg-[#323338] text-white rounded-md hover:bg-[#3A3B40] disabled:opacity-50 transition-colors"
+                    >
+                      {Icons.send}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-[11px] text-[#6B6D72] text-center">
+                    Say &quot;Generate Study&quot; when ready for Excel export
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                <button onClick={handleNewChat} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground text-xs" title="New chat">
-                  New
-                </button>
-              </div>
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map((msg, idx) => (
-                <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[90%] rounded-2xl px-4 py-2.5 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"}`}>
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
-                  </div>
-                </div>
-              ))}
-              {isLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-secondary rounded-2xl px-4 py-3">
-                    <div className="flex gap-1">
-                      <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" />
-                      <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "75ms" }} />
-                      <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Structured Data Indicator */}
-            {structured && (
-              <div className="px-4 py-2 border-t border-border bg-success-light/30">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                    <span className="text-xs text-success font-medium">Study data ready</span>
-                  </div>
-                  <button
-                    onClick={handleGenerateStudy}
-                    disabled={isGenerating}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-success text-white rounded-lg text-xs font-medium hover:bg-success/90 disabled:opacity-50"
-                  >
-                    {Icons.download}
-                    {isGenerating ? "Generating..." : "Download Excel"}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Attached Files Display */}
-            {attachedFiles.length > 0 && (
-              <div className="px-4 py-2 border-t border-border bg-primary-light/30">
-                <div className="flex flex-wrap gap-2">
-                  {attachedFiles.map((file, idx) => (
-                    <div key={idx} className="flex items-center gap-1 px-2 py-1 bg-white rounded-lg text-xs border border-border">
-                      {Icons.file}
-                      <span className="max-w-[120px] truncate">{file.name}</span>
-                      <button onClick={() => removeAttachedFile(idx)} className="text-muted-foreground hover:text-foreground">
-                        {Icons.x}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Input */}
-            <div className="p-4 border-t border-border">
-              <div className="flex gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,.xlsx,.xls,.pdf"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileSelect}
-                />
-                <button
-                  onClick={handleAttachFile}
-                  disabled={isLoading}
-                  className="p-2.5 rounded-xl bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                  title="Attach files (CSV, Excel, PDF)"
-                >
-                  {Icons.paperclip}
-                </button>
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-                  placeholder="Describe your R&D project..."
-                  className="flex-1 px-4 py-2.5 text-sm bg-secondary rounded-xl border-0 focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-                <button
-                  onClick={handleSend}
-                  disabled={isLoading || (!input.trim() && attachedFiles.length === 0)}
-                  className="px-4 py-2.5 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                >
-                  {Icons.send}
-                </button>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground text-center">
-                Attach files or say &quot;Generate Study&quot; when ready
-              </p>
             </div>
           </div>
         </div>
@@ -647,4 +718,3 @@ export default function Portal() {
     </div>
   );
 }
-
