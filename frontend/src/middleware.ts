@@ -1,6 +1,9 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+// Routes that require authentication
+const protectedRoutes = ['/portal', '/admin'];
+
 export async function middleware(request: NextRequest) {
   try {
     // 1. Create response placeholder
@@ -42,8 +45,30 @@ export async function middleware(request: NextRequest) {
       }
     );
 
-    // 4. Refresh session if needed
-    await supabase.auth.getSession();
+    // 4. Get session
+    const { data: { session } } = await supabase.auth.getSession();
+
+    // 5. Check if accessing a protected route
+    const isProtectedRoute = protectedRoutes.some(route => 
+      request.nextUrl.pathname.startsWith(route)
+    );
+
+    // 6. Redirect to login if accessing protected route without session
+    if (isProtectedRoute && !session) {
+      const redirectUrl = new URL('/login', request.url);
+      redirectUrl.searchParams.set('redirect', request.nextUrl.pathname);
+      return NextResponse.redirect(redirectUrl);
+    }
+
+    // 7. Redirect to portal if already logged in and accessing login/register
+    const authRoutes = ['/login', '/register'];
+    const isAuthRoute = authRoutes.some(route => 
+      request.nextUrl.pathname === route
+    );
+    
+    if (isAuthRoute && session) {
+      return NextResponse.redirect(new URL('/portal', request.url));
+    }
 
     return response;
   } catch (e) {

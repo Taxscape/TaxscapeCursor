@@ -57,9 +57,6 @@ export default function Portal() {
   const router = useRouter();
   const { user, profile, isLoading: authLoading, signOut, isAdmin } = useAuth();
 
-  // Auth timeout fallback - prevent infinite loading on Vercel
-  const [authTimedOut, setAuthTimedOut] = useState(false);
-
   // Data State
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -87,33 +84,15 @@ export default function Portal() {
   // Report State
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Timeout for auth loading - max 10 seconds
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (authLoading) {
-        console.warn("Auth loading timed out after 10 seconds");
-        setAuthTimedOut(true);
-      }
-    }, 10000);
-
-    return () => clearTimeout(timeout);
-  }, [authLoading]);
-
   // Redirect to login if not authenticated (after loading completes)
   useEffect(() => {
-    if (!authLoading && !user && authTimedOut) {
-      // Only redirect after auth has timed out and there's no user
+    if (!authLoading && !user) {
       router.push("/login?redirect=/portal");
     }
-  }, [authLoading, user, authTimedOut, router]);
+  }, [authLoading, user, router]);
 
   // Fetch all data
   const fetchData = useCallback(async () => {
-    if (!user) {
-      setIsLoadingData(false);
-      return;
-    }
-
     try {
       const [dashboardData, projectsData, sessionsData, employeesData, contractorsData] = await Promise.all([
         getDashboard().catch(() => null),
@@ -133,7 +112,7 @@ export default function Portal() {
     } finally {
       setIsLoadingData(false);
     }
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -163,13 +142,11 @@ export default function Portal() {
     try {
       let response;
       
-      if (filesToSend.length > 0 && user) {
-        // Use the new endpoint that handles file uploads
+      if (filesToSend.length > 0) {
+        // Use the endpoint that handles file uploads
         response = await sendChatWithFiles(updatedMessages, filesToSend, currentSessionId || undefined);
-      } else if (user) {
-        response = await sendChatMessage(updatedMessages, currentSessionId || undefined, true);
       } else {
-        response = await sendChatMessageDemo(updatedMessages);
+        response = await sendChatMessage(updatedMessages, currentSessionId || undefined, true);
       }
 
       setMessages([...updatedMessages, { role: "assistant", content: response.response }]);
@@ -196,9 +173,7 @@ export default function Portal() {
 
     setIsGenerating(true);
     try {
-      const blob = user
-        ? await generateStudy(structured, currentSessionId || undefined, "R&D Tax Credit Study")
-        : await downloadChatExcel(structured, "R&D Tax Credit Study");
+      const blob = await generateStudy(structured, currentSessionId || undefined, "R&D Tax Credit Study");
 
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -208,9 +183,7 @@ export default function Portal() {
       URL.revokeObjectURL(url);
 
       // Refresh data after generating study
-      if (user) {
-        fetchData();
-      }
+      fetchData();
     } catch (error) {
       console.error("Error generating study:", error);
     } finally {
@@ -219,11 +192,6 @@ export default function Portal() {
   };
 
   const handleFileUpload = async (type: "payroll" | "contractors", file: File) => {
-    if (!user) {
-      setUploadStatus("Please log in to upload data");
-      return;
-    }
-
     setIsUploading(true);
     setUploadStatus("Uploading...");
     try {
@@ -274,8 +242,8 @@ export default function Portal() {
     setAttachedFiles([]);
   };
 
-  // Show loading while checking auth (with timeout)
-  if (authLoading && !authTimedOut) {
+  // Show loading while checking auth
+  if (authLoading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
@@ -325,15 +293,9 @@ export default function Portal() {
 
         {/* User Actions */}
         <div className="p-2 border-t border-border space-y-2">
-          {user ? (
-            <button onClick={handleLogout} className="w-full p-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors" title="Sign out">
-              {Icons.logout}
-            </button>
-          ) : (
-            <button onClick={() => router.push("/login")} className="w-full p-3 rounded-lg bg-primary text-primary-foreground" title="Sign in">
-              <span className="text-xs font-bold">IN</span>
-            </button>
-          )}
+          <button onClick={handleLogout} className="w-full p-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors" title="Sign out">
+            {Icons.logout}
+          </button>
         </div>
       </aside>
 
@@ -343,8 +305,8 @@ export default function Portal() {
         <header className="h-14 bg-card border-b border-border flex items-center justify-between px-6">
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-semibold text-foreground">TaxScape Pro</h1>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-              {user ? "Connected" : "Demo Mode"}
+            <span className="text-xs px-2 py-0.5 rounded-full bg-success-light text-success">
+              Connected
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -413,7 +375,7 @@ export default function Portal() {
                 <div className="module-content max-h-64 overflow-auto">
                   {employees.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">
-                      {user ? "No employees uploaded yet" : "Sign in to view data"}
+                      No employees uploaded yet. Upload payroll data to get started.
                     </p>
                   ) : (
                     <table className="data-table">
@@ -449,7 +411,7 @@ export default function Portal() {
                 <div className="module-content max-h-64 overflow-auto">
                   {contractors.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">
-                      {user ? "No contractors uploaded yet" : "Sign in to view data"}
+                      No contractors uploaded yet. Upload contractor data to get started.
                     </p>
                   ) : (
                     <table className="data-table">
@@ -540,7 +502,7 @@ export default function Portal() {
                 <div className="module-content space-y-2 max-h-48 overflow-auto">
                   {projects.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">
-                      {user ? "Projects will appear here after AI audit" : "Sign in to view projects"}
+                      Projects will appear here after AI audit
                     </p>
                   ) : (
                     projects.slice(0, 5).map((project) => (
@@ -569,7 +531,7 @@ export default function Portal() {
                 <div>
                   <p className="text-sm font-semibold">R&D Tax Auditor</p>
                   <p className="text-xs text-muted-foreground">
-                    {user ? `${employees.length} employees, ${contractors.length} contractors loaded` : "Demo Mode"}
+                    {employees.length} employees, {contractors.length} contractors loaded
                   </p>
                 </div>
               </div>

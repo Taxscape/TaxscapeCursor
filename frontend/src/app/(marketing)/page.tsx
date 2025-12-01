@@ -235,10 +235,10 @@ export default function LandingPage() {
                 {Icons.arrowRight}
               </Link>
               <Link
-                href="/portal"
+                href="/login"
                 className="w-full sm:w-auto px-8 py-4 bg-gray-100 text-gray-900 font-medium rounded-xl hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
               >
-                Go to Portal
+                Sign In
               </Link>
             </div>
           </div>
@@ -497,8 +497,8 @@ export default function LandingPage() {
             </div>
 
             <div className="flex items-center gap-6 text-sm text-gray-400">
-              <Link href="/portal" className="hover:text-white transition-colors">
-                Portal
+              <Link href="/login" className="hover:text-white transition-colors">
+                Sign In
               </Link>
               <a href="#" className="hover:text-white transition-colors">
                 Privacy Policy
