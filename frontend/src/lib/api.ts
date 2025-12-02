@@ -39,33 +39,43 @@ export async function checkApiConnection(): Promise<{ connected: boolean; error?
   }
 }
 
-// Helper to get auth headers
+// Helper to get auth headers with retry logic
 async function getAuthHeaders(): Promise<HeadersInit> {
   const supabase = getSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
   
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
+  // Try to get session with retry (handles race condition on page refresh)
+  let session = null;
+  for (let i = 0; i < 3; i++) {
+    const { data } = await supabase.auth.getSession();
+    session = data.session;
+    if (session) break;
+    await new Promise(r => setTimeout(r, 500)); // Wait 500ms before retry
+  }
   
+  const headers: HeadersInit = { "Content-Type": "application/json" };
   if (session?.access_token) {
     headers["Authorization"] = `Bearer ${session.access_token}`;
   }
-  
   return headers;
 }
 
 // Helper to get auth headers for file uploads (no Content-Type)
 async function getAuthHeadersForUpload(): Promise<HeadersInit> {
   const supabase = getSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
+  
+  // Try to get session with retry (handles race condition on page refresh)
+  let session = null;
+  for (let i = 0; i < 3; i++) {
+    const { data } = await supabase.auth.getSession();
+    session = data.session;
+    if (session) break;
+    await new Promise(r => setTimeout(r, 500)); // Wait 500ms before retry
+  }
   
   const headers: HeadersInit = {};
-  
   if (session?.access_token) {
     headers["Authorization"] = `Bearer ${session.access_token}`;
   }
-  
   return headers;
 }
 

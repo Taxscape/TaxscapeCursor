@@ -54,9 +54,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initAuth = async () => {
       console.log('[Auth] Initializing auth...');
       
-      // Add timeout to prevent infinite loading
-      const timeout = new Promise<null>((_, reject) => {
-        setTimeout(() => reject(new Error('Auth initialization timeout')), 10000);
+      // Add timeout to prevent infinite loading (resolve instead of reject for graceful handling)
+      const timeout = new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), 15000); // 15 second timeout, resolves gracefully
       });
       
       try {

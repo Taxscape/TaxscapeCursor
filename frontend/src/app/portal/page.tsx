@@ -206,10 +206,11 @@ export default function Portal() {
   }, [user]);
 
   useEffect(() => {
-    if (user) {
+    // Only fetch data when auth is fully loaded and user exists
+    if (user && !authLoading) {
       fetchData();
     }
-  }, [user, fetchData]);
+  }, [user, authLoading, fetchData]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
