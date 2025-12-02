@@ -60,16 +60,8 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(redirectUrl);
     }
 
-    // 7. Redirect to portal if already logged in and accessing login/register
-    const authRoutes = ['/login', '/register'];
-    const isAuthRoute = authRoutes.some(route => 
-      request.nextUrl.pathname === route
-    );
-    
-    if (isAuthRoute && session) {
-      return NextResponse.redirect(new URL('/portal', request.url));
-    }
-
+    // 7. Let login/register pages handle their own redirects
+    // Don't auto-redirect - let the page decide based on user intent
     return response;
   } catch (e) {
     console.error('Middleware error:', e);
