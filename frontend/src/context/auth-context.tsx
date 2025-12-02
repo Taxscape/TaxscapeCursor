@@ -50,52 +50,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, fetchProfile]);
 
   useEffect(() => {
-    // Get initial session with timeout
-    const initAuth = async () => {
-      console.log('[Auth] Initializing auth...');
-      
-      // Add timeout to prevent infinite loading (resolve instead of reject for graceful handling)
-      const timeout = new Promise<null>((resolve) => {
-        setTimeout(() => resolve(null), 15000); // 15 second timeout, resolves gracefully
-      });
-      
-      try {
-        const sessionPromise = supabase.auth.getSession();
-        const result = await Promise.race([sessionPromise, timeout]);
-        
-        if (result === null) {
-          console.log('[Auth] Timeout - proceeding without session');
-          setIsLoading(false);
-          return;
-        }
-        
-        const { data: { session: initialSession }, error } = result as Awaited<typeof sessionPromise>;
-        
-        if (error) {
-          console.error('[Auth] Error getting session:', error);
-        }
-        
-        if (initialSession) {
-          console.log('[Auth] Found existing session for:', initialSession.user.email);
-          setSession(initialSession);
-          setUser(initialSession.user);
-          const profileData = await fetchProfile(initialSession.user.id);
-          setProfile(profileData);
-        } else {
-          console.log('[Auth] No existing session found');
-        }
-      } catch (e) {
-        console.error('[Auth] Init error:', e);
-      }
-      
-      setIsLoading(false);
-    };
-
-    initAuth();
-
-    // Listen for auth changes
+    console.log('[Auth] Setting up auth listener...');
+    
+    // Set up auth state change listener FIRST - this is the primary way to get session
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event: AuthChangeEvent, currentSession: Session | null) => {
+      async (event: AuthChangeEvent, currentSession: Session | null) => {
+        console.log('[Auth] Auth state changed:', event, currentSession?.user?.email);
+        
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
@@ -109,6 +70,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
       }
     );
+
+    // Then check for existing session (this will trigger onAuthStateChange if session exists)
+    const initAuth = async () => {
+      console.log('[Auth] Checking for existing session...');
+      try {
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('[Auth] Error getting session:', error);
+          setIsLoading(false);
+          return;
+        }
+        
+        // If no session found via getSession, onAuthStateChange might not fire
+        // so we need to set loading to false manually
+        if (!initialSession) {
+          console.log('[Auth] No existing session found');
+          setIsLoading(false);
+        } else {
+          console.log('[Auth] Found existing session for:', initialSession.user.email);
+          // onAuthStateChange should handle this, but set it directly too for reliability
+          setSession(initialSession);
+          setUser(initialSession.user);
+          const profileData = await fetchProfile(initialSession.user.id);
+          setProfile(profileData);
+          setIsLoading(false);
+        }
+      } catch (e) {
+        console.error('[Auth] Init error:', e);
+        setIsLoading(false);
+      }
+    };
+
+    initAuth();
 
     return () => {
       subscription.unsubscribe();
