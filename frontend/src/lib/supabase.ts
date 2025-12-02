@@ -88,17 +88,31 @@ export function isSupabaseConfigured(): boolean {
 
 // Create Supabase client for browser
 export function createClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  
+  if (typeof window !== 'undefined') {
+    console.log('[Supabase] Initializing client...', { 
+      hasUrl: !!url, 
+      hasKey: !!key,
+      urlLength: url?.length,
+      keyLength: key?.length 
+    });
+  }
+  
   if (!isSupabaseConfigured()) {
-    // Return a mock client for development without Supabase
+    console.warn('[Supabase] Not configured - missing URL or key');
     return null;
   }
+  
   try {
-    return createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    const client = createBrowserClient(url!, key!);
+    if (typeof window !== 'undefined') {
+      console.log('[Supabase] Client created successfully');
+    }
+    return client;
   } catch (e) {
-    console.error("Failed to create Supabase client:", e);
+    console.error("[Supabase] Failed to create client:", e);
     return null;
   }
 }
@@ -106,32 +120,42 @@ export function createClient() {
 // Singleton client for use in components
 let browserClient: ReturnType<typeof createBrowserClient> | null = null;
 
+// Mock client for when Supabase isn't configured or fails to initialize
+function getMockClient() {
+  console.warn("[Supabase] Using mock client - auth will not work");
+  return {
+    auth: {
+      getSession: async () => ({ data: { session: null }, error: null }),
+      getUser: async () => ({ data: { user: null }, error: null }),
+      signInWithPassword: async () => ({ data: { session: null, user: null }, error: new Error('Supabase not configured') }),
+      signUp: async () => ({ data: { session: null, user: null }, error: new Error('Supabase not configured') }),
+      signOut: async () => ({ error: null }),
+      verifyOtp: async () => ({ data: { session: null, user: null }, error: new Error('Supabase not configured') }),
+      resend: async () => ({ error: new Error('Supabase not configured') }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => { } } } }),
+    },
+    from: () => ({
+      select: () => ({ eq: () => ({ single: async () => ({ data: null, error: null }), execute: async () => ({ data: [], error: null }) }), execute: async () => ({ data: [], error: null }) }),
+      insert: () => ({ execute: async () => ({ data: null, error: null }) }),
+      update: () => ({ eq: () => ({ execute: async () => ({ data: null, error: null }) }) }),
+    }),
+  } as unknown as ReturnType<typeof createBrowserClient>;
+}
+
 export function getSupabaseClient() {
   if (!isSupabaseConfigured()) {
-    console.warn("Supabase not configured. Some features may not work.");
-    // Return a mock client that won't throw errors but will fail gracefully
-    return {
-      auth: {
-        getSession: async () => ({ data: { session: null }, error: null }),
-        getUser: async () => ({ data: { user: null }, error: null }),
-        signInWithPassword: async () => ({ data: { session: null, user: null }, error: new Error('Supabase not configured') }),
-        signUp: async () => ({ data: { session: null, user: null }, error: new Error('Supabase not configured') }),
-        signOut: async () => ({ error: null }),
-        verifyOtp: async () => ({ data: { session: null, user: null }, error: new Error('Supabase not configured') }),
-        resend: async () => ({ error: new Error('Supabase not configured') }),
-        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => { } } } }),
-      },
-      from: () => ({
-        select: () => ({ eq: () => ({ single: async () => ({ data: null, error: null }), execute: async () => ({ data: [], error: null }) }), execute: async () => ({ data: [], error: null }) }),
-        insert: () => ({ execute: async () => ({ data: null, error: null }) }),
-        update: () => ({ eq: () => ({ execute: async () => ({ data: null, error: null }) }) }),
-      }),
-    } as unknown as ReturnType<typeof createBrowserClient>;
+    return getMockClient();
   }
 
   if (!browserClient) {
     browserClient = createClient();
   }
-  return browserClient!;
+  
+  // If createClient returned null (failed), use mock client
+  if (!browserClient) {
+    return getMockClient();
+  }
+  
+  return browserClient;
 }
 

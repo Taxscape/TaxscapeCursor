@@ -52,13 +52,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Get initial session
     const initAuth = async () => {
-      const { data: { session: initialSession } } = await supabase.auth.getSession();
-      
-      if (initialSession) {
-        setSession(initialSession);
-        setUser(initialSession.user);
-        const profileData = await fetchProfile(initialSession.user.id);
-        setProfile(profileData);
+      console.log('[Auth] Initializing auth...');
+      try {
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('[Auth] Error getting session:', error);
+        }
+        
+        if (initialSession) {
+          console.log('[Auth] Found existing session for:', initialSession.user.email);
+          setSession(initialSession);
+          setUser(initialSession.user);
+          const profileData = await fetchProfile(initialSession.user.id);
+          setProfile(profileData);
+        } else {
+          console.log('[Auth] No existing session found');
+        }
+      } catch (e) {
+        console.error('[Auth] Init error:', e);
       }
       
       setIsLoading(false);
@@ -89,14 +101,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, fetchProfile]);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return { error: error as Error | null };
+    console.log('[Auth] Attempting sign in for:', email);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      console.log('[Auth] Sign in result:', { success: !!data?.session, error: error?.message });
+      return { error: error as Error | null };
+    } catch (e) {
+      console.error('[Auth] Sign in exception:', e);
+      return { error: e as Error };
+    }
   };
 
   const signUp = async (email: string, password: string, fullName: string, companyName: string) => {
+    console.log('[Auth] Attempting sign up for:', email);
     // Sign up with email - Supabase will send OTP code
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -112,6 +132,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
       });
 
+      console.log('[Auth] Sign up result:', { 
+        hasUser: !!data.user, 
+        hasSession: !!data.session, 
+        error: error?.message 
+      });
+
       if (error) {
         return { error: error as Error, needsVerification: false };
       }
@@ -121,6 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // If user is already confirmed (has session), update profile immediately
       if (data.user && data.session) {
+        console.log('[Auth] User already verified, updating profile');
         try {
           await supabase
             .from("profiles")
@@ -133,6 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       return { error: null, needsVerification: needsVerification ?? false };
     } catch (err) {
+      console.error('[Auth] Sign up exception:', err);
       return { error: err as Error, needsVerification: false };
     }
   };
