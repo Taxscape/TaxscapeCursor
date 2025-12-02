@@ -54,20 +54,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     // Set up auth state change listener FIRST - this is the primary way to get session
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event: AuthChangeEvent, currentSession: Session | null) => {
+      (event: AuthChangeEvent, currentSession: Session | null) => {
         console.log('[Auth] Auth state changed:', event, currentSession?.user?.email);
         
+        // Update session and user immediately (don't block on profile fetch)
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
+        setIsLoading(false);
 
+        // Fetch profile in the background (don't await)
         if (currentSession?.user) {
-          const profileData = await fetchProfile(currentSession.user.id);
-          setProfile(profileData);
+          fetchProfile(currentSession.user.id)
+            .then(profileData => setProfile(profileData))
+            .catch(err => console.error('[Auth] Profile fetch error:', err));
         } else {
           setProfile(null);
         }
-
-        setIsLoading(false);
       }
     );
 
@@ -93,9 +95,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // onAuthStateChange should handle this, but set it directly too for reliability
           setSession(initialSession);
           setUser(initialSession.user);
-          const profileData = await fetchProfile(initialSession.user.id);
-          setProfile(profileData);
           setIsLoading(false);
+          
+          // Fetch profile in background (don't block)
+          fetchProfile(initialSession.user.id)
+            .then(profileData => setProfile(profileData))
+            .catch(err => console.error('[Auth] Profile fetch error:', err));
         }
       } catch (e) {
         console.error('[Auth] Init error:', e);
