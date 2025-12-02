@@ -50,11 +50,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, fetchProfile]);
 
   useEffect(() => {
-    // Get initial session
+    // Get initial session with timeout
     const initAuth = async () => {
       console.log('[Auth] Initializing auth...');
+      
+      // Add timeout to prevent infinite loading
+      const timeout = new Promise<null>((_, reject) => {
+        setTimeout(() => reject(new Error('Auth initialization timeout')), 10000);
+      });
+      
       try {
-        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        const sessionPromise = supabase.auth.getSession();
+        const result = await Promise.race([sessionPromise, timeout]);
+        
+        if (result === null) {
+          console.log('[Auth] Timeout - proceeding without session');
+          setIsLoading(false);
+          return;
+        }
+        
+        const { data: { session: initialSession }, error } = result as Awaited<typeof sessionPromise>;
         
         if (error) {
           console.error('[Auth] Error getting session:', error);
