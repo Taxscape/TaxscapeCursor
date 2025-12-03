@@ -40,9 +40,11 @@ def verify_supabase_token(token: str) -> Optional[dict]:
         print("[Auth] No token provided")
         return None
     
-    # Always try to decode the JWT first - this is the most reliable method
+    # Decode the JWT without signature verification
+    # jose library requires a key even when not verifying, so we provide a dummy key
     try:
-        decoded = jwt.decode(token, options={"verify_signature": False})
+        # Use get_unverified_claims for cleaner no-verification decode
+        decoded = jwt.get_unverified_claims(token)
         user_id = decoded.get("sub")
         user_email = decoded.get("email")
         

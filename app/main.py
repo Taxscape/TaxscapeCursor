@@ -1193,8 +1193,8 @@ async def root():
     """Root endpoint with API information."""
     return {
         "name": "TaxScape Pro API",
-        "version": "1.0.2",  # Updated to verify deployment
-        "code_version": "2024-12-03-v4",  # Track code changes
+        "version": "1.0.3",  # Updated to verify deployment
+        "code_version": "2024-12-03-v5",  # Track code changes - FIXED jwt.decode issue
         "description": "R&D Tax Credit Calculation and AI Auditor",
         "docs": "/docs",
         "health": "/health"
@@ -1215,7 +1215,8 @@ async def debug_token(authorization: Optional[str] = Header(None)):
     token = parts[1]
     
     try:
-        decoded = jwt.decode(token, options={"verify_signature": False})
+        # Use get_unverified_claims instead of decode
+        decoded = jwt.get_unverified_claims(token)
         return {
             "success": True,
             "token_length": len(token),
