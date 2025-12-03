@@ -39,8 +39,8 @@ export async function checkApiConnection(): Promise<{ connected: boolean; error?
   }
 }
 
-// Helper to get auth headers with retry logic
-async function getAuthHeaders(): Promise<HeadersInit> {
+// Helper to get a fresh session, refreshing token if needed
+async function getFreshSession() {
   const supabase = getSupabaseClient();
   
   // Try to get session with retry (handles race condition on page refresh)
@@ -51,6 +51,40 @@ async function getAuthHeaders(): Promise<HeadersInit> {
     if (session) break;
     await new Promise(r => setTimeout(r, 500)); // Wait 500ms before retry
   }
+  
+  if (!session) {
+    console.log('[API] No session found');
+    return null;
+  }
+  
+  // Check if token is about to expire (within 5 minutes)
+  const expiresAt = session.expires_at;
+  if (expiresAt) {
+    const expiresAtMs = expiresAt * 1000; // Convert to milliseconds
+    const fiveMinutesFromNow = Date.now() + (5 * 60 * 1000);
+    
+    if (expiresAtMs < fiveMinutesFromNow) {
+      console.log('[API] Token expiring soon, refreshing...');
+      try {
+        const { data: refreshData, error } = await supabase.auth.refreshSession();
+        if (error) {
+          console.error('[API] Token refresh failed:', error.message);
+        } else if (refreshData.session) {
+          console.log('[API] Token refreshed successfully');
+          return refreshData.session;
+        }
+      } catch (e) {
+        console.error('[API] Token refresh error:', e);
+      }
+    }
+  }
+  
+  return session;
+}
+
+// Helper to get auth headers with retry logic and token refresh
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const session = await getFreshSession();
   
   const headers: HeadersInit = { "Content-Type": "application/json" };
   if (session?.access_token) {
@@ -61,16 +95,7 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 
 // Helper to get auth headers for file uploads (no Content-Type)
 async function getAuthHeadersForUpload(): Promise<HeadersInit> {
-  const supabase = getSupabaseClient();
-  
-  // Try to get session with retry (handles race condition on page refresh)
-  let session = null;
-  for (let i = 0; i < 3; i++) {
-    const { data } = await supabase.auth.getSession();
-    session = data.session;
-    if (session) break;
-    await new Promise(r => setTimeout(r, 500)); // Wait 500ms before retry
-  }
+  const session = await getFreshSession();
   
   const headers: HeadersInit = {};
   if (session?.access_token) {
