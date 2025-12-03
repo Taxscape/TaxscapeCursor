@@ -1193,7 +1193,8 @@ async def root():
     """Root endpoint with API information."""
     return {
         "name": "TaxScape Pro API",
-        "version": "1.0.0",
+        "version": "1.0.1",  # Updated to verify deployment
+        "code_version": "2024-12-03-v3",  # Track code changes
         "description": "R&D Tax Credit Calculation and AI Auditor",
         "docs": "/docs",
         "health": "/health"
