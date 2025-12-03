@@ -43,19 +43,33 @@ export async function checkApiConnection(): Promise<{ connected: boolean; error?
 async function getFreshSession() {
   const supabase = getSupabaseClient();
   
+  console.log('[API] getFreshSession called');
+  
   // Try to get session with retry (handles race condition on page refresh)
   let session = null;
   for (let i = 0; i < 3; i++) {
-    const { data } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.getSession();
+    console.log(`[API] getSession attempt ${i + 1}:`, {
+      hasSession: !!data?.session,
+      hasAccessToken: !!data?.session?.access_token,
+      tokenLength: data?.session?.access_token?.length || 0,
+      error: error?.message
+    });
     session = data.session;
     if (session) break;
     await new Promise(r => setTimeout(r, 500)); // Wait 500ms before retry
   }
   
   if (!session) {
-    console.log('[API] No session found');
+    console.log('[API] No session found after retries');
     return null;
   }
+  
+  console.log('[API] Session found:', {
+    userId: session.user?.id,
+    email: session.user?.email,
+    tokenLength: session.access_token?.length || 0
+  });
   
   // Check if token is about to expire (within 5 minutes)
   const expiresAt = session.expires_at;
