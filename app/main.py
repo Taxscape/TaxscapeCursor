@@ -1193,12 +1193,43 @@ async def root():
     """Root endpoint with API information."""
     return {
         "name": "TaxScape Pro API",
-        "version": "1.0.1",  # Updated to verify deployment
-        "code_version": "2024-12-03-v3",  # Track code changes
+        "version": "1.0.2",  # Updated to verify deployment
+        "code_version": "2024-12-03-v4",  # Track code changes
         "description": "R&D Tax Credit Calculation and AI Auditor",
         "docs": "/docs",
         "health": "/health"
     }
+
+@app.post("/debug/token")
+async def debug_token(authorization: Optional[str] = Header(None)):
+    """Debug endpoint to test token verification."""
+    from jose import jwt
+    
+    if not authorization:
+        return {"error": "No authorization header"}
+    
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return {"error": f"Invalid format, parts: {len(parts)}"}
+    
+    token = parts[1]
+    
+    try:
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        return {
+            "success": True,
+            "token_length": len(token),
+            "decoded_sub": decoded.get("sub"),
+            "decoded_email": decoded.get("email"),
+            "decoded_iss": decoded.get("iss"),
+            "decoded_exp": decoded.get("exp"),
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "token_length": len(token),
+            "token_start": token[:50] if token else None
+        }
 
 
 # Register Routers
