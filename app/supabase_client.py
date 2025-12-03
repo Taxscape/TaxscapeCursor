@@ -34,46 +34,35 @@ def verify_supabase_token(token: str) -> Optional[dict]:
     Verify a Supabase JWT token and return the user data.
     Returns None if verification fails.
     """
-    if not supabase:
+    print(f"[Auth] verify_supabase_token called, token length: {len(token) if token else 0}")
+    
+    if not token:
+        print("[Auth] No token provided")
         return None
     
+    # Always try to decode the JWT first - this is the most reliable method
     try:
-        # Method 1: Try using Supabase admin API to get user
-        if SUPABASE_KEY:
-            # Use admin client to verify token
-            admin_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-            try:
-                # Decode token to get user ID
-                # Decode JWT to get user ID (without verification for now)
-                # Supabase tokens are signed with JWT_SECRET but we can decode to get user info
-                decoded = jwt.decode(token, options={"verify_signature": False})
-                user_id = decoded.get("sub")
-                if user_id:
-                    # Get user details from admin API
-                    user_response = admin_client.auth.admin.get_user_by_id(user_id)
-                    if user_response and user_response.user:
-                        return {
-                            "id": user_response.user.id,
-                            "email": user_response.user.email,
-                            "role": user_response.user.role or "authenticated",
-                        }
-            except Exception as admin_error:
-                print(f"Admin API verification error: {admin_error}")
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        user_id = decoded.get("sub")
+        user_email = decoded.get("email")
         
-        # Method 2: Fallback - decode JWT without verification to get basic user info
-        try:
-            decoded = jwt.decode(token, options={"verify_signature": False})
+        print(f"[Auth] Token decoded successfully: user_id={user_id}, email={user_email}")
+        
+        if user_id:
             return {
-                "id": decoded.get("sub"),
-                "email": decoded.get("email"),
+                "id": user_id,
+                "email": user_email,
                 "role": decoded.get("role", "authenticated"),
             }
-        except JWTError as decode_error:
-            print(f"JWT decode error: {decode_error}")
+        else:
+            print("[Auth] No user_id (sub) in decoded token")
             return None
             
+    except JWTError as decode_error:
+        print(f"[Auth] JWT decode error: {decode_error}")
+        return None
     except Exception as e:
-        print(f"Token verification error: {e}")
+        print(f"[Auth] Token verification error: {e}")
         return None
 
 

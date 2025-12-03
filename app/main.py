@@ -64,20 +64,30 @@ admin_router = APIRouter(prefix="/admin", tags=["admin"])
 # --- Auth Dependency ---
 async def get_current_user(authorization: Optional[str] = Header(None)):
     """Extract and verify user from Supabase JWT token."""
+    logger.info(f"[Auth] get_current_user called, has authorization: {authorization is not None}")
+    
     if not authorization:
+        logger.warning("[Auth] Authorization header missing")
         raise HTTPException(status_code=401, detail="Authorization header missing")
     
     # Extract token from "Bearer <token>"
     parts = authorization.split()
+    logger.info(f"[Auth] Authorization parts count: {len(parts)}, first part: {parts[0] if parts else 'N/A'}")
+    
     if len(parts) != 2 or parts[0].lower() != "bearer":
+        logger.warning(f"[Auth] Invalid authorization header format")
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     
     token = parts[1]
+    logger.info(f"[Auth] Token extracted, length: {len(token)}, starts with: {token[:20]}...")
+    
     user_data = verify_supabase_token(token)
     
     if not user_data:
+        logger.warning("[Auth] Token verification returned None")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     
+    logger.info(f"[Auth] User authenticated: {user_data.get('email')}")
     return user_data
 
 
