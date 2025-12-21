@@ -28,6 +28,10 @@ const config: Config = {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
         },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           light: "hsl(var(--destructive-light))",
@@ -53,10 +57,19 @@ const config: Config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        '2xl': '1rem',
+        '3xl': '1.5rem',
       },
       boxShadow: {
         'soft': '0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05)',
         'medium': '0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.07)',
+        'glass': '0 8px 32px rgba(0, 0, 0, 0.08)',
+        'glass-lg': '0 18px 60px rgba(0, 0, 0, 0.06)',
+        'glow': '0 0 40px rgba(16, 185, 129, 0.15)',
+      },
+      animation: {
+        'slide-up': 'slide-up 0.5s ease-out forwards',
+        'fade-in': 'fade-in 0.5s ease-out forwards',
       },
     },
   },
