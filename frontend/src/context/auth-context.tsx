@@ -2,18 +2,24 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { User, Session, AuthChangeEvent, EmailOtpType } from "@supabase/supabase-js";
-import { getSupabaseClient, Profile } from "@/lib/supabase";
+import { getSupabaseClient, Profile, Organization, OrganizationMember } from "@/lib/supabase";
+
+export type UserRole = 'admin' | 'project_lead' | 'vendor_approver' | 'supply_approver' | 'hr_verifier' | 'member';
 
 type AuthContextType = {
   user: User | null;
   profile: Profile | null;
   session: Session | null;
+  organization: Organization | null;
+  userRole: UserRole | null;
   isLoading: boolean;
   isAdmin: boolean;
+  isOrgAdmin: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, fullName: string, companyName: string) => Promise<{ error: Error | null; needsVerification: boolean }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  refreshOrganization: () => Promise<void>;
   verifyOtp: (email: string, token: string, type?: EmailOtpType) => Promise<{ error: Error | null }>;
   resendOtp: (email: string) => Promise<{ error: Error | null }>;
 };
@@ -24,6 +30,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const supabase = getSupabaseClient();
@@ -42,12 +50,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data as Profile;
   }, [supabase]);
 
+  const fetchOrganization = useCallback(async (orgId: string, userId: string) => {
+    try {
+      // Fetch organization
+      const { data: orgData, error: orgError } = await supabase
+        .from("organizations")
+        .select("*")
+        .eq("id", orgId)
+        .single();
+
+      if (orgError) {
+        console.error("Error fetching organization:", orgError);
+        return { organization: null, role: null };
+      }
+
+      // Fetch member role
+      const { data: memberData, error: memberError } = await supabase
+        .from("organization_members")
+        .select("role, status")
+        .eq("organization_id", orgId)
+        .eq("user_id", userId)
+        .single();
+
+      if (memberError) {
+        console.error("Error fetching member role:", memberError);
+        // User might be the creator without a member record yet
+        return { organization: orgData as Organization, role: 'admin' as UserRole };
+      }
+
+      return {
+        organization: orgData as Organization,
+        role: memberData?.status === 'active' ? (memberData.role as UserRole) : null
+      };
+    } catch (e) {
+      console.error("Error in fetchOrganization:", e);
+      return { organization: null, role: null };
+    }
+  }, [supabase]);
+
   const refreshProfile = useCallback(async () => {
     if (user) {
       const profileData = await fetchProfile(user.id);
       setProfile(profileData);
+      
+      // Also refresh organization if profile has one
+      if (profileData?.organization_id) {
+        const { organization: org, role } = await fetchOrganization(profileData.organization_id, user.id);
+        setOrganization(org);
+        setUserRole(role);
+      }
     }
-  }, [user, fetchProfile]);
+  }, [user, fetchProfile, fetchOrganization]);
+
+  const refreshOrganization = useCallback(async () => {
+    if (user && profile?.organization_id) {
+      const { organization: org, role } = await fetchOrganization(profile.organization_id, user.id);
+      setOrganization(org);
+      setUserRole(role);
+    }
+  }, [user, profile, fetchOrganization]);
 
   useEffect(() => {
     console.log('[Auth] Setting up auth listener...');
@@ -62,13 +123,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(currentSession?.user ?? null);
         setIsLoading(false);
 
-        // Fetch profile in the background (don't await)
+        // Fetch profile and organization in the background (don't await)
         if (currentSession?.user) {
           fetchProfile(currentSession.user.id)
-            .then(profileData => setProfile(profileData))
+            .then(profileData => {
+              setProfile(profileData);
+              
+              // Fetch organization if user has one
+              if (profileData?.organization_id) {
+                fetchOrganization(profileData.organization_id, currentSession.user.id)
+                  .then(({ organization: org, role }) => {
+                    setOrganization(org);
+                    setUserRole(role);
+                  })
+                  .catch(err => console.error('[Auth] Organization fetch error:', err));
+              } else {
+                setOrganization(null);
+                setUserRole(null);
+              }
+            })
             .catch(err => console.error('[Auth] Profile fetch error:', err));
         } else {
           setProfile(null);
+          setOrganization(null);
+          setUserRole(null);
         }
       }
     );
@@ -97,9 +175,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(initialSession.user);
           setIsLoading(false);
           
-          // Fetch profile in background (don't block)
+          // Fetch profile and organization in background (don't block)
           fetchProfile(initialSession.user.id)
-            .then(profileData => setProfile(profileData))
+            .then(profileData => {
+              setProfile(profileData);
+              
+              if (profileData?.organization_id) {
+                fetchOrganization(profileData.organization_id, initialSession.user.id)
+                  .then(({ organization: org, role }) => {
+                    setOrganization(org);
+                    setUserRole(role);
+                  })
+                  .catch(err => console.error('[Auth] Organization fetch error:', err));
+              }
+            })
             .catch(err => console.error('[Auth] Profile fetch error:', err));
         }
       } catch (e) {
@@ -113,7 +202,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.unsubscribe();
     };
-  }, [supabase, fetchProfile]);
+  }, [supabase, fetchProfile, fetchOrganization]);
 
   const signIn = async (email: string, password: string) => {
     console.log('[Auth] Attempting sign in for:', email);
@@ -217,18 +306,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setProfile(null);
     setSession(null);
+    setOrganization(null);
+    setUserRole(null);
   };
 
   const value = {
     user,
     profile,
     session,
+    organization,
+    userRole,
     isLoading,
     isAdmin: profile?.is_admin ?? false,
+    isOrgAdmin: userRole === 'admin',
     signIn,
     signUp,
     signOut,
     refreshProfile,
+    refreshOrganization,
     verifyOtp,
     resendOtp,
   };

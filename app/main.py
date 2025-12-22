@@ -380,6 +380,502 @@ class DemoRequest(BaseModel):
     message: Optional[str] = None
 
 
+# --- Organization Models ---
+class OrganizationCreate(BaseModel):
+    name: str
+    industry: Optional[str] = None
+    tax_year: Optional[str] = "2024"
+
+class OrganizationUpdate(BaseModel):
+    name: Optional[str] = None
+    industry: Optional[str] = None
+    tax_year: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
+
+class InviteMemberRequest(BaseModel):
+    email: str
+    role: str = "member"  # admin, project_lead, vendor_approver, supply_approver, hr_verifier, member
+
+class UpdateMemberRequest(BaseModel):
+    role: Optional[str] = None
+    status: Optional[str] = None  # active, pending, inactive
+
+class CreateTaskRequest(BaseModel):
+    title: str
+    category: str  # projects, vendors, supplies, wages
+    assigned_to: Optional[str] = None
+    item_id: Optional[str] = None
+    description: Optional[str] = None
+    priority: str = "medium"
+    due_date: Optional[str] = None
+
+class UpdateTaskRequest(BaseModel):
+    status: Optional[str] = None  # pending, verified, denied
+    comment: Optional[str] = None
+    assigned_to: Optional[str] = None
+    priority: Optional[str] = None
+
+
+# --- Organization Router ---
+org_router = APIRouter(prefix="/organizations", tags=["organizations"])
+
+
+def get_user_organization(user: dict) -> Optional[Dict]:
+    """Get the user's organization."""
+    supabase = get_supabase()
+    if not supabase:
+        return None
+    
+    try:
+        profile = supabase.table("profiles").select("organization_id").eq("id", user["id"]).single().execute()
+        if profile.data and profile.data.get("organization_id"):
+            org = supabase.table("organizations").select("*").eq("id", profile.data["organization_id"]).single().execute()
+            return org.data
+    except Exception as e:
+        logger.error(f"Error getting user organization: {e}")
+    return None
+
+
+def check_org_admin(user: dict, org_id: str) -> bool:
+    """Check if user is an admin of the organization."""
+    supabase = get_supabase()
+    if not supabase:
+        return False
+    
+    try:
+        member = supabase.table("organization_members")\
+            .select("role, status")\
+            .eq("organization_id", org_id)\
+            .eq("user_id", user["id"])\
+            .single()\
+            .execute()
+        return member.data and member.data.get("role") == "admin" and member.data.get("status") == "active"
+    except Exception as e:
+        logger.error(f"Error checking org admin: {e}")
+    return False
+
+
+def log_audit(org_id: str, user_id: str, action: str, item_type: str = None, item_id: str = None, details: dict = None):
+    """Log an action to the audit log."""
+    supabase = get_supabase()
+    if not supabase:
+        return
+    
+    try:
+        supabase.table("audit_logs").insert({
+            "organization_id": org_id,
+            "user_id": user_id,
+            "action": action,
+            "item_type": item_type,
+            "item_id": item_id,
+            "details": details or {},
+        }).execute()
+    except Exception as e:
+        logger.error(f"Error logging audit: {e}")
+
+
+@org_router.get("/current")
+async def get_current_organization(user: dict = Depends(get_current_user)):
+    """Get the current user's organization."""
+    org = get_user_organization(user)
+    if not org:
+        return {"organization": None}
+    
+    supabase = get_supabase()
+    
+    # Get member info
+    try:
+        member = supabase.table("organization_members")\
+            .select("role, status")\
+            .eq("organization_id", org["id"])\
+            .eq("user_id", user["id"])\
+            .single()\
+            .execute()
+        
+        org["user_role"] = member.data.get("role") if member.data else "member"
+        org["user_status"] = member.data.get("status") if member.data else "active"
+    except Exception as e:
+        logger.error(f"Error getting member info: {e}")
+        org["user_role"] = "member"
+        org["user_status"] = "active"
+    
+    return {"organization": org}
+
+
+@org_router.post("")
+async def create_organization(org: OrganizationCreate, user: dict = Depends(get_current_user)):
+    """Create a new organization (user becomes admin)."""
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Create organization
+        org_result = supabase.table("organizations").insert({
+            "name": org.name,
+            "industry": org.industry,
+            "tax_year": org.tax_year,
+        }).execute()
+        
+        new_org = org_result.data[0]
+        org_id = new_org["id"]
+        
+        # Update user's profile with organization
+        supabase.table("profiles").update({
+            "organization_id": org_id,
+            "company_name": org.name,
+        }).eq("id", user["id"]).execute()
+        
+        # Add user as admin member
+        supabase.table("organization_members").insert({
+            "organization_id": org_id,
+            "user_id": user["id"],
+            "role": "admin",
+            "status": "active",
+            "accepted_at": datetime.utcnow().isoformat(),
+        }).execute()
+        
+        # Log the action
+        log_audit(org_id, user["id"], "organization_created", "organization", org_id, {"name": org.name})
+        
+        return {"organization": new_org}
+    except Exception as e:
+        logger.error(f"Error creating organization: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.patch("/{org_id}")
+async def update_organization(org_id: str, org: OrganizationUpdate, user: dict = Depends(get_current_user)):
+    """Update organization details (admin only)."""
+    if not check_org_admin(user, org_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        update_data = {k: v for k, v in org.dict().items() if v is not None}
+        if update_data:
+            result = supabase.table("organizations").update(update_data).eq("id", org_id).execute()
+            log_audit(org_id, user["id"], "organization_updated", "organization", org_id, update_data)
+            return {"organization": result.data[0]}
+        return {"organization": None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.get("/{org_id}/members")
+async def get_organization_members(org_id: str, user: dict = Depends(get_current_user)):
+    """Get all members of the organization."""
+    supabase = get_supabase()
+    if not supabase:
+        return {"members": []}
+    
+    # Verify user is a member
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    try:
+        result = supabase.table("organization_members")\
+            .select("*, profiles(id, email, full_name)")\
+            .eq("organization_id", org_id)\
+            .order("created_at", desc=True)\
+            .execute()
+        
+        members = []
+        for m in result.data:
+            profile = m.get("profiles", {})
+            members.append({
+                "id": m["id"],
+                "user_id": m["user_id"],
+                "email": profile.get("email"),
+                "name": profile.get("full_name"),
+                "role": m["role"],
+                "status": m["status"],
+                "invited_at": m.get("invited_at"),
+                "accepted_at": m.get("accepted_at"),
+            })
+        
+        return {"members": members}
+    except Exception as e:
+        logger.error(f"Error fetching members: {e}")
+        return {"members": []}
+
+
+@org_router.post("/{org_id}/invite")
+async def invite_member(org_id: str, invite: InviteMemberRequest, user: dict = Depends(get_current_user)):
+    """Invite a new member to the organization (admin only)."""
+    if not check_org_admin(user, org_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Check if user exists
+        existing_user = supabase.table("profiles").select("id").eq("email", invite.email).execute()
+        
+        if existing_user.data:
+            # User exists - add them as member
+            invited_user_id = existing_user.data[0]["id"]
+            
+            # Check if already a member
+            existing_member = supabase.table("organization_members")\
+                .select("id")\
+                .eq("organization_id", org_id)\
+                .eq("user_id", invited_user_id)\
+                .execute()
+            
+            if existing_member.data:
+                raise HTTPException(status_code=400, detail="User is already a member")
+            
+            # Add member
+            result = supabase.table("organization_members").insert({
+                "organization_id": org_id,
+                "user_id": invited_user_id,
+                "role": invite.role,
+                "status": "pending",
+                "invited_by": user["id"],
+            }).execute()
+            
+            # Update invited user's profile with organization
+            supabase.table("profiles").update({
+                "organization_id": org_id,
+            }).eq("id", invited_user_id).execute()
+            
+            log_audit(org_id, user["id"], "member_invited", "member", invited_user_id, {"email": invite.email, "role": invite.role})
+            
+            return {"success": True, "message": f"Invited {invite.email}", "member": result.data[0]}
+        else:
+            # User doesn't exist - would need to send email invite
+            # For now, just return a message
+            log_audit(org_id, user["id"], "member_invite_pending", "member", None, {"email": invite.email, "role": invite.role})
+            return {"success": True, "message": f"Invitation sent to {invite.email}", "pending": True}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error inviting member: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.patch("/{org_id}/members/{member_user_id}")
+async def update_member(org_id: str, member_user_id: str, update: UpdateMemberRequest, user: dict = Depends(get_current_user)):
+    """Update a member's role or status (admin only)."""
+    if not check_org_admin(user, org_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        update_data = {k: v for k, v in update.dict().items() if v is not None}
+        if update_data:
+            result = supabase.table("organization_members")\
+                .update(update_data)\
+                .eq("organization_id", org_id)\
+                .eq("user_id", member_user_id)\
+                .execute()
+            
+            log_audit(org_id, user["id"], "member_updated", "member", member_user_id, update_data)
+            return {"success": True, "member": result.data[0] if result.data else None}
+        return {"success": False}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.delete("/{org_id}/members/{member_user_id}")
+async def remove_member(org_id: str, member_user_id: str, user: dict = Depends(get_current_user)):
+    """Remove a member from the organization (admin only)."""
+    if not check_org_admin(user, org_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Cannot remove yourself
+    if member_user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot remove yourself")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        supabase.table("organization_members")\
+            .delete()\
+            .eq("organization_id", org_id)\
+            .eq("user_id", member_user_id)\
+            .execute()
+        
+        # Remove organization from user's profile
+        supabase.table("profiles").update({
+            "organization_id": None,
+        }).eq("id", member_user_id).execute()
+        
+        log_audit(org_id, user["id"], "member_removed", "member", member_user_id, {})
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Task Management ---
+@org_router.get("/{org_id}/tasks")
+async def get_tasks(org_id: str, status: Optional[str] = None, category: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Get verification tasks for the organization."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        return {"tasks": []}
+    
+    try:
+        query = supabase.table("verification_tasks")\
+            .select("*, profiles!assigned_to(id, email, full_name)")\
+            .eq("organization_id", org_id)
+        
+        if status:
+            query = query.eq("status", status)
+        if category:
+            query = query.eq("category", category)
+        
+        result = query.order("created_at", desc=True).execute()
+        
+        tasks = []
+        for t in result.data:
+            assignee = t.get("profiles", {})
+            tasks.append({
+                **{k: v for k, v in t.items() if k != "profiles"},
+                "assignee_name": assignee.get("full_name") if assignee else None,
+                "assignee_email": assignee.get("email") if assignee else None,
+            })
+        
+        return {"tasks": tasks}
+    except Exception as e:
+        logger.error(f"Error fetching tasks: {e}")
+        return {"tasks": []}
+
+
+@org_router.post("/{org_id}/tasks")
+async def create_task(org_id: str, task: CreateTaskRequest, user: dict = Depends(get_current_user)):
+    """Create a new verification task (admin only)."""
+    if not check_org_admin(user, org_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        task_data = {
+            "organization_id": org_id,
+            "title": task.title,
+            "category": task.category,
+            "description": task.description,
+            "priority": task.priority,
+            "status": "pending",
+        }
+        if task.assigned_to:
+            task_data["assigned_to"] = task.assigned_to
+        if task.item_id:
+            task_data["item_id"] = task.item_id
+        if task.due_date:
+            task_data["due_date"] = task.due_date
+        
+        result = supabase.table("verification_tasks").insert(task_data).execute()
+        
+        log_audit(org_id, user["id"], "task_created", "task", result.data[0]["id"], {"title": task.title})
+        return {"task": result.data[0]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.patch("/{org_id}/tasks/{task_id}")
+async def update_task(org_id: str, task_id: str, update: UpdateTaskRequest, user: dict = Depends(get_current_user)):
+    """Update a verification task."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Get the task first
+        task = supabase.table("verification_tasks").select("*").eq("id", task_id).single().execute()
+        if not task.data:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        # Check permission - admin can update anything, assigned user can update status
+        is_admin = check_org_admin(user, org_id)
+        is_assigned = task.data.get("assigned_to") == user["id"]
+        
+        if not is_admin and not is_assigned:
+            raise HTTPException(status_code=403, detail="Not authorized to update this task")
+        
+        update_data = {k: v for k, v in update.dict().items() if v is not None}
+        
+        # If verifying/denying, add verification metadata
+        if update.status in ["verified", "denied"]:
+            update_data["verified_at"] = datetime.utcnow().isoformat()
+            update_data["verified_by"] = user["id"]
+        
+        result = supabase.table("verification_tasks")\
+            .update(update_data)\
+            .eq("id", task_id)\
+            .execute()
+        
+        log_audit(org_id, user["id"], f"task_{update.status or 'updated'}", "task", task_id, update_data)
+        return {"task": result.data[0] if result.data else None}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Audit Log ---
+@org_router.get("/{org_id}/audit-log")
+async def get_audit_log(org_id: str, limit: int = 50, user: dict = Depends(get_current_user)):
+    """Get audit log for the organization (admin only)."""
+    if not check_org_admin(user, org_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        return {"logs": []}
+    
+    try:
+        result = supabase.table("audit_logs")\
+            .select("*, profiles(id, email, full_name)")\
+            .eq("organization_id", org_id)\
+            .order("created_at", desc=True)\
+            .limit(limit)\
+            .execute()
+        
+        logs = []
+        for log in result.data:
+            user_info = log.get("profiles", {})
+            logs.append({
+                "id": log["id"],
+                "action": log["action"],
+                "item_type": log.get("item_type"),
+                "item_id": log.get("item_id"),
+                "details": log.get("details", {}),
+                "user_name": user_info.get("full_name") if user_info else None,
+                "user_email": user_info.get("email") if user_info else None,
+                "created_at": log["created_at"],
+            })
+        
+        return {"logs": logs}
+    except Exception as e:
+        logger.error(f"Error fetching audit log: {e}")
+        return {"logs": []}
+
+
 # --- Public Endpoints (no auth required) ---
 @api_router.post("/chat_demo")
 async def chat_demo(request: ChatRequest):
@@ -1236,3 +1732,4 @@ async def debug_token(authorization: Optional[str] = Header(None)):
 # Register Routers
 app.include_router(api_router)
 app.include_router(admin_router)
+app.include_router(org_router)

@@ -1,11 +1,64 @@
 import { createBrowserClient } from '@supabase/ssr';
 
 // Types for our database
+export type Organization = {
+  id: string;
+  name: string;
+  industry: string | null;
+  tax_year: string;
+  settings: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OrganizationMember = {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: 'admin' | 'project_lead' | 'vendor_approver' | 'supply_approver' | 'hr_verifier' | 'member';
+  status: 'active' | 'pending' | 'inactive';
+  invited_by: string | null;
+  invited_at: string;
+  accepted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type VerificationTask = {
+  id: string;
+  organization_id: string;
+  assigned_to: string | null;
+  category: 'projects' | 'vendors' | 'supplies' | 'wages';
+  item_id: string | null;
+  title: string;
+  description: string | null;
+  status: 'pending' | 'verified' | 'denied';
+  priority: 'high' | 'medium' | 'low';
+  due_date: string | null;
+  comment: string | null;
+  verified_at: string | null;
+  verified_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AuditLog = {
+  id: string;
+  organization_id: string;
+  user_id: string | null;
+  action: string;
+  item_type: string | null;
+  item_id: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
+};
+
 export type Profile = {
   id: string;
   email: string;
   full_name: string | null;
   company_name: string | null;
+  organization_id: string | null;
   is_admin: boolean;
   created_at: string;
   updated_at: string;

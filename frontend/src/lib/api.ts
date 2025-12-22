@@ -1,10 +1,9 @@
 import { getSupabaseClient } from "./supabase";
 
 // =============================================================================
-// API URL CONFIGURATION - PRODUCTION ONLY
+// API URL CONFIGURATION
 // =============================================================================
-// HARDCODED to Railway production backend. NO LOCALHOST.
-const API_URL = "https://taxscapecursor-production.up.railway.app";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://taxscapecursor-production.up.railway.app";
 
 // Log API URL for debugging
 if (typeof window !== "undefined") {
@@ -552,6 +551,299 @@ export async function submitDemoRequest(data: {
   }
 
   return await response.json();
+}
+
+// =============================================================================
+// ORGANIZATION TYPES
+// =============================================================================
+
+export type Organization = {
+  id: string;
+  name: string;
+  industry: string | null;
+  tax_year: string;
+  settings: Record<string, unknown>;
+  user_role?: string;
+  user_status?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OrganizationMember = {
+  id: string;
+  user_id: string;
+  email: string | null;
+  name: string | null;
+  role: string;
+  status: string;
+  invited_at: string | null;
+  accepted_at: string | null;
+};
+
+export type VerificationTask = {
+  id: string;
+  organization_id: string;
+  assigned_to: string | null;
+  assignee_name: string | null;
+  assignee_email: string | null;
+  category: 'projects' | 'vendors' | 'supplies' | 'wages';
+  item_id: string | null;
+  title: string;
+  description: string | null;
+  status: 'pending' | 'verified' | 'denied';
+  priority: 'high' | 'medium' | 'low';
+  due_date: string | null;
+  comment: string | null;
+  verified_at: string | null;
+  verified_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AuditLogEntry = {
+  id: string;
+  action: string;
+  item_type: string | null;
+  item_id: string | null;
+  details: Record<string, unknown>;
+  user_name: string | null;
+  user_email: string | null;
+  created_at: string;
+};
+
+// =============================================================================
+// ORGANIZATION ENDPOINTS
+// =============================================================================
+
+export async function getCurrentOrganization(): Promise<Organization | null> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/current`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch current organization");
+  }
+
+  const data = await response.json();
+  return data.organization;
+}
+
+export async function createOrganization(data: {
+  name: string;
+  industry?: string;
+  tax_year?: string;
+}): Promise<Organization> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to create organization");
+  }
+
+  const result = await response.json();
+  return result.organization;
+}
+
+export async function updateOrganization(orgId: string, data: {
+  name?: string;
+  industry?: string;
+  tax_year?: string;
+  settings?: Record<string, unknown>;
+}): Promise<Organization> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to update organization");
+  }
+
+  const result = await response.json();
+  return result.organization;
+}
+
+// =============================================================================
+// ORGANIZATION MEMBERS ENDPOINTS
+// =============================================================================
+
+export async function getOrganizationMembers(orgId: string): Promise<OrganizationMember[]> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/members`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch organization members");
+  }
+
+  const data = await response.json();
+  return data.members;
+}
+
+export async function inviteOrganizationMember(orgId: string, data: {
+  email: string;
+  role: string;
+}): Promise<{ success: boolean; message: string; member?: OrganizationMember; pending?: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/invite`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to invite member");
+  }
+
+  return await response.json();
+}
+
+export async function updateOrganizationMember(orgId: string, userId: string, data: {
+  role?: string;
+  status?: string;
+}): Promise<{ success: boolean; member?: OrganizationMember }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/members/${userId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to update member");
+  }
+
+  return await response.json();
+}
+
+export async function removeOrganizationMember(orgId: string, userId: string): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/members/${userId}`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to remove member");
+  }
+
+  return await response.json();
+}
+
+// =============================================================================
+// VERIFICATION TASKS ENDPOINTS
+// =============================================================================
+
+export async function getVerificationTasks(orgId: string, filters?: {
+  status?: string;
+  category?: string;
+}): Promise<VerificationTask[]> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.category) params.set("category", filters.category);
+  
+  const url = `${API_URL}/organizations/${orgId}/tasks${params.toString() ? `?${params}` : ""}`;
+  
+  const response = await fetch(url, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch tasks");
+  }
+
+  const data = await response.json();
+  return data.tasks;
+}
+
+export async function createVerificationTask(orgId: string, data: {
+  title: string;
+  category: string;
+  assigned_to?: string;
+  item_id?: string;
+  description?: string;
+  priority?: string;
+  due_date?: string;
+}): Promise<VerificationTask> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/tasks`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to create task");
+  }
+
+  const result = await response.json();
+  return result.task;
+}
+
+export async function updateVerificationTask(orgId: string, taskId: string, data: {
+  status?: string;
+  comment?: string;
+  assigned_to?: string;
+  priority?: string;
+}): Promise<VerificationTask> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/tasks/${taskId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to update task");
+  }
+
+  const result = await response.json();
+  return result.task;
+}
+
+// =============================================================================
+// AUDIT LOG ENDPOINTS
+// =============================================================================
+
+export async function getAuditLog(orgId: string, limit?: number): Promise<AuditLogEntry[]> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (limit) params.set("limit", limit.toString());
+  
+  const url = `${API_URL}/organizations/${orgId}/audit-log${params.toString() ? `?${params}` : ""}`;
+  
+  const response = await fetch(url, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch audit log");
+  }
+
+  const data = await response.json();
+  return data.logs;
 }
 
 // =============================================================================

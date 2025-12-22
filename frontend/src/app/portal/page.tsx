@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useAuth } from "@/context/auth-context";
 import {
   sendChatMessage,
@@ -18,119 +17,326 @@ import {
   sendChatWithFiles,
   checkApiConnection,
   getApiUrl,
+  getOrganizationMembers,
+  inviteOrganizationMember,
+  updateOrganizationMember,
+  removeOrganizationMember,
+  getVerificationTasks,
+  createVerificationTask,
+  updateVerificationTask,
+  getAuditLog,
   type ChatMessage,
   type DashboardData,
   type Project,
   type ChatSession,
   type Employee,
   type Contractor,
+  type OrganizationMember,
+  type VerificationTask,
+  type AuditLogEntry,
 } from "@/lib/api";
 
-// Icons - minimal stroke style
+// ============================================================================
+// ICONS - Lucide-style SVG icons
+// ============================================================================
 const Icons = {
-  home: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      <polyline points="9 22 9 12 15 12 15 22" />
-    </svg>
-  ),
-  chat: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  ),
-  upload: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" x2="12" y1="3" y2="15" />
-    </svg>
-  ),
-  download: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" x2="12" y1="15" y2="3" />
-    </svg>
-  ),
-  send: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="m22 2-7 20-4-9-9-4Z" />
-      <path d="M22 2 11 13" />
-    </svg>
-  ),
-  dollar: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <line x1="12" x2="12" y1="2" y2="22" />
-      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+  layoutDashboard: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="7" height="9" x="3" y="3" rx="1" />
+      <rect width="7" height="5" x="14" y="3" rx="1" />
+      <rect width="7" height="9" x="14" y="12" rx="1" />
+      <rect width="7" height="5" x="3" y="16" rx="1" />
     </svg>
   ),
   users: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
       <circle cx="9" cy="7" r="4" />
       <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
-  folder: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+  checkCircle: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <polyline points="22 4 12 14.01 9 11.01" />
     </svg>
   ),
-  logout: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-      <polyline points="16 17 21 12 16 7" />
-      <line x1="21" x2="9" y1="12" y2="12" />
+  folderKanban: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+      <path d="M8 10v4" />
+      <path d="M12 10v2" />
+      <path d="M16 10v6" />
+    </svg>
+  ),
+  dollarSign: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" x2="12" y1="2" y2="22" />
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
+  ),
+  fileText: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" x2="8" y1="13" y2="13" />
+      <line x1="16" x2="8" y1="17" y2="17" />
+      <line x1="10" x2="8" y1="9" y2="9" />
+    </svg>
+  ),
+  messageSquare: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  ),
+  upload: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" x2="12" y1="3" y2="15" />
+    </svg>
+  ),
+  calculator: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="16" height="20" x="4" y="2" rx="2" />
+      <line x1="8" x2="16" y1="6" y2="6" />
+      <line x1="16" x2="16" y1="14" y2="18" />
+      <path d="M16 10h.01" />
+      <path d="M12 10h.01" />
+      <path d="M8 10h.01" />
+      <path d="M12 14h.01" />
+      <path d="M8 14h.01" />
+      <path d="M12 18h.01" />
+      <path d="M8 18h.01" />
+    </svg>
+  ),
+  settings: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  beaker: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4.5 3h15" />
+      <path d="M6 3v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3" />
+      <path d="M6 14h12" />
+    </svg>
+  ),
+  chevronLeft: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m15 18-6-6 6-6" />
+    </svg>
+  ),
+  chevronRight: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  ),
+  search: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  ),
+  bell: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </svg>
+  ),
+  user: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  ),
+  building: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="16" height="20" x="4" y="2" rx="2" ry="2" />
+      <path d="M9 22v-4h6v4" />
+      <path d="M8 6h.01" />
+      <path d="M16 6h.01" />
+      <path d="M12 6h.01" />
+      <path d="M12 10h.01" />
+      <path d="M12 14h.01" />
+      <path d="M16 10h.01" />
+      <path d="M16 14h.01" />
+      <path d="M8 10h.01" />
+      <path d="M8 14h.01" />
+    </svg>
+  ),
+  calendar: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
+      <line x1="16" x2="16" y1="2" y2="6" />
+      <line x1="8" x2="8" y1="2" y2="6" />
+      <line x1="3" x2="21" y1="10" y2="10" />
+    </svg>
+  ),
+  download: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" x2="12" y1="15" y2="3" />
+    </svg>
+  ),
+  trendingUp: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+      <polyline points="16 7 22 7 22 13" />
+    </svg>
+  ),
+  fileCheck: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
+      <path d="m9 15 2 2 4-4" />
+    </svg>
+  ),
+  arrowRight: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </svg>
+  ),
+  clock: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  ),
+  userPlus: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <line x1="19" x2="19" y1="8" y2="14" />
+      <line x1="22" x2="16" y1="11" y2="11" />
+    </svg>
+  ),
+  moreHorizontal: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+      <circle cx="5" cy="12" r="1" />
+    </svg>
+  ),
+  shield: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
+    </svg>
+  ),
+  check: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+  x: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  ),
+  alertTriangle: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </svg>
+  ),
+  briefcase: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="20" height="14" x="2" y="7" rx="2" ry="2" />
+      <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+    </svg>
+  ),
+  receipt: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
+      <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+      <path d="M12 17.5v-11" />
+    </svg>
+  ),
+  package: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m7.5 4.27 9 5.15" />
+      <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+      <path d="m3.3 7 8.7 5 8.7-5" />
+      <path d="M12 22V12" />
+    </svg>
+  ),
+  sparkles: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+      <path d="M5 3v4" />
+      <path d="M19 17v4" />
+      <path d="M3 5h4" />
+      <path d="M17 19h4" />
+    </svg>
+  ),
+  send: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m22 2-7 20-4-9-9-4Z" />
+      <path d="M22 2 11 13" />
+    </svg>
+  ),
+  paperclip: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  ),
+  file: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
+    </svg>
+  ),
+  plus: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" x2="12" y1="5" y2="19" />
+      <line x1="5" x2="19" y1="12" y2="12" />
     </svg>
   ),
   refresh: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
       <path d="M3 3v5h5" />
       <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
       <path d="M16 21h5v-5" />
     </svg>
   ),
-  sparkle: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-    </svg>
-  ),
-  paperclip: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-    </svg>
-  ),
-  x: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </svg>
-  ),
-  file: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-      <polyline points="14 2 14 8 20 8" />
-    </svg>
-  ),
-  plus: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <line x1="12" x2="12" y1="5" y2="19" />
-      <line x1="5" x2="19" y1="12" y2="12" />
+  logout: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" x2="9" y1="12" y2="12" />
     </svg>
   ),
 };
 
+// ============================================================================
+// TYPES
+// ============================================================================
+type UserRole = "admin" | "project_lead" | "vendor_approver" | "supply_approver" | "hr_verifier" | "member";
+type ViewMode = "dashboard" | "admin" | "verify" | "projects" | "expenses" | "documents" | "questionnaires";
+
+// Initial chat message
 const initialMessage: ChatMessage = {
   role: "assistant",
-  content: "Hello. I'm your R&D Tax Credit Auditor. I'll validate your projects against IRS Section 41. Describe your first technical project, or attach files (Excel, CSV, PDF) for analysis.",
+  content: "Hello! I'm your R&D Tax Credit Assistant. I can help you validate projects, review data, or answer questions about qualifying activities. What would you like to work on today?",
 };
 
+// ============================================================================
+// MAIN PORTAL COMPONENT
+// ============================================================================
 export default function Portal() {
   const router = useRouter();
-  const { user, profile, isLoading: authLoading, signOut } = useAuth();
+  const { user, profile, organization, userRole, isLoading: authLoading, isOrgAdmin, signOut } = useAuth();
+
+  // Navigation state
+  const [currentView, setCurrentView] = useState<ViewMode>("dashboard");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Data State
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
@@ -148,7 +354,8 @@ export default function Portal() {
   const [structured, setStructured] = useState<Record<string, unknown> | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+  const [showChat, setShowChat] = useState(false);
+
   // File attachment state
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -160,6 +367,64 @@ export default function Portal() {
   // Report State
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // Team management state
+  const [teamMembers, setTeamMembers] = useState<OrganizationMember[]>([]);
+  const [tasks, setTasks] = useState<VerificationTask[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<string>("member");
+  const [isInviting, setIsInviting] = useState(false);
+
+  // ============================================================================
+  // COMPUTED VALUES
+  // ============================================================================
+  const kpiData = useMemo(() => dashboard || {
+    total_credit: 0,
+    total_wages: 0,
+    total_qre: 0,
+    project_count: 0,
+    employee_count: 0,
+    contractor_count: 0,
+    study_count: 0,
+  }, [dashboard]);
+
+  const overallProgress = useMemo(() => {
+    const hasProjects = projects.length > 0;
+    const hasEmployees = employees.length > 0;
+    const hasContractors = contractors.length > 0;
+    const hasStudy = kpiData.study_count > 0;
+    const steps = [hasProjects, hasEmployees, hasContractors, hasStudy];
+    const completed = steps.filter(Boolean).length;
+    return Math.round((completed / steps.length) * 100);
+  }, [projects, employees, contractors, kpiData]);
+
+  const pendingTasksCount = useMemo(() => 
+    tasks.filter(t => t.status === "pending").length
+  , [tasks]);
+
+  const verifiedTasksCount = useMemo(() => 
+    tasks.filter(t => t.status === "verified").length
+  , [tasks]);
+
+  // Navigation items
+  const mainNavItems = useMemo(() => [
+    { id: "dashboard" as const, label: "Dashboard", icon: Icons.layoutDashboard },
+    { id: "admin" as const, label: "Admin Portal", icon: Icons.users },
+    { id: "verify" as const, label: "Verification", icon: Icons.checkCircle, badge: pendingTasksCount > 0 ? pendingTasksCount.toString() : undefined },
+    { id: "projects" as const, label: "Projects", icon: Icons.folderKanban, badge: projects.length.toString() },
+    { id: "expenses" as const, label: "Expenses", icon: Icons.dollarSign },
+    { id: "documents" as const, label: "Documents", icon: Icons.fileText },
+  ], [pendingTasksCount, projects.length]);
+
+  const toolsNavItems = useMemo(() => [
+    { id: "questionnaires" as const, label: "Questionnaires", icon: Icons.messageSquare },
+  ], []);
+
+  // ============================================================================
+  // EFFECTS
+  // ============================================================================
+
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
@@ -170,19 +435,18 @@ export default function Portal() {
   // Fetch all data
   const fetchData = useCallback(async () => {
     if (!user) return;
-    
+
     setApiError(null);
     setIsLoadingData(true);
-    
+
     try {
-      // First check API connectivity
       const connectionCheck = await checkApiConnection();
       if (!connectionCheck.connected) {
         setApiError(connectionCheck.error || "Cannot connect to server");
         setIsLoadingData(false);
         return;
       }
-      
+
       const [dashboardData, projectsData, sessionsData, employeesData, contractorsData] = await Promise.all([
         getDashboard().catch((e) => { console.error("Dashboard error:", e); return null; }),
         getProjects().catch((e) => { console.error("Projects error:", e); return []; }),
@@ -196,6 +460,18 @@ export default function Portal() {
       setSessions(sessionsData);
       setEmployees(employeesData);
       setContractors(contractorsData);
+
+      // Fetch organization-specific data if user has an organization
+      if (organization?.id) {
+        const [membersData, tasksData, auditData] = await Promise.all([
+          getOrganizationMembers(organization.id).catch((e) => { console.error("Members error:", e); return []; }),
+          getVerificationTasks(organization.id).catch((e) => { console.error("Tasks error:", e); return []; }),
+          isOrgAdmin ? getAuditLog(organization.id, 50).catch((e) => { console.error("Audit error:", e); return []; }) : Promise.resolve([]),
+        ]);
+        setTeamMembers(membersData);
+        setTasks(tasksData);
+        setAuditLogs(auditData);
+      }
     } catch (error) {
       console.error("Error fetching data:", error);
       const errorMessage = error instanceof Error ? error.message : "Failed to load data";
@@ -203,10 +479,9 @@ export default function Portal() {
     } finally {
       setIsLoadingData(false);
     }
-  }, [user]);
+  }, [user, organization?.id, isOrgAdmin]);
 
   useEffect(() => {
-    // Only fetch data when auth is fully loaded and user exists
     if (user && !authLoading) {
       fetchData();
     }
@@ -220,6 +495,10 @@ export default function Portal() {
     scrollToBottom();
   }, [messages]);
 
+  // ============================================================================
+  // HANDLERS
+  // ============================================================================
+
   const handleSend = async () => {
     if ((!input.trim() && attachedFiles.length === 0) || isLoading) return;
 
@@ -229,19 +508,18 @@ export default function Portal() {
     setMessages(updatedMessages);
     setInput("");
     setIsLoading(true);
-    
+
     const filesToSend = [...attachedFiles];
     setAttachedFiles([]);
 
     try {
       let response;
-      
+
       if (filesToSend.length > 0 && user) {
         response = await sendChatWithFiles(updatedMessages, filesToSend, currentSessionId || undefined);
       } else if (user) {
         response = await sendChatMessage(updatedMessages, currentSessionId || undefined, true);
       } else {
-        // Fallback to demo endpoint when in test mode or unauthenticated
         response = await sendChatMessageDemo(updatedMessages);
       }
 
@@ -258,12 +536,9 @@ export default function Portal() {
     } catch (err) {
       console.error("Chat error:", err);
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      const isConnectionError = errorMessage.includes("Cannot connect") || errorMessage.includes("Failed to fetch");
-      setMessages([...updatedMessages, { 
-        role: "assistant", 
-        content: isConnectionError 
-          ? `Connection error: ${errorMessage}. Please check that the backend is running and properly configured.`
-          : `Error: ${errorMessage}. Please try again.`
+      setMessages([...updatedMessages, {
+        role: "assistant",
+        content: `Error: ${errorMessage}. Please try again.`
       }]);
     } finally {
       setIsLoading(false);
@@ -275,7 +550,6 @@ export default function Portal() {
 
     setIsGenerating(true);
     try {
-      // Always use downloadChatExcel for reliable Excel download
       const blob = await downloadChatExcel(structured, "R&D Tax Credit Study");
 
       const url = URL.createObjectURL(blob);
@@ -347,73 +621,71 @@ export default function Portal() {
     setAttachedFiles([]);
   };
 
-  // Show loading while checking auth
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F6F6F7]">
-        <div className="text-center">
-          <div className="w-6 h-6 border-2 border-[#323338] border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-4 text-[13px] text-[#6B6D72]">Loading...</p>
-        </div>
-      </div>
-    );
-  }
+  const handleInviteMember = async () => {
+    if (!inviteEmail || !organization?.id) return;
+    
+    setIsInviting(true);
+    try {
+      const result = await inviteOrganizationMember(organization.id, {
+        email: inviteEmail,
+        role: inviteRole,
+      });
+      
+      if (result.success) {
+        // Refresh members list
+        const membersData = await getOrganizationMembers(organization.id);
+        setTeamMembers(membersData);
+        setInviteDialogOpen(false);
+        setInviteEmail("");
+        setInviteRole("member");
+      }
+    } catch (error) {
+      console.error("Failed to invite member:", error);
+      alert(error instanceof Error ? error.message : "Failed to invite member");
+    } finally {
+      setIsInviting(false);
+    }
+  };
 
-  // Redirect handled by useEffect, but show nothing while redirecting
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F6F6F7]">
-        <div className="text-center">
-          <div className="w-6 h-6 border-2 border-[#323338] border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-4 text-[13px] text-[#6B6D72]">Redirecting to login...</p>
-        </div>
-      </div>
-    );
-  }
+  const handleUpdateMember = async (userId: string, data: { role?: string; status?: string }) => {
+    if (!organization?.id) return;
+    
+    try {
+      await updateOrganizationMember(organization.id, userId, data);
+      // Refresh members list
+      const membersData = await getOrganizationMembers(organization.id);
+      setTeamMembers(membersData);
+    } catch (error) {
+      console.error("Failed to update member:", error);
+    }
+  };
 
-  // Show API error state with retry button
-  if (apiError && !isLoadingData) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F6F6F7]">
-        <div className="text-center max-w-md px-6">
-          <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="1.5">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" x2="12" y1="8" y2="12" />
-              <line x1="12" x2="12.01" y1="16" y2="16" />
-            </svg>
-          </div>
-          <h2 className="text-lg font-medium text-[#17181A] mb-2">Connection Error</h2>
-          <p className="text-[13px] text-[#6B6D72] mb-4">{apiError}</p>
-          <p className="text-[11px] text-[#9CA3AF] mb-6">
-            API URL: {getApiUrl()}
-          </p>
-          <button
-            onClick={fetchData}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-[#323338] text-white text-[13px] font-medium rounded-md hover:bg-[#3A3B40] transition-colors"
-          >
-            {Icons.refresh}
-            Retry Connection
-          </button>
-          <button
-            onClick={handleLogout}
-            className="block mx-auto mt-4 text-[12px] text-[#6B6D72] hover:text-[#17181A] transition-colors"
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const handleRemoveMember = async (userId: string) => {
+    if (!organization?.id) return;
+    
+    if (!confirm("Are you sure you want to remove this member?")) return;
+    
+    try {
+      await removeOrganizationMember(organization.id, userId);
+      // Refresh members list
+      const membersData = await getOrganizationMembers(organization.id);
+      setTeamMembers(membersData);
+    } catch (error) {
+      console.error("Failed to remove member:", error);
+    }
+  };
 
-  const kpiData = dashboard || {
-    total_credit: 0,
-    total_wages: 0,
-    total_qre: 0,
-    project_count: 0,
-    employee_count: 0,
-    contractor_count: 0,
-    study_count: 0,
+  const handleUpdateTask = async (taskId: string, data: { status?: string; comment?: string }) => {
+    if (!organization?.id) return;
+    
+    try {
+      await updateVerificationTask(organization.id, taskId, data);
+      // Refresh tasks list
+      const tasksData = await getVerificationTasks(organization.id);
+      setTasks(tasksData);
+    } catch (error) {
+      console.error("Failed to update task:", error);
+    }
   };
 
   const formatCurrency = (value: number) => {
@@ -422,358 +694,871 @@ export default function Portal() {
     return `$${value.toLocaleString()}`;
   };
 
-  return (
-    <div className="min-h-screen bg-[#F6F6F7] text-[#17181A] font-sans antialiased">
-      {/* Subtle grid background */}
-      <div 
-        className="fixed inset-0 pointer-events-none opacity-[0.03]"
-        style={{
-          backgroundImage: `linear-gradient(to right, #17181A 1px, transparent 1px), linear-gradient(to bottom, #17181A 1px, transparent 1px)`,
-          backgroundSize: '48px 48px'
-        }}
-      />
+  const getRoleName = (role: UserRole) => {
+    const names: Record<UserRole, string> = {
+      admin: "Administrator",
+      project_lead: "R&D Project Lead",
+      vendor_approver: "Vendor Spend Approver",
+      supply_approver: "Supply Expense Approver",
+      hr_verifier: "Payroll/HR Verifier",
+      member: "Member",
+    };
+    return names[role];
+  };
 
-      {/* Top Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#E0E1E4]/70 backdrop-blur-xl border-b border-black/[0.06]">
-        <div className="max-w-[1440px] mx-auto px-8 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link href="/" className="flex items-center gap-2">
-              <span className="text-[15px] font-medium tracking-tight text-[#17181A]">TaxScape</span>
-              <span className="text-[11px] uppercase tracking-[0.08em] text-[#6B6D72]">Portal</span>
-            </Link>
+  // ============================================================================
+  // LOADING STATES
+  // ============================================================================
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-foreground border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-sm text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-foreground border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-sm text-muted-foreground">Redirecting to login...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (apiError && !isLoadingData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center max-w-md px-6">
+          <div className="w-14 h-14 rounded-2xl bg-destructive/20 flex items-center justify-center mx-auto mb-5">
+            <span className="text-destructive">{Icons.alertTriangle}</span>
           </div>
+          <h2 className="text-xl font-semibold text-foreground mb-2">Connection Error</h2>
+          <p className="text-sm text-muted-foreground mb-4">{apiError}</p>
+          <p className="text-xs text-muted-foreground/60 mb-6">API URL: {getApiUrl()}</p>
+          <button onClick={fetchData} className="btn btn-primary btn-md">
+            {Icons.refresh}
+            <span>Retry Connection</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-          <div className="flex items-center gap-4">
-            <span className="text-[12px] text-[#6B6D72]">
-              {profile?.company_name || user.email}
-            </span>
-            <button 
-              onClick={fetchData} 
-              className="p-2 rounded-md hover:bg-black/[0.04] text-[#6B6D72] hover:text-[#17181A] transition-colors"
-              title="Refresh data"
-            >
-              {Icons.refresh}
-            </button>
-            <button 
-              onClick={handleLogout} 
-              className="p-2 rounded-md hover:bg-black/[0.04] text-[#6B6D72] hover:text-[#17181A] transition-colors"
-              title="Sign out"
-            >
-              {Icons.logout}
-            </button>
+  // ============================================================================
+  // RENDER VIEWS
+  // ============================================================================
+
+  const renderDashboard = () => (
+    <div className="space-y-6 animate-fade-in">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="glass-card p-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Total QRE</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {formatCurrency(kpiData.total_qre || 0)}
+              </p>
+              <p className="text-xs text-success mt-1 flex items-center gap-1">
+                {Icons.trendingUp}
+                Based on current data
+              </p>
+            </div>
+            <div className="p-3 rounded-lg bg-accent/30">
+              <span className="text-accent-foreground">{Icons.dollarSign}</span>
+            </div>
           </div>
         </div>
-      </nav>
 
-      {/* Main Content */}
-      <div className="pt-14 min-h-screen">
-        <div className="max-w-[1440px] mx-auto px-8 py-8">
-          <div className="grid grid-cols-12 gap-6">
-            
-            {/* Left Column - Dashboard */}
-            <div className="col-span-7 space-y-6">
-              
-              {/* KPI Cards */}
-              <div className="grid grid-cols-4 gap-4">
-                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg p-5 shadow-sm">
-                  <div className="text-[11px] uppercase tracking-[0.08em] text-[#6B6D72] mb-2">R&D Credit</div>
-                  <div className="text-[24px] font-medium text-[#17181A]">{formatCurrency(kpiData.total_credit)}</div>
-                </div>
-                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg p-5 shadow-sm">
-                  <div className="text-[11px] uppercase tracking-[0.08em] text-[#6B6D72] mb-2">Total QRE</div>
-                  <div className="text-[24px] font-medium text-[#17181A]">{formatCurrency(kpiData.total_qre || 0)}</div>
-                </div>
-                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg p-5 shadow-sm">
-                  <div className="text-[11px] uppercase tracking-[0.08em] text-[#6B6D72] mb-2">Employees</div>
-                  <div className="text-[24px] font-medium text-[#17181A]">{kpiData.employee_count}</div>
-                </div>
-                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg p-5 shadow-sm">
-                  <div className="text-[11px] uppercase tracking-[0.08em] text-[#6B6D72] mb-2">Studies</div>
-                  <div className="text-[24px] font-medium text-[#17181A]">{kpiData.study_count}</div>
-                </div>
-              </div>
+        <div className="glass-card p-5 animation-delay-200">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Estimated Credit</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {formatCurrency(kpiData.total_credit)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">10% federal credit rate</p>
+            </div>
+            <div className="p-3 rounded-lg bg-success/20">
+              <span className="text-success">{Icons.trendingUp}</span>
+            </div>
+          </div>
+        </div>
 
-              {/* Data Tables */}
-              <div className="grid grid-cols-2 gap-6">
-                {/* Employees */}
-                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg shadow-sm">
-                  <div className="px-5 py-4 border-b border-black/[0.04] flex items-center justify-between">
-                    <span className="text-[13px] font-medium text-[#17181A]">Employees</span>
-                    <span className="text-[11px] text-[#6B6D72]">{employees.length} records</span>
-                  </div>
-                  <div className="p-4 max-h-[240px] overflow-auto">
-                    {employees.length === 0 ? (
-                      <p className="text-[12px] text-[#6B6D72] text-center py-6">
-                        Upload payroll data to populate
-                      </p>
-                    ) : (
-                      <table className="w-full text-[12px]">
-                        <thead>
-                          <tr className="text-[11px] uppercase tracking-[0.06em] text-[#6B6D72]">
-                            <th className="text-left pb-2 font-medium">Name</th>
-                            <th className="text-right pb-2 font-medium">Wages</th>
-                            <th className="text-right pb-2 font-medium">QRE %</th>
-                          </tr>
-                        </thead>
-                        <tbody className="text-[#17181A]">
-                          {employees.slice(0, 8).map((emp) => (
-                            <tr key={emp.id} className="border-t border-black/[0.04]">
-                              <td className="py-2">{emp.name}</td>
-                              <td className="py-2 text-right">{formatCurrency(emp.total_wages)}</td>
-                              <td className="py-2 text-right">{emp.qualified_percent}%</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                </div>
-
-                {/* Contractors */}
-                <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg shadow-sm">
-                  <div className="px-5 py-4 border-b border-black/[0.04] flex items-center justify-between">
-                    <span className="text-[13px] font-medium text-[#17181A]">Contractors</span>
-                    <span className="text-[11px] text-[#6B6D72]">{contractors.length} records</span>
-                  </div>
-                  <div className="p-4 max-h-[240px] overflow-auto">
-                    {contractors.length === 0 ? (
-                      <p className="text-[12px] text-[#6B6D72] text-center py-6">
-                        Upload contractor data to populate
-                      </p>
-                    ) : (
-                      <table className="w-full text-[12px]">
-                        <thead>
-                          <tr className="text-[11px] uppercase tracking-[0.06em] text-[#6B6D72]">
-                            <th className="text-left pb-2 font-medium">Name</th>
-                            <th className="text-right pb-2 font-medium">Cost</th>
-                            <th className="text-right pb-2 font-medium">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="text-[#17181A]">
-                          {contractors.slice(0, 8).map((con) => (
-                            <tr key={con.id} className="border-t border-black/[0.04]">
-                              <td className="py-2">{con.name}</td>
-                              <td className="py-2 text-right">{formatCurrency(con.cost)}</td>
-                              <td className="py-2 text-right">
-                                <span className={`text-[10px] uppercase tracking-wider ${con.is_qualified ? 'text-[#2D8A5F]' : 'text-[#6B6D72]'}`}>
-                                  {con.is_qualified ? 'Qualified' : 'Foreign'}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Upload Section */}
-              <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg shadow-sm">
-                <div className="px-5 py-4 border-b border-black/[0.04]">
-                  <span className="text-[13px] font-medium text-[#17181A]">Upload Data</span>
-                </div>
-                <div className="p-5">
-                  <div className="grid grid-cols-2 gap-4">
-                    <label className={`flex flex-col items-center justify-center p-6 border border-dashed border-[#D4D5D8] rounded-lg hover:border-[#323338] hover:bg-white/50 transition-all cursor-pointer ${isUploading ? "opacity-50 pointer-events-none" : ""}`}>
-                      <input
-                        type="file"
-                        accept=".csv,.xlsx,.xls"
-                        className="hidden"
-                        disabled={isUploading}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleFileUpload("payroll", file);
-                          e.target.value = "";
-                        }}
-                      />
-                      <div className="text-[#6B6D72] mb-2">{Icons.users}</div>
-                      <span className="text-[13px] font-medium text-[#17181A]">Payroll Data</span>
-                      <span className="text-[11px] text-[#6B6D72] mt-1">CSV or Excel</span>
-                    </label>
-                    
-                    <label className={`flex flex-col items-center justify-center p-6 border border-dashed border-[#D4D5D8] rounded-lg hover:border-[#323338] hover:bg-white/50 transition-all cursor-pointer ${isUploading ? "opacity-50 pointer-events-none" : ""}`}>
-                      <input
-                        type="file"
-                        accept=".csv,.xlsx,.xls"
-                        className="hidden"
-                        disabled={isUploading}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleFileUpload("contractors", file);
-                          e.target.value = "";
-                        }}
-                      />
-                      <div className="text-[#6B6D72] mb-2">{Icons.folder}</div>
-                      <span className="text-[13px] font-medium text-[#17181A]">Contractor Data</span>
-                      <span className="text-[11px] text-[#6B6D72] mt-1">CSV or Excel</span>
-                    </label>
-                  </div>
-                  {uploadStatus && (
-                    <p className={`mt-4 text-[12px] text-center ${uploadStatus.includes("failed") ? "text-red-600" : "text-[#2D8A5F]"}`}>
-                      {uploadStatus}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Projects */}
-              <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg shadow-sm">
-                <div className="px-5 py-4 border-b border-black/[0.04] flex items-center justify-between">
-                  <span className="text-[13px] font-medium text-[#17181A]">Qualified Projects</span>
-                  <span className="text-[11px] text-[#6B6D72]">{projects.length} projects</span>
-                </div>
-                <div className="p-4 max-h-[200px] overflow-auto">
-                  {projects.length === 0 ? (
-                    <p className="text-[12px] text-[#6B6D72] text-center py-6">
-                      Projects appear after AI audit
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {projects.slice(0, 5).map((project) => (
-                        <div key={project.id} className="flex items-center justify-between p-3 rounded-md border border-black/[0.04] hover:bg-white/50">
-                          <span className="text-[13px] text-[#17181A]">{project.name}</span>
-                          <span className={`text-[10px] uppercase tracking-wider ${project.qualification_status === "qualified" ? 'text-[#2D8A5F]' : 'text-[#6B6D72]'}`}>
-                            {project.qualification_status}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+        <div className="glass-card p-5 animation-delay-400">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Claim Progress</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">{overallProgress}%</p>
+              <div className="progress mt-2 h-1.5">
+                <div className="progress-indicator" style={{ width: `${overallProgress}%` }} />
               </div>
             </div>
-
-            {/* Right Column - AI Auditor Chat */}
-            <div className="col-span-5">
-              <div className="bg-white/60 backdrop-blur-sm border border-white/50 rounded-lg shadow-sm h-[calc(100vh-8rem)] flex flex-col sticky top-20">
-                
-                {/* Chat Header */}
-                <div className="px-5 py-4 border-b border-black/[0.04] flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="text-[#323338]">{Icons.sparkle}</div>
-                    <div>
-                      <div className="text-[13px] font-medium text-[#17181A]">R&D Tax Auditor</div>
-                      <div className="text-[11px] text-[#6B6D72]">{employees.length} employees, {contractors.length} contractors</div>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={handleNewChat} 
-                    className="flex items-center gap-1 px-3 py-1.5 text-[12px] text-[#6B6D72] hover:text-[#17181A] hover:bg-black/[0.04] rounded-md transition-colors"
-                  >
-                    {Icons.plus}
-                    New
-                  </button>
-                </div>
-
-                {/* Messages */}
-                <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                  {messages.map((msg, idx) => (
-                    <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[85%] rounded-lg px-4 py-3 text-[13px] leading-relaxed ${
-                        msg.role === "user" 
-                          ? "bg-[#323338] text-white" 
-                          : "bg-white/80 border border-black/[0.06] text-[#17181A]"
-                      }`}>
-                        <p className="whitespace-pre-wrap">{msg.content}</p>
-                      </div>
-                    </div>
-                  ))}
-                  {isLoading && (
-                    <div className="flex justify-start">
-                      <div className="bg-white/80 border border-black/[0.06] rounded-lg px-4 py-3">
-                        <div className="flex gap-1">
-                          <div className="w-2 h-2 bg-[#6B6D72] rounded-full animate-bounce" />
-                          <div className="w-2 h-2 bg-[#6B6D72] rounded-full animate-bounce" style={{ animationDelay: "75ms" }} />
-                          <div className="w-2 h-2 bg-[#6B6D72] rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} />
-                </div>
-
-                {/* Study Ready Indicator */}
-                {structured && (
-                  <div className="px-5 py-3 border-t border-black/[0.04] bg-[#F0F9F4]">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-[#2D8A5F] animate-pulse" />
-                        <span className="text-[12px] font-medium text-[#2D8A5F]">Study data ready</span>
-                      </div>
-                      <button
-                        onClick={handleGenerateStudy}
-                        disabled={isGenerating}
-                        className="flex items-center gap-2 px-4 py-2 bg-[#2D8A5F] text-white text-[12px] font-medium rounded-md hover:bg-[#247048] disabled:opacity-50 transition-colors"
-                      >
-                        {Icons.download}
-                        {isGenerating ? "Generating..." : "Download Excel"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Attached Files */}
-                {attachedFiles.length > 0 && (
-                  <div className="px-5 py-3 border-t border-black/[0.04] bg-[#FAFAFA]">
-                    <div className="flex flex-wrap gap-2">
-                      {attachedFiles.map((file, idx) => (
-                        <div key={idx} className="flex items-center gap-2 px-2 py-1 bg-white border border-black/[0.06] rounded text-[11px]">
-                          {Icons.file}
-                          <span className="max-w-[100px] truncate">{file.name}</span>
-                          <button onClick={() => removeAttachedFile(idx)} className="text-[#6B6D72] hover:text-[#17181A]">
-                            {Icons.x}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Input */}
-                <div className="p-4 border-t border-black/[0.04]">
-                  <div className="flex gap-2">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".csv,.xlsx,.xls,.pdf"
-                      multiple
-                      className="hidden"
-                      onChange={handleFileSelect}
-                    />
-                    <button
-                      onClick={handleAttachFile}
-                      disabled={isLoading}
-                      className="p-2.5 rounded-md border border-[#D4D5D8] text-[#6B6D72] hover:text-[#17181A] hover:border-[#323338] transition-colors disabled:opacity-50"
-                      title="Attach files"
-                    >
-                      {Icons.paperclip}
-                    </button>
-                    <input
-                      type="text"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-                      placeholder="Describe your R&D project..."
-                      className="flex-1 px-4 py-2.5 text-[13px] bg-white border border-[#D4D5D8] rounded-md focus:outline-none focus:border-[#323338] placeholder:text-[#9CA3AF]"
-                    />
-                    <button
-                      onClick={handleSend}
-                      disabled={isLoading || (!input.trim() && attachedFiles.length === 0)}
-                      className="px-4 py-2.5 bg-[#323338] text-white rounded-md hover:bg-[#3A3B40] disabled:opacity-50 transition-colors"
-                    >
-                      {Icons.send}
-                    </button>
-                  </div>
-                  <p className="mt-2 text-[11px] text-[#6B6D72] text-center">
-                    Say &quot;Generate Study&quot; when ready for Excel export
-                  </p>
-                </div>
-              </div>
+            <div className="p-3 rounded-lg bg-warning/20">
+              <span className="text-warning">{Icons.fileCheck}</span>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column - Progress & Tasks */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Progress Card */}
+          <div className="glass-card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Data Collection Progress</h3>
+                <p className="text-sm text-muted-foreground mt-1">Complete all steps to finalize your R&D credit claim</p>
+              </div>
+              <span className="text-2xl font-bold text-foreground">{overallProgress}%</span>
+            </div>
+            <div className="progress mb-4">
+              <div className="progress-indicator" style={{ width: `${overallProgress}%` }} />
+            </div>
+            <div className="space-y-3">
+              {[
+                { label: "Project Identification", complete: projects.length > 0 },
+                { label: "Employee Data Collection", complete: employees.length > 0, progress: employees.length > 0 ? 100 : 0 },
+                { label: "Contractor Expenses", complete: contractors.length > 0, progress: contractors.length > 0 ? 100 : 0 },
+                { label: "Final Review & Calculation", complete: kpiData.study_count > 0 },
+              ].map((step, index) => (
+                <div key={index} className="flex items-center gap-3 p-3 rounded-lg bg-secondary/30">
+                  <div className={`status-dot shrink-0 ${step.complete ? 'status-complete' : 'status-pending'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{step.label}</p>
+                  </div>
+                  {step.complete && <span className="text-xs text-success font-medium">Complete</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Tasks Card */}
+          <div className="glass-card">
+            <div className="flex items-center justify-between p-6 pb-4">
+              <h3 className="text-lg font-semibold text-foreground">Pending Tasks</h3>
+              <button className="btn btn-ghost btn-sm text-muted-foreground">
+                View All
+                {Icons.arrowRight}
+              </button>
+            </div>
+            <div className="px-6 pb-6 space-y-3">
+              {tasks.filter(t => t.status === "pending").slice(0, 4).map((task) => (
+                <div key={task.id} className="group p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors cursor-pointer">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="badge badge-glass text-xs capitalize">{task.category}</span>
+                        <span className={`badge text-xs capitalize ${
+                          task.priority === "high" ? "badge-destructive" : 
+                          task.priority === "medium" ? "badge-warning" : "badge-muted"
+                        }`}>
+                          {task.priority}
+                        </span>
+                      </div>
+                      <h4 className="font-medium text-foreground group-hover:text-primary transition-colors">
+                        {task.title}
+                      </h4>
+                      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          {Icons.user}
+                          {task.assignee_name || "Unassigned"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          {Icons.clock}
+                          {task.due_date ? new Date(task.due_date).toLocaleDateString() : "No deadline"}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground">
+                      {Icons.arrowRight}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column - QRE & Activity */}
+        <div className="space-y-6">
+          {/* QRE Breakdown */}
+          <div className="glass-card p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4">QRE Breakdown</h3>
+            <div className="space-y-4">
+              {[
+                { label: "Wages", amount: kpiData.total_wages || 0, percentage: 65, color: "bg-foreground/80" },
+                { label: "Contractors", amount: (kpiData.total_qre || 0) * 0.22, percentage: 22, color: "bg-foreground/50" },
+                { label: "Supplies", amount: (kpiData.total_qre || 0) * 0.10, percentage: 10, color: "bg-foreground/30" },
+                { label: "Cloud/Computer", amount: (kpiData.total_qre || 0) * 0.03, percentage: 3, color: "bg-foreground/15" },
+              ].map((category, index) => (
+                <div key={index} className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{category.label}</span>
+                    <span className="font-medium text-foreground">{formatCurrency(category.amount)}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                    <div className={`h-full rounded-full ${category.color}`} style={{ width: `${category.percentage}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 pt-4 border-t border-border">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Total QRE</span>
+                <span className="text-lg font-semibold text-foreground">{formatCurrency(kpiData.total_qre || 0)}</span>
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-sm text-muted-foreground">Est. Credit (10%)</span>
+                <span className="text-lg font-semibold text-success">{formatCurrency(kpiData.total_credit)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Activity */}
+          <div className="glass-card p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Recent Activity</h3>
+            <div className="space-y-4">
+              {[
+                { type: "complete", title: "Project data uploaded", user: "Engineering Team", time: "2 hours ago" },
+                { type: "upload", title: "Q4 payroll data uploaded", user: "HR Department", time: "5 hours ago" },
+                { type: "comment", title: "CPA added comment", user: "CPA Firm", time: "1 day ago" },
+              ].map((activity, index) => (
+                <div key={index} className="flex items-start gap-3">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                    activity.type === "complete" ? "bg-success/20 text-success" :
+                    activity.type === "upload" ? "bg-accent/30 text-accent-foreground" :
+                    "bg-muted text-muted-foreground"
+                  }`}>
+                    {activity.type === "complete" ? Icons.check : 
+                     activity.type === "upload" ? Icons.upload : Icons.messageSquare}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">{activity.title}</p>
+                    <p className="text-xs text-muted-foreground">{activity.user} • {activity.time}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderAdmin = () => (
+    <div className="space-y-6 animate-fade-in">
+      {/* Category Progress Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {[
+          { label: "R&D Projects", icon: Icons.briefcase, verified: projects.length, pending: 3, flagged: 0, total: projects.length + 3, amount: formatCurrency((kpiData.total_qre || 0) * 0.4) },
+          { label: "Vendor Expenses", icon: Icons.receipt, verified: contractors.length, pending: 8, flagged: 2, total: contractors.length + 10, amount: formatCurrency((kpiData.total_qre || 0) * 0.22) },
+          { label: "Supply Costs", icon: Icons.package, verified: 45, pending: 12, flagged: 0, total: 57, amount: formatCurrency((kpiData.total_qre || 0) * 0.1) },
+          { label: "Wage Allocations", icon: Icons.users, verified: employees.length, pending: 4, flagged: 1, total: employees.length + 5, amount: formatCurrency(kpiData.total_wages || 0) },
+        ].map((category, index) => (
+          <div key={index} className={`glass-card p-5 animate-fade-in animation-delay-${index * 200}`}>
+            <div className="flex items-start justify-between mb-4">
+              <div className="p-2.5 rounded-lg bg-accent/30">
+                {category.icon}
+              </div>
+              <span className="text-lg font-semibold text-foreground">{category.amount}</span>
+            </div>
+            <h3 className="font-medium text-foreground mb-1">{category.label}</h3>
+            <div className="flex items-center gap-4 text-xs text-muted-foreground mb-3">
+              <span className="flex items-center gap-1">
+                <span className="text-success">{Icons.check}</span>
+                {category.verified} verified
+              </span>
+              <span className="flex items-center gap-1">
+                {Icons.clock}
+                {category.pending} pending
+              </span>
+              {category.flagged > 0 && (
+                <span className="flex items-center gap-1">
+                  <span className="text-destructive">{Icons.alertTriangle}</span>
+                  {category.flagged}
+                </span>
+              )}
+            </div>
+            <div className="progress h-1.5">
+              <div className="progress-indicator" style={{ width: `${(category.verified / category.total) * 100}%` }} />
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              {category.verified} of {category.total} items verified
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* User Management */}
+      <div className="glass-card">
+        <div className="flex items-center justify-between p-6 pb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">User Management</h3>
+            <p className="text-sm text-muted-foreground mt-1">Manage team access and permissions</p>
+          </div>
+          <button onClick={() => setInviteDialogOpen(true)} className="btn btn-primary btn-sm">
+            {Icons.userPlus}
+            <span>Invite User</span>
+          </button>
+        </div>
+        <div className="px-6 pb-6">
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="table">
+              <thead>
+                <tr className="bg-secondary/30">
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Last Active</th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {teamMembers.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="text-center py-8 text-muted-foreground">
+                      No team members yet. Invite someone to get started.
+                    </td>
+                  </tr>
+                ) : teamMembers.map((member) => (
+                  <tr key={member.id} className="hover:bg-secondary/20">
+                    <td>
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-accent/30 flex items-center justify-center text-sm font-medium text-accent-foreground">
+                          {(member.name || member.email || "?").split(" ").slice(0, 2).map(n => n[0]).join("").toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">{member.name || "Pending"}</p>
+                          <p className="text-xs text-muted-foreground">{member.email}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <select 
+                        className="select-trigger text-xs py-1"
+                        value={member.role}
+                        onChange={(e) => handleUpdateMember(member.user_id, { role: e.target.value })}
+                        disabled={member.user_id === user?.id}
+                      >
+                        <option value="member">Member</option>
+                        <option value="project_lead">R&D Project Lead</option>
+                        <option value="vendor_approver">Vendor Approver</option>
+                        <option value="supply_approver">Supply Approver</option>
+                        <option value="hr_verifier">HR Verifier</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </td>
+                    <td>
+                      <span className={`badge ${
+                        member.status === "active" ? "badge-success" :
+                        member.status === "pending" ? "badge-warning" : "badge-muted"
+                      }`}>
+                        {member.status === "active" ? Icons.check : member.status === "pending" ? Icons.clock : Icons.x}
+                        {member.status.charAt(0).toUpperCase() + member.status.slice(1)}
+                      </span>
+                    </td>
+                    <td className="text-sm text-muted-foreground">
+                      {member.status === "pending" 
+                        ? (member.invited_at ? `Invited ${new Date(member.invited_at).toLocaleDateString()}` : "Pending")
+                        : (member.accepted_at ? new Date(member.accepted_at).toLocaleDateString() : "-")}
+                    </td>
+                    <td>
+                      {member.user_id !== user?.id && (
+                        <button 
+                          onClick={() => handleRemoveMember(member.user_id)}
+                          className="btn btn-ghost btn-icon-sm text-destructive hover:bg-destructive/10"
+                          title="Remove member"
+                        >
+                          {Icons.x}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderVerification = () => (
+    <div className="space-y-6 animate-fade-in">
+      {/* Progress Summary */}
+      <div className="glass-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-medium text-foreground">Your Progress</h3>
+            <p className="text-sm text-muted-foreground">
+              {verifiedTasksCount} items verified, {pendingTasksCount} pending review
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-success">{Icons.checkCircle}</span>
+              <span className="text-muted-foreground">{verifiedTasksCount} Complete</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-warning">{Icons.clock}</span>
+              <span className="text-muted-foreground">{pendingTasksCount} Pending</span>
+            </div>
+          </div>
+        </div>
+        <div className="progress h-2">
+          <div className="progress-indicator" style={{ width: `${tasks.length > 0 ? (verifiedTasksCount / tasks.length) * 100 : 0}%` }} />
+        </div>
+      </div>
+
+      {/* Tasks List */}
+      <div className="glass-card">
+        <div className="p-6 pb-4">
+          <h3 className="text-lg font-semibold text-foreground">Verification Tasks</h3>
+          <p className="text-sm text-muted-foreground mt-1">Review and verify assigned items</p>
+        </div>
+        <div className="px-6 pb-6">
+          <div className="space-y-4">
+            {tasks.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="w-14 h-14 rounded-2xl bg-secondary flex items-center justify-center mx-auto mb-4">
+                  {Icons.checkCircle}
+                </div>
+                <p className="text-muted-foreground">No verification tasks assigned</p>
+                <p className="text-xs text-muted-foreground mt-2">Tasks will appear here when assigned by your admin</p>
+              </div>
+            ) : (
+              tasks.map((task) => (
+                <div key={task.id} className="border border-border rounded-lg p-4 bg-secondary/10">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="font-medium text-foreground">{task.title}</h3>
+                        <span className={`badge ${
+                          task.status === "verified" ? "badge-success" :
+                          task.status === "denied" ? "badge-destructive" : "badge-warning"
+                        }`}>
+                          {task.status === "verified" ? Icons.check : 
+                           task.status === "denied" ? Icons.x : Icons.clock}
+                          {task.status}
+                        </span>
+                        <span className={`badge badge-muted`}>
+                          {task.category}
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {task.description || "No description"}
+                      </p>
+                      {task.assignee_name && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Assigned to: {task.assignee_name}
+                        </p>
+                      )}
+                    </div>
+                    {task.status === "pending" && (task.assigned_to === user?.id || isOrgAdmin) && (
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => handleUpdateTask(task.id, { status: "verified" })}
+                          className="btn btn-sm bg-success/20 text-success hover:bg-success/30"
+                        >
+                          {Icons.check}
+                          <span>Verify</span>
+                        </button>
+                        <button 
+                          onClick={() => handleUpdateTask(task.id, { status: "denied" })}
+                          className="btn btn-sm bg-destructive/20 text-destructive hover:bg-destructive/30"
+                        >
+                          {Icons.x}
+                          <span>Deny</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderContent = () => {
+    switch (currentView) {
+      case "dashboard":
+        return renderDashboard();
+      case "admin":
+        return renderAdmin();
+      case "verify":
+        return renderVerification();
+      default:
+        return renderDashboard();
+    }
+  };
+
+  // ============================================================================
+  // MAIN RENDER
+  // ============================================================================
+
+  return (
+    <div className="flex h-screen w-full bg-background">
+      {/* Sidebar */}
+      <aside className={`sidebar ${sidebarCollapsed ? "sidebar-collapsed" : "sidebar-expanded"}`}>
+        {/* Logo */}
+        <div className="flex items-center gap-3 px-4 h-16 border-b border-sidebar-border">
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent">
+            {Icons.beaker}
+          </div>
+          {!sidebarCollapsed && (
+            <div className="flex flex-col">
+              <span className="font-semibold text-sidebar-foreground">R&D Credit</span>
+              <span className="text-xs text-sidebar-foreground/60">Portal</span>
+            </div>
+          )}
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
+          <div className="space-y-1">
+            {!sidebarCollapsed && (
+              <span className="px-3 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+                Main
+              </span>
+            )}
+            <div className="space-y-1 mt-2">
+              {mainNavItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setCurrentView(item.id)}
+                  className={`sidebar-nav-item w-full ${currentView === item.id ? "sidebar-nav-item-active" : ""}`}
+                >
+                  {item.icon}
+                  {!sidebarCollapsed && (
+                    <>
+                      <span className="flex-1 text-left">{item.label}</span>
+                      {item.badge && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-accent/50 text-accent-foreground">
+                          {item.badge}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            {!sidebarCollapsed && (
+              <span className="px-3 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+                Tools
+              </span>
+            )}
+            <div className="space-y-1 mt-2">
+              {toolsNavItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setCurrentView(item.id)}
+                  className={`sidebar-nav-item w-full ${currentView === item.id ? "sidebar-nav-item-active" : ""}`}
+                >
+                  {item.icon}
+                  {!sidebarCollapsed && <span className="flex-1 text-left">{item.label}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </nav>
+
+        {/* Footer */}
+        <div className="p-3 border-t border-sidebar-border">
+          <button onClick={() => {}} className="sidebar-nav-item w-full">
+            {Icons.settings}
+            {!sidebarCollapsed && <span>Settings</span>}
+          </button>
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className="btn btn-ghost btn-icon-sm w-full mt-2 text-sidebar-foreground/50 hover:text-sidebar-foreground"
+          >
+            {sidebarCollapsed ? Icons.chevronRight : Icons.chevronLeft}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <header className="header">
+          <div className="h-full px-6 flex items-center justify-between">
+            {/* Left - Title */}
+            <div className="flex items-center gap-4">
+              <div>
+                <h1 className="text-lg font-semibold text-foreground">
+                  {currentView === "dashboard" ? "Dashboard" :
+                   currentView === "admin" ? "Admin Dashboard" :
+                   currentView === "verify" ? "Verification Portal" :
+                   currentView.charAt(0).toUpperCase() + currentView.slice(1)}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  FY{new Date().getFullYear()} R&D Tax Credit Study • {profile?.company_name || "Your Company"}
+                </p>
+              </div>
+            </div>
+
+            {/* Center - Search */}
+            <div className="hidden md:flex items-center max-w-md flex-1 mx-8">
+              <div className="relative w-full">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">{Icons.search}</span>
+                <input
+                  type="text"
+                  placeholder="Search projects, expenses, documents..."
+                  className="input pl-10"
+                />
+              </div>
+            </div>
+
+            {/* Right - Actions */}
+            <div className="flex items-center gap-3">
+              {/* AI Assistant Button */}
+              <button onClick={() => setShowChat(true)} className="btn btn-glass btn-sm hidden lg:flex gap-2">
+                {Icons.sparkles}
+                <span>AI Assistant</span>
+              </button>
+
+              {/* Client Selector */}
+              <button className="btn btn-glass btn-sm hidden lg:flex gap-2">
+                {Icons.building}
+                <span>{profile?.company_name || "Select Company"}</span>
+                <span className="badge badge-glass ml-1">FY{new Date().getFullYear()}</span>
+              </button>
+
+              {/* Notifications */}
+              <button className="btn btn-ghost btn-icon relative">
+                {Icons.bell}
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-warning" />
+              </button>
+
+              {/* User */}
+              <button onClick={handleLogout} className="btn btn-ghost btn-icon rounded-full">
+                <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center">
+                  {Icons.user}
+                </div>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto p-6">
+          {isLoadingData && !dashboard ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <div className="w-8 h-8 border-2 border-foreground border-t-transparent rounded-full animate-spin mx-auto" />
+                <p className="mt-4 text-sm text-muted-foreground">Loading your data...</p>
+              </div>
+            </div>
+          ) : (
+            renderContent()
+          )}
+        </main>
+      </div>
+
+      {/* AI Chat Panel */}
+      {showChat && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setShowChat(false)}>
+          <div
+            className="absolute right-0 top-0 bottom-0 w-full max-w-lg glass-card border-l border-border shadow-2xl flex flex-col animate-slide-in-right"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Chat Header */}
+            <div className="h-16 px-5 flex items-center justify-between border-b border-border">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-accent/30 flex items-center justify-center">
+                  {Icons.sparkles}
+                </div>
+                <div>
+                  <h3 className="font-medium text-foreground">R&D Tax Assistant</h3>
+                  <p className="text-xs text-muted-foreground">AI-powered analysis</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={handleNewChat} className="btn btn-ghost btn-icon-sm" title="New conversation">
+                  {Icons.plus}
+                </button>
+                <button onClick={() => setShowChat(false)} className="btn btn-ghost btn-icon-sm">
+                  {Icons.x}
+                </button>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {messages.map((msg, idx) => (
+                <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                    msg.role === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-foreground"
+                  }`}>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  </div>
+                </div>
+              ))}
+              {isLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-secondary rounded-2xl px-4 py-3">
+                    <div className="flex gap-1.5">
+                      <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
+                      <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: "75ms" }} />
+                      <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Study Ready Indicator */}
+            {structured && (
+              <div className="px-5 py-3 border-t border-border bg-success/10">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-success">{Icons.check}</span>
+                    <span className="text-sm font-medium text-success">Study data ready</span>
+                  </div>
+                  <button
+                    onClick={handleGenerateStudy}
+                    disabled={isGenerating}
+                    className="btn btn-success btn-sm"
+                  >
+                    {Icons.download}
+                    {isGenerating ? "Generating..." : "Download Excel"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Attached Files */}
+            {attachedFiles.length > 0 && (
+              <div className="px-5 py-3 border-t border-border bg-secondary/30">
+                <div className="flex flex-wrap gap-2">
+                  {attachedFiles.map((file, idx) => (
+                    <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-lg text-xs">
+                      {Icons.file}
+                      <span className="max-w-[120px] truncate">{file.name}</span>
+                      <button onClick={() => removeAttachedFile(idx)} className="text-muted-foreground hover:text-foreground">
+                        {Icons.x}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Input */}
+            <div className="p-4 border-t border-border">
+              <div className="flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls,.pdf"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                <button
+                  onClick={handleAttachFile}
+                  disabled={isLoading}
+                  className="btn btn-outline btn-icon"
+                  title="Attach files"
+                >
+                  {Icons.paperclip}
+                </button>
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+                  placeholder="Describe your R&D project..."
+                  className="input flex-1"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={isLoading || (!input.trim() && attachedFiles.length === 0)}
+                  className="btn btn-primary btn-icon"
+                >
+                  {Icons.send}
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground text-center">
+                Say &quot;Generate Study&quot; when ready for Excel export
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invite Dialog */}
+      {inviteDialogOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center" onClick={() => setInviteDialogOpen(false)}>
+          <div className="dialog-content max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-foreground">Invite Team Member</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Send an invitation email to add a new team member to your organization.
+              </p>
+            </div>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Email Address</label>
+                <input 
+                  type="email" 
+                  placeholder="colleague@company.com" 
+                  className="input"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Role</label>
+                <select 
+                  className="select-trigger"
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                >
+                  <option value="member">Member</option>
+                  <option value="project_lead">R&D Project Lead</option>
+                  <option value="vendor_approver">Vendor Spend Approver</option>
+                  <option value="supply_approver">Supply Expense Approver</option>
+                  <option value="hr_verifier">Payroll/HR Verifier</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-4">
+              <button onClick={() => setInviteDialogOpen(false)} className="btn btn-outline btn-md">
+                Cancel
+              </button>
+              <button 
+                onClick={handleInviteMember} 
+                disabled={isInviting || !inviteEmail}
+                className="btn btn-primary btn-md"
+              >
+                {Icons.send}
+                <span>{isInviting ? "Sending..." : "Send Invitation"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
