@@ -9,6 +9,18 @@ const ArrowRight = ({ className = "w-4 h-4" }: { className?: string }) => (
   </svg>
 );
 
+const Quote = () => (
+  <svg className="w-8 h-8 text-gray-200" fill="currentColor" viewBox="0 0 24 24">
+    <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10H14.017zM0 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10H0z" />
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+  </svg>
+);
+
 // Intersection Observer hook
 function useInView(threshold = 0.1) {
   const ref = useRef<HTMLDivElement>(null);
@@ -75,13 +87,33 @@ const values = [
   },
 ];
 
+const testimonials = [
+  {
+    quote: "TaxScape has fundamentally changed how we approach R&D credits. The precision and efficiency are remarkable.",
+    author: "Managing Partner",
+    company: "Regional CPA Firm"
+  },
+  {
+    quote: "The AI classification catches nuances we might have missed. It has become an essential part of our practice.",
+    author: "R&D Tax Director",
+    company: "Enterprise Corporation"
+  },
+  {
+    quote: "What previously took our team weeks now takes days. The documentation quality has significantly improved.",
+    author: "Tax Partner",
+    company: "Top 50 Firm"
+  }
+];
+
 export default function AboutPage() {
   const [scrolled, setScrolled] = useState(false);
   const heroRef = useInView();
   const storyRef = useInView();
   const missionRef = useInView();
+  const serveRef = useInView();
   const teamRef = useInView();
   const valuesRef = useInView();
+  const testimonialsRef = useInView();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -107,12 +139,12 @@ export default function AboutPage() {
           </Link>
 
           <div className="flex items-center gap-8">
-            <Link
+            <a
               href="/about"
               className="text-sm text-gray-900 font-medium"
             >
               About
-            </Link>
+            </a>
             <Link
               href="/login"
               className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
@@ -227,8 +259,68 @@ export default function AboutPage() {
         </div>
       </section>
 
+      {/* Who We Serve Section */}
+      <section ref={serveRef.ref} className="py-24 bg-gray-50">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="grid md:grid-cols-2 gap-16 items-center">
+            <div className={`transition-all duration-700 ${serveRef.isInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+              <p className="text-sm uppercase tracking-[0.2em] text-gray-400 mb-4">
+                Built For Experts
+              </p>
+              <h2 
+                className="text-4xl md:text-5xl font-normal text-gray-900 mb-6 tracking-tight leading-tight"
+                style={{ fontFamily: "'Playfair Display', serif" }}
+              >
+                Tailored for every practice
+              </h2>
+              <p className="text-lg text-gray-500 leading-relaxed mb-8">
+                From CPA firms to in-house tax departments, TaxScape adapts to your workflow 
+                and enhances your existing expertise.
+              </p>
+              
+              <div className="space-y-4">
+                {[
+                  "CPA firms seeking efficiency",
+                  "Corporate tax departments",
+                  "R&D credit specialists",
+                  "Multi-state credit optimization"
+                ].map((item) => (
+                  <div key={item} className="flex items-center gap-3">
+                    <div className="w-5 h-5 rounded-full bg-gray-900 flex items-center justify-center text-white">
+                      <CheckIcon />
+                    </div>
+                    <span className="text-gray-700">{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className={`transition-all duration-700 delay-200 ${serveRef.isInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+              <div className="bg-white p-12 rounded-lg border border-gray-100">
+                <div className="space-y-8">
+                  <div>
+                    <div className="text-sm text-gray-400 uppercase tracking-wider mb-2">For CPA Firms</div>
+                    <p className="text-gray-700">
+                      Scale your R&D practice without proportional headcount increases. 
+                      Deliver more studies with higher quality documentation.
+                    </p>
+                  </div>
+                  <div className="border-t border-gray-100 pt-8">
+                    <div className="text-sm text-gray-400 uppercase tracking-wider mb-2">For Enterprises</div>
+                    <p className="text-gray-700">
+                      Bring R&D credit preparation in-house with enterprise-grade tools. 
+                      Maintain control while reducing external costs.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Team Section */}
-      <section ref={teamRef.ref} className="py-24 bg-gray-50">
+      <section ref={teamRef.ref} className="py-24 bg-white">
         <div className="max-w-5xl mx-auto px-6">
           <div className="text-center mb-16">
             <p className="text-sm uppercase tracking-[0.2em] text-gray-400 mb-4">
@@ -274,7 +366,7 @@ export default function AboutPage() {
       </section>
 
       {/* Values Section */}
-      <section ref={valuesRef.ref} className="py-24 bg-white">
+      <section ref={valuesRef.ref} className="py-24 bg-gray-50">
         <div className="max-w-5xl mx-auto px-6">
           <div className="text-center mb-16">
             <p className="text-sm uppercase tracking-[0.2em] text-gray-400 mb-4">
@@ -296,7 +388,7 @@ export default function AboutPage() {
             {values.map((value, index) => (
               <div 
                 key={value.title} 
-                className="p-8 border border-gray-100 rounded-lg"
+                className="p-8 bg-white border border-gray-100 rounded-lg"
                 style={{ transitionDelay: `${index * 100}ms` }}
               >
                 <h3 
@@ -308,6 +400,46 @@ export default function AboutPage() {
                 <p className="text-gray-500 leading-relaxed">
                   {value.description}
                 </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Testimonials Section */}
+      <section ref={testimonialsRef.ref} className="py-24 bg-white">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <p className="text-sm uppercase tracking-[0.2em] text-gray-400 mb-4">
+              Testimonials
+            </p>
+            <h2 
+              className="text-4xl font-normal text-gray-900 tracking-tight"
+              style={{ fontFamily: "'Playfair Display', serif" }}
+            >
+              Trusted by leading firms
+            </h2>
+          </div>
+
+          <div 
+            className={`grid md:grid-cols-3 gap-8 transition-all duration-700 ${
+              testimonialsRef.isInView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+            }`}
+          >
+            {testimonials.map((testimonial, index) => (
+              <div 
+                key={index} 
+                className="p-8 bg-gray-50 rounded-lg"
+                style={{ transitionDelay: `${index * 100}ms` }}
+              >
+                <Quote />
+                <blockquote className="text-gray-700 mt-6 mb-6 leading-relaxed">
+                  &ldquo;{testimonial.quote}&rdquo;
+                </blockquote>
+                <div>
+                  <div className="font-medium text-gray-900">{testimonial.author}</div>
+                  <div className="text-sm text-gray-400">{testimonial.company}</div>
+                </div>
               </div>
             ))}
           </div>
@@ -381,9 +513,9 @@ export default function AboutPage() {
             <div>
               <div className="text-xs uppercase tracking-wider text-gray-400 mb-4">Company</div>
               <div className="space-y-3">
-                <Link href="/about" className="block text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                <a href="/about" className="block text-sm text-gray-600 hover:text-gray-900 transition-colors">
                   About
-                </Link>
+                </a>
                 <a href="mailto:hello@taxscape.com" className="block text-sm text-gray-600 hover:text-gray-900 transition-colors">
                   Contact
                 </a>
