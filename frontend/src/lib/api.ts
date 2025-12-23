@@ -560,6 +560,7 @@ export async function submitDemoRequest(data: {
 export type Organization = {
   id: string;
   name: string;
+  slug: string | null;
   industry: string | null;
   tax_year: string;
   settings: Record<string, unknown>;
@@ -614,6 +615,21 @@ export type AuditLogEntry = {
 // =============================================================================
 // ORGANIZATION ENDPOINTS
 // =============================================================================
+
+export async function getOrganizationBySlug(slug: string): Promise<Organization | null> {
+  // Public endpoint - no auth required
+  const response = await fetch(`${API_URL}/organizations/by-slug/${slug}`);
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      return null;
+    }
+    throw new Error("Failed to fetch organization");
+  }
+
+  const data = await response.json();
+  return data.organization;
+}
 
 export async function getCurrentOrganization(): Promise<Organization | null> {
   const headers = await getAuthHeaders();

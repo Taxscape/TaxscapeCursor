@@ -222,6 +222,12 @@ const Icons = {
       <circle cx="5" cy="12" r="1" />
     </svg>
   ),
+  clipboard: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+    </svg>
+  ),
   shield: (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
@@ -957,6 +963,38 @@ export default function Portal() {
 
   const renderAdmin = () => (
     <div className="space-y-6 animate-fade-in">
+      {/* Organization Info Card */}
+      {organization && (
+        <div className="glass-card p-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">{organization.name}</h3>
+              <p className="text-sm text-muted-foreground mt-1">Organization Portal</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground mb-1">Share this link with team members:</p>
+              <div className="flex items-center gap-2">
+                <code className="px-3 py-1.5 bg-secondary/50 rounded text-sm text-foreground font-mono">
+                  {organization.slug ? `${organization.slug}.taxscape.io` : "No subdomain set"}
+                </code>
+                {organization.slug && (
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`https://${organization.slug}.taxscape.io`);
+                      alert("Link copied to clipboard!");
+                    }}
+                    className="btn btn-ghost btn-icon-sm"
+                    title="Copy link"
+                  >
+                    {Icons.clipboard}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Category Progress Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {[

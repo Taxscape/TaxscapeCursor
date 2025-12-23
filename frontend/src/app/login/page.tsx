@@ -4,14 +4,40 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/auth-context";
+import { getOrganizationBySlug, type Organization } from "@/lib/api";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [orgContext, setOrgContext] = useState<Organization | null>(null);
+  const [loadingOrg, setLoadingOrg] = useState(true);
   const router = useRouter();
   const { signIn, user, isLoading: authLoading } = useAuth();
+
+  // Check for org subdomain context
+  useEffect(() => {
+    const checkOrgContext = async () => {
+      try {
+        // Get org slug from cookie (set by middleware)
+        const cookies = document.cookie.split(';');
+        const orgSlugCookie = cookies.find(c => c.trim().startsWith('org-slug='));
+        const orgSlug = orgSlugCookie?.split('=')[1]?.trim();
+        
+        if (orgSlug) {
+          const org = await getOrganizationBySlug(orgSlug);
+          setOrgContext(org);
+        }
+      } catch (e) {
+        console.error("Error loading org context:", e);
+      } finally {
+        setLoadingOrg(false);
+      }
+    };
+    
+    checkOrgContext();
+  }, []);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -57,9 +83,34 @@ export default function LoginPage() {
             </div>
             <span className="text-2xl font-semibold">TaxScape Pro</span>
           </div>
-          <h1 className="text-xl font-semibold text-foreground">Welcome back</h1>
-          <p className="text-muted-foreground mt-1">Sign in to your account</p>
+          
+          {/* Show org context if on subdomain */}
+          {!loadingOrg && orgContext ? (
+            <>
+              <h1 className="text-xl font-semibold text-foreground">
+                Sign in to {orgContext.name}
+              </h1>
+              <p className="text-muted-foreground mt-1">
+                Enter your credentials to access the portal
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-xl font-semibold text-foreground">Welcome back</h1>
+              <p className="text-muted-foreground mt-1">Sign in to your account</p>
+            </>
+          )}
         </div>
+
+        {/* Organization Badge */}
+        {orgContext && (
+          <div className="mb-6 p-3 rounded-lg bg-accent/30 border border-accent text-center">
+            <p className="text-sm text-muted-foreground">
+              Signing in to organization
+            </p>
+            <p className="font-semibold text-foreground">{orgContext.name}</p>
+          </div>
+        )}
 
         {/* Form Card */}
         <div className="bg-card rounded-2xl border border-border p-8 shadow-soft">
@@ -125,5 +176,3 @@ export default function LoginPage() {
     </div>
   );
 }
-
-

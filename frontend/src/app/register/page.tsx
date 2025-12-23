@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/auth-context";
+import { getOrganizationBySlug, type Organization } from "@/lib/api";
 
 type Step = "register" | "verify";
+type RegisterMode = "create_org" | "join_org";
 
 export default function RegisterPage() {
   const [step, setStep] = useState<Step>("register");
+  const [mode, setMode] = useState<RegisterMode>("create_org");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -18,8 +21,38 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [orgContext, setOrgContext] = useState<Organization | null>(null);
+  const [loadingOrg, setLoadingOrg] = useState(true);
   const router = useRouter();
   const { signUp, verifyOtp, resendOtp } = useAuth();
+
+  // Check for org subdomain context
+  useEffect(() => {
+    const checkOrgContext = async () => {
+      try {
+        // Get org slug from cookie (set by middleware)
+        const cookies = document.cookie.split(';');
+        const orgSlugCookie = cookies.find(c => c.trim().startsWith('org-slug='));
+        const orgSlug = orgSlugCookie?.split('=')[1]?.trim();
+        
+        if (orgSlug) {
+          const org = await getOrganizationBySlug(orgSlug);
+          if (org) {
+            setOrgContext(org);
+            setMode("join_org");
+            // Pre-fill company name
+            setCompanyName(org.name);
+          }
+        }
+      } catch (e) {
+        console.error("Error loading org context:", e);
+      } finally {
+        setLoadingOrg(false);
+      }
+    };
+    
+    checkOrgContext();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,7 +70,17 @@ export default function RegisterPage() {
 
     setIsLoading(true);
 
-    const { error: signUpError, needsVerification } = await signUp(email, password, fullName, companyName);
+    // If joining an org via subdomain, don't pass company name (it won't create a new org)
+    // The backend will need to handle this - for now we still pass it but the invite flow
+    // should add them to the existing org
+    const companyToUse = mode === "join_org" ? "" : companyName;
+    
+    const { error: signUpError, needsVerification } = await signUp(
+      email, 
+      password, 
+      fullName, 
+      companyToUse
+    );
 
     if (signUpError) {
       setError(signUpError.message);
@@ -47,15 +90,19 @@ export default function RegisterPage() {
 
     setIsLoading(false);
 
-    if (needsVerification) {
-      // Move to OTP verification step
-      setStep("verify");
-      startResendCooldown();
-    } else {
-      // User is already verified (unlikely but handle it)
-      router.push("/portal");
-      router.refresh();
-    }
+    // TEMPORARILY DISABLED: Email verification step
+    // When re-enabling, uncomment the needsVerification check below
+    // if (needsVerification) {
+    //   setStep("verify");
+    //   startResendCooldown();
+    // } else {
+    //   router.push("/portal");
+    //   router.refresh();
+    // }
+    
+    // For now, go directly to portal
+    router.push("/portal");
+    router.refresh();
   };
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
@@ -205,9 +252,34 @@ export default function RegisterPage() {
             </div>
             <span className="text-2xl font-semibold">TaxScape Pro</span>
           </div>
-          <h1 className="text-xl font-semibold text-foreground">Create your account</h1>
-          <p className="text-muted-foreground mt-1">Start maximizing your R&D tax credits</p>
+          
+          {/* Show org context if on subdomain */}
+          {!loadingOrg && orgContext ? (
+            <>
+              <h1 className="text-xl font-semibold text-foreground">
+                Join {orgContext.name}
+              </h1>
+              <p className="text-muted-foreground mt-1">
+                Create your account to access the verification portal
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-xl font-semibold text-foreground">Create your account</h1>
+              <p className="text-muted-foreground mt-1">Start maximizing your R&D tax credits</p>
+            </>
+          )}
         </div>
+
+        {/* Organization Badge */}
+        {orgContext && (
+          <div className="mb-6 p-3 rounded-lg bg-accent/30 border border-accent text-center">
+            <p className="text-sm text-muted-foreground">
+              You&apos;re joining organization
+            </p>
+            <p className="font-semibold text-foreground">{orgContext.name}</p>
+          </div>
+        )}
 
         {/* Form Card */}
         <div className="bg-card rounded-2xl border border-border p-8 shadow-soft">
@@ -218,7 +290,9 @@ export default function RegisterPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* Show different form based on mode */}
+            {mode === "join_org" ? (
+              // Joining existing org - just name field
               <div>
                 <label htmlFor="fullName" className="block text-sm font-medium mb-2">
                   Full Name
@@ -233,22 +307,40 @@ export default function RegisterPage() {
                   placeholder="John Doe"
                 />
               </div>
+            ) : (
+              // Creating new org - name and company
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="fullName" className="block text-sm font-medium mb-2">
+                    Full Name
+                  </label>
+                  <input
+                    id="fullName"
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    placeholder="John Doe"
+                  />
+                </div>
 
-              <div>
-                <label htmlFor="companyName" className="block text-sm font-medium mb-2">
-                  Company
-                </label>
-                <input
-                  id="companyName"
-                  type="text"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  placeholder="Acme Inc"
-                />
+                <div>
+                  <label htmlFor="companyName" className="block text-sm font-medium mb-2">
+                    Company
+                  </label>
+                  <input
+                    id="companyName"
+                    type="text"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    required
+                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    placeholder="Acme Inc"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             <div>
               <label htmlFor="email" className="block text-sm font-medium mb-2">
@@ -300,7 +392,12 @@ export default function RegisterPage() {
               disabled={isLoading}
               className="w-full py-2.5 px-4 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors mt-2"
             >
-              {isLoading ? "Creating account..." : "Create account"}
+              {isLoading 
+                ? "Creating account..." 
+                : mode === "join_org" 
+                  ? `Join ${orgContext?.name || "Organization"}`
+                  : "Create account"
+              }
             </button>
           </form>
 

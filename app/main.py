@@ -474,6 +474,31 @@ def log_audit(org_id: str, user_id: str, action: str, item_type: str = None, ite
         logger.error(f"Error logging audit: {e}")
 
 
+@org_router.get("/by-slug/{slug}")
+async def get_organization_by_slug(slug: str):
+    """Get organization by slug (public endpoint for subdomain routing)."""
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        result = supabase.table("organizations")\
+            .select("id, name, slug, industry, tax_year")\
+            .eq("slug", slug)\
+            .single()\
+            .execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Organization not found")
+        
+        return {"organization": result.data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching org by slug: {e}")
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+
 @org_router.get("/current")
 async def get_current_organization(user: dict = Depends(get_current_user)):
     """Get the current user's organization."""

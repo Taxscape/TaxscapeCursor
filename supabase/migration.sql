@@ -10,6 +10,7 @@
 CREATE TABLE IF NOT EXISTS public.organizations (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     name TEXT NOT NULL,
+    slug TEXT UNIQUE,
     industry TEXT,
     tax_year TEXT DEFAULT '2024',
     settings JSONB DEFAULT '{}',
@@ -18,6 +19,19 @@ CREATE TABLE IF NOT EXISTS public.organizations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_organizations_name ON public.organizations(name);
+CREATE INDEX IF NOT EXISTS idx_organizations_slug ON public.organizations(slug);
+
+-- Add slug column if table already exists
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_schema = 'public' 
+                   AND table_name = 'organizations' 
+                   AND column_name = 'slug') THEN
+        ALTER TABLE public.organizations ADD COLUMN slug TEXT UNIQUE;
+        CREATE INDEX IF NOT EXISTS idx_organizations_slug ON public.organizations(slug);
+    END IF;
+END $$;
 
 -- ============================================
 -- STEP 2: ADD NEW COLUMNS TO EXISTING TABLES
@@ -243,20 +257,56 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Update the handle_new_user function to create organizations
+-- Function to generate a URL-safe slug from text
+CREATE OR REPLACE FUNCTION public.generate_slug(input_text TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    base_slug TEXT;
+    final_slug TEXT;
+    counter INT := 0;
+BEGIN
+    -- Convert to lowercase, replace spaces with hyphens, remove special chars
+    base_slug := lower(trim(input_text));
+    base_slug := regexp_replace(base_slug, '[^a-z0-9\s-]', '', 'g');
+    base_slug := regexp_replace(base_slug, '\s+', '-', 'g');
+    base_slug := regexp_replace(base_slug, '-+', '-', 'g');
+    base_slug := trim(both '-' from base_slug);
+    
+    -- If empty, generate a random slug
+    IF base_slug = '' OR base_slug IS NULL THEN
+        base_slug := 'org-' || substring(gen_random_uuid()::text from 1 for 8);
+    END IF;
+    
+    final_slug := base_slug;
+    
+    -- Check for uniqueness and append number if needed
+    WHILE EXISTS (SELECT 1 FROM public.organizations WHERE slug = final_slug) LOOP
+        counter := counter + 1;
+        final_slug := base_slug || '-' || counter;
+    END LOOP;
+    
+    RETURN final_slug;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Update the handle_new_user function to create organizations with slug
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
     new_org_id UUID;
     company_name_val TEXT;
+    org_slug TEXT;
 BEGIN
     -- Get company name from metadata
     company_name_val := COALESCE(NEW.raw_user_meta_data->>'company_name', '');
     
     -- Create organization if company name provided
     IF company_name_val != '' THEN
-        INSERT INTO public.organizations (name)
-        VALUES (company_name_val)
+        -- Generate slug from company name
+        org_slug := public.generate_slug(company_name_val);
+        
+        INSERT INTO public.organizations (name, slug)
+        VALUES (company_name_val, org_slug)
         RETURNING id INTO new_org_id;
     END IF;
     

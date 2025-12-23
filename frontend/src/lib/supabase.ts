@@ -4,6 +4,7 @@ import { createBrowserClient } from '@supabase/ssr';
 export type Organization = {
   id: string;
   name: string;
+  slug: string | null;
   industry: string | null;
   tax_year: string;
   settings: Record<string, unknown>;
