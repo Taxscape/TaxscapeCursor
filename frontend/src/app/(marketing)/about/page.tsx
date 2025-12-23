@@ -151,7 +151,7 @@ export default function AboutPage() {
             </h1>
             
             <p className="text-lg md:text-xl text-gray-500 max-w-2xl mx-auto leading-relaxed font-light">
-              We're a team of tax experts, engineers, and researchers committed to 
+              We&apos;re a team of tax experts, engineers, and researchers committed to 
               augmenting the capabilities of world-class tax professionals.
             </p>
           </div>
@@ -324,7 +324,7 @@ export default function AboutPage() {
             Join us on the journey
           </h2>
           <p className="text-lg text-gray-400 mb-10 leading-relaxed">
-            We're always looking for talented people who share our vision.
+            We&apos;re always looking for talented people who share our vision.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link 

@@ -348,7 +348,7 @@ export default function HomePage() {
               >
                 <Quote />
                 <blockquote className="text-gray-700 mt-6 mb-6 leading-relaxed">
-                  "{testimonial.quote}"
+                  &ldquo;{testimonial.quote}&rdquo;
                 </blockquote>
                 <div>
                   <div className="font-medium text-gray-900">{testimonial.author}</div>
