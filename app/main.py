@@ -481,6 +481,39 @@ class TimeLogCreate(BaseModel):
     hourly_rate: Optional[float] = None
 
 
+class ClientCompanyCreate(BaseModel):
+    name: str
+    industry: Optional[str] = None
+    tax_year: Optional[str] = "2024"
+    ein: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+
+
+class ClientCompanyUpdate(BaseModel):
+    name: Optional[str] = None
+    industry: Optional[str] = None
+    tax_year: Optional[str] = None
+    ein: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    status: Optional[str] = None
+
+
+class SelectedClientRequest(BaseModel):
+    client_id: Optional[str] = None
+
+
 # --- Organization Router ---
 org_router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -871,6 +904,189 @@ async def remove_member(org_id: str, member_user_id: str, user: dict = Depends(g
         log_audit(org_id, user["id"], "member_removed", "member", member_user_id, {})
         return {"success": True}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Client Companies (CPA-Centric) ---
+@org_router.get("/{org_id}/clients")
+async def get_client_companies(org_id: str, user: dict = Depends(get_current_user)):
+    """Get all client companies for the organization."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        return {"clients": []}
+    
+    try:
+        result = supabase.table("client_companies")\
+            .select("*")\
+            .eq("organization_id", org_id)\
+            .neq("status", "archived")\
+            .order("name")\
+            .execute()
+        
+        return {"clients": result.data or []}
+    except Exception as e:
+        logger.error(f"Error fetching client companies: {e}")
+        return {"clients": []}
+
+
+@org_router.get("/{org_id}/clients/{client_id}")
+async def get_client_company(org_id: str, client_id: str, user: dict = Depends(get_current_user)):
+    """Get a specific client company."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        result = supabase.table("client_companies")\
+            .select("*")\
+            .eq("id", client_id)\
+            .eq("organization_id", org_id)\
+            .single()\
+            .execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Client company not found")
+        
+        return {"client": result.data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching client company: {e}")
+        raise HTTPException(status_code=404, detail="Client company not found")
+
+
+@org_router.post("/{org_id}/clients")
+async def create_client_company(org_id: str, client: ClientCompanyCreate, user: dict = Depends(get_current_user)):
+    """Create a new client company (CPA/Admin only)."""
+    if not (check_org_admin(user, org_id) or check_org_cpa(user, org_id)):
+        raise HTTPException(status_code=403, detail="CPA or Admin access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Generate slug
+        slug = client.name.lower().replace(" ", "-")
+        slug = "".join(c for c in slug if c.isalnum() or c == "-")
+        
+        result = supabase.table("client_companies").insert({
+            "organization_id": org_id,
+            "name": client.name,
+            "slug": slug,
+            "industry": client.industry,
+            "tax_year": client.tax_year or "2024",
+            "ein": client.ein,
+            "address": client.address,
+            "city": client.city,
+            "state": client.state,
+            "zip_code": client.zip_code,
+            "contact_name": client.contact_name,
+            "contact_email": client.contact_email,
+            "contact_phone": client.contact_phone,
+            "created_by": user["id"],
+            "status": "active",
+        }).execute()
+        
+        log_audit(org_id, user["id"], "client_company_created", "client_company", result.data[0]["id"], {"name": client.name})
+        
+        return {"client": result.data[0]}
+    except Exception as e:
+        logger.error(f"Error creating client company: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.patch("/{org_id}/clients/{client_id}")
+async def update_client_company(org_id: str, client_id: str, client: ClientCompanyUpdate, user: dict = Depends(get_current_user)):
+    """Update a client company (CPA/Admin only)."""
+    if not (check_org_admin(user, org_id) or check_org_cpa(user, org_id)):
+        raise HTTPException(status_code=403, detail="CPA or Admin access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        update_data = {k: v for k, v in client.dict().items() if v is not None}
+        if update_data:
+            result = supabase.table("client_companies")\
+                .update(update_data)\
+                .eq("id", client_id)\
+                .eq("organization_id", org_id)\
+                .execute()
+            
+            log_audit(org_id, user["id"], "client_company_updated", "client_company", client_id, update_data)
+            return {"client": result.data[0] if result.data else None}
+        return {"client": None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.delete("/{org_id}/clients/{client_id}")
+async def delete_client_company(org_id: str, client_id: str, user: dict = Depends(get_current_user)):
+    """Delete (archive) a client company (Admin only)."""
+    if not check_org_admin(user, org_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Soft delete - set status to archived
+        result = supabase.table("client_companies")\
+            .update({"status": "archived"})\
+            .eq("id", client_id)\
+            .eq("organization_id", org_id)\
+            .execute()
+        
+        log_audit(org_id, user["id"], "client_company_deleted", "client_company", client_id, {})
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Profile Selected Client ---
+@api_router.post("/profile/selected-client")
+async def set_selected_client(req: SelectedClientRequest, user: dict = Depends(get_current_user)):
+    """Set the user's currently selected client company."""
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Verify the client belongs to user's org if provided
+        if req.client_id:
+            current_org = get_user_organization(user)
+            if current_org:
+                client_check = supabase.table("client_companies")\
+                    .select("id")\
+                    .eq("id", req.client_id)\
+                    .eq("organization_id", current_org["id"])\
+                    .single()\
+                    .execute()
+                
+                if not client_check.data:
+                    raise HTTPException(status_code=404, detail="Client company not found")
+        
+        supabase.table("profiles")\
+            .update({"selected_client_id": req.client_id})\
+            .eq("id", user["id"])\
+            .execute()
+        
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting selected client: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

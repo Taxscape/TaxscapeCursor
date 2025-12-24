@@ -1339,6 +1339,154 @@ export async function deleteTimeLog(orgId: string, logId: string): Promise<{ suc
 }
 
 // =============================================================================
+// CLIENT COMPANY TYPES & ENDPOINTS (CPA-CENTRIC)
+// =============================================================================
+
+export type ClientCompany = {
+  id: string;
+  organization_id: string;
+  name: string;
+  slug: string | null;
+  industry: string | null;
+  tax_year: string;
+  ein: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  settings: Record<string, unknown>;
+  status: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getClientCompanies(orgId: string): Promise<ClientCompany[]> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/clients`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch client companies");
+  }
+
+  const data = await response.json();
+  return data.clients;
+}
+
+export async function getClientCompany(orgId: string, clientId: string): Promise<ClientCompany | null> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/clients/${clientId}`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    throw new Error("Failed to fetch client company");
+  }
+
+  const data = await response.json();
+  return data.client;
+}
+
+export async function createClientCompany(orgId: string, data: {
+  name: string;
+  industry?: string;
+  tax_year?: string;
+  ein?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+}): Promise<ClientCompany> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/clients`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to create client company");
+  }
+
+  const result = await response.json();
+  return result.client;
+}
+
+export async function updateClientCompany(orgId: string, clientId: string, data: {
+  name?: string;
+  industry?: string;
+  tax_year?: string;
+  ein?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  status?: string;
+}): Promise<ClientCompany> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/clients/${clientId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to update client company");
+  }
+
+  const result = await response.json();
+  return result.client;
+}
+
+export async function deleteClientCompany(orgId: string, clientId: string): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/clients/${clientId}`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to delete client company");
+  }
+
+  return await response.json();
+}
+
+export async function setSelectedClient(clientId: string | null): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/profile/selected-client`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ client_id: clientId }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to set selected client");
+  }
+
+  return await response.json();
+}
+
+// =============================================================================
 // ADMIN ENDPOINTS
 // =============================================================================
 

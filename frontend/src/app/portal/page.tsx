@@ -35,6 +35,9 @@ import {
   createEngineeringTask,
   updateEngineeringTask,
   createTimeLog,
+  getClientCompanies,
+  createClientCompany,
+  setSelectedClient,
   type ChatMessage,
   type DashboardData,
   type Project,
@@ -49,6 +52,7 @@ import {
   type Expense,
   type EngineeringTask,
   type TimeLog,
+  type ClientCompany,
 } from "@/lib/api";
 
 // ============================================================================
@@ -352,6 +356,7 @@ type ViewMode =
   | "reports"
   | "audit-log"
   // CPA views  
+  | "clients"
   | "budgets"
   | "expenses"
   | "financial-reports"
@@ -469,6 +474,20 @@ export default function Portal() {
     billable: true,
   });
 
+  // Client Companies state (CPA-centric)
+  const [clientCompanies, setClientCompanies] = useState<ClientCompany[]>([]);
+  const [selectedClient, setSelectedClientState] = useState<ClientCompany | null>(null);
+  const [showClientSelector, setShowClientSelector] = useState(false);
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [newClientForm, setNewClientForm] = useState({
+    name: '',
+    industry: '',
+    tax_year: new Date().getFullYear().toString(),
+    contact_name: '',
+    contact_email: '',
+  });
+  const [isAddingClient, setIsAddingClient] = useState(false);
+
   // ============================================================================
   // COMPUTED VALUES
   // ============================================================================
@@ -514,6 +533,7 @@ export default function Portal() {
     if (currentRole === 'executive' || isOrgAdmin) {
       return [
         ...commonItems,
+        { id: "clients" as const, label: "Clients", icon: Icons.building, badge: clientCompanies.length > 0 ? clientCompanies.length.toString() : undefined },
         { id: "team" as const, label: "Team", icon: Icons.users },
         { id: "budgets" as const, label: "Budgets", icon: Icons.dollarSign },
         { id: "expenses" as const, label: "Expenses", icon: Icons.receipt },
@@ -523,10 +543,11 @@ export default function Portal() {
       ];
     }
     
-    // CPA gets financial views
+    // CPA gets financial views + client management
     if (currentRole === 'cpa') {
       return [
         ...commonItems,
+        { id: "clients" as const, label: "Clients", icon: Icons.building, badge: clientCompanies.length > 0 ? clientCompanies.length.toString() : undefined },
         { id: "budgets" as const, label: "Budgets", icon: Icons.dollarSign },
         { id: "expenses" as const, label: "Expenses", icon: Icons.receipt },
         { id: "financial-reports" as const, label: "Reports", icon: Icons.trendingUp },
@@ -546,7 +567,7 @@ export default function Portal() {
     
     // Fallback - basic access
     return commonItems;
-  }, [userRole, isOrgAdmin, projects.length, pendingTasksCount]);
+  }, [userRole, isOrgAdmin, projects.length, pendingTasksCount, clientCompanies.length]);
 
   const toolsNavItems = useMemo(() => [
     { id: "questionnaires" as const, label: "AI Assistant", icon: Icons.sparkles },
@@ -595,7 +616,7 @@ export default function Portal() {
 
       // Fetch organization-specific data if user has an organization
       if (organization?.id) {
-        const [membersData, tasksData, auditData, overviewData, budgetsData, expensesData, engTasksData, timeLogsData] = await Promise.all([
+        const [membersData, tasksData, auditData, overviewData, budgetsData, expensesData, engTasksData, timeLogsData, clientsData] = await Promise.all([
           getOrganizationMembers(organization.id).catch((e) => { console.error("Members error:", e); return []; }),
           getVerificationTasks(organization.id).catch((e) => { console.error("Tasks error:", e); return []; }),
           isOrgAdmin ? getAuditLog(organization.id, 50).catch((e) => { console.error("Audit error:", e); return []; }) : Promise.resolve([]),
@@ -604,6 +625,7 @@ export default function Portal() {
           getExpenses(organization.id).catch((e) => { console.error("Expenses error:", e); return []; }),
           getEngineeringTasks(organization.id).catch((e) => { console.error("Eng tasks error:", e); return []; }),
           getTimeLogs(organization.id).catch((e) => { console.error("Time logs error:", e); return []; }),
+          getClientCompanies(organization.id).catch((e) => { console.error("Clients error:", e); return []; }),
         ]);
         setTeamMembers(membersData);
         setTasks(tasksData);
@@ -613,6 +635,12 @@ export default function Portal() {
         setExpenses(expensesData);
         setEngineeringTasks(engTasksData);
         setTimeLogs(timeLogsData);
+        setClientCompanies(clientsData);
+        
+        // Auto-select first client if none selected
+        if (clientsData.length > 0 && !selectedClient) {
+          setSelectedClientState(clientsData[0]);
+        }
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -754,6 +782,43 @@ export default function Portal() {
   const handleLogout = async () => {
     await signOut();
     router.push("/");
+  };
+
+  // Client Company Handlers
+  const handleSelectClient = async (client: ClientCompany) => {
+    setSelectedClientState(client);
+    setShowClientSelector(false);
+    try {
+      await setSelectedClient(client.id);
+    } catch (e) {
+      console.error("Error persisting client selection:", e);
+    }
+  };
+
+  const handleAddClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!organization?.id || !newClientForm.name.trim()) return;
+    
+    setIsAddingClient(true);
+    try {
+      const newClient = await createClientCompany(organization.id, {
+        name: newClientForm.name.trim(),
+        industry: newClientForm.industry || undefined,
+        tax_year: newClientForm.tax_year || undefined,
+        contact_name: newClientForm.contact_name || undefined,
+        contact_email: newClientForm.contact_email || undefined,
+      });
+      
+      setClientCompanies(prev => [...prev, newClient]);
+      setSelectedClientState(newClient);
+      setShowAddClientModal(false);
+      setNewClientForm({ name: '', industry: '', tax_year: new Date().getFullYear().toString(), contact_name: '', contact_email: '' });
+    } catch (e) {
+      console.error("Error adding client:", e);
+      alert("Failed to add client company. Please try again.");
+    } finally {
+      setIsAddingClient(false);
+    }
   };
 
   const handleNewChat = () => {
@@ -1779,10 +1844,218 @@ export default function Portal() {
         return renderProjects();
       case "documents":
         return renderDocuments();
+      case "questionnaires":
+        return renderAIAssistant();
+      case "clients":
+        return renderClients();
       default:
         return renderDashboard();
     }
   };
+
+  const renderClients = () => (
+    <div className="space-y-6 animate-fade-in">
+      <div className="glass-card p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-semibold">Client Companies</h2>
+            <p className="text-sm text-muted-foreground">Manage your client companies for R&D tax credit studies</p>
+          </div>
+          <button 
+            onClick={() => setShowAddClientModal(true)}
+            className="btn btn-primary"
+          >
+            {Icons.plus}
+            <span>Add Client</span>
+          </button>
+        </div>
+        
+        {clientCompanies.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/30 flex items-center justify-center">
+              {Icons.building}
+            </div>
+            <p className="text-lg font-medium mb-2">No client companies yet</p>
+            <p className="text-sm mb-4">Add your first client company to get started with R&D tax credits</p>
+            <button 
+              onClick={() => setShowAddClientModal(true)}
+              className="btn btn-primary"
+            >
+              {Icons.plus}
+              <span>Add Your First Client</span>
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {clientCompanies.map((client) => (
+              <div 
+                key={client.id} 
+                className={`p-4 rounded-xl border transition-all cursor-pointer hover:shadow-md ${
+                  selectedClient?.id === client.id 
+                    ? "border-accent bg-accent/5 ring-2 ring-accent/20" 
+                    : "border-border bg-card hover:border-accent/50"
+                }`}
+                onClick={() => handleSelectClient(client)}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+                    {Icons.building}
+                  </div>
+                  {selectedClient?.id === client.id && (
+                    <span className="badge badge-success">Active</span>
+                  )}
+                </div>
+                <h3 className="font-semibold text-foreground mb-1">{client.name}</h3>
+                <p className="text-sm text-muted-foreground mb-2">
+                  {client.industry || "No industry"} • FY{client.tax_year}
+                </p>
+                {client.contact_name && (
+                  <p className="text-xs text-muted-foreground">
+                    Contact: {client.contact_name}
+                  </p>
+                )}
+                {client.contact_email && (
+                  <p className="text-xs text-muted-foreground">
+                    {client.contact_email}
+                  </p>
+                )}
+                <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">
+                    Added {new Date(client.created_at).toLocaleDateString()}
+                  </span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectClient(client);
+                    }}
+                    className="btn btn-ghost btn-sm"
+                  >
+                    Select
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderAIAssistant = () => (
+    <div className="space-y-6 animate-fade-in h-full">
+      <div className="glass-card p-6 h-[calc(100vh-200px)] flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-semibold">AI Assistant</h2>
+            <p className="text-sm text-muted-foreground">Ask questions about R&D tax credits or validate your projects</p>
+          </div>
+        </div>
+        
+        {/* Chat Messages */}
+        <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div className={`max-w-[80%] p-4 rounded-2xl ${
+                msg.role === "user" 
+                  ? "bg-accent text-accent-foreground rounded-br-md" 
+                  : "bg-muted/50 rounded-bl-md"
+              }`}>
+                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+              </div>
+            </div>
+          ))}
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="bg-muted/50 p-4 rounded-2xl rounded-bl-md">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-foreground/50 animate-pulse" />
+                  <div className="w-2 h-2 rounded-full bg-foreground/50 animate-pulse [animation-delay:0.2s]" />
+                  <div className="w-2 h-2 rounded-full bg-foreground/50 animate-pulse [animation-delay:0.4s]" />
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* File Attachments Preview */}
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3 p-2 rounded-lg bg-muted/30">
+            {attachedFiles.map((file, idx) => (
+              <div key={idx} className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-accent/20 text-sm">
+                {Icons.file}
+                <span className="max-w-[120px] truncate">{file.name}</span>
+                <button
+                  onClick={() => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {Icons.x}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Input Area */}
+        <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex gap-3">
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            multiple
+            accept=".csv,.xlsx,.xls,.pdf,.doc,.docx"
+            onChange={(e) => {
+              if (e.target.files) {
+                setAttachedFiles(prev => [...prev, ...Array.from(e.target.files || [])]);
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="btn btn-ghost btn-icon shrink-0"
+          >
+            {Icons.paperclip}
+          </button>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask about R&D tax credits, project qualification..."
+            className="input flex-1"
+            disabled={isLoading}
+          />
+          <button
+            type="submit"
+            disabled={isLoading || (!input.trim() && attachedFiles.length === 0)}
+            className="btn btn-primary shrink-0"
+          >
+            {Icons.send}
+            <span className="hidden sm:inline">Send</span>
+          </button>
+        </form>
+
+        {/* Structured Output */}
+        {structured && Object.keys(structured).length > 0 && (
+          <div className="mt-4 p-4 rounded-lg bg-success/10 border border-success/20">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-success">Study data extracted</p>
+              <button
+                onClick={handleGenerateStudy}
+                disabled={isGenerating}
+                className="btn btn-sm btn-success"
+              >
+                {isGenerating ? "Generating..." : "Download Excel"}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Click to generate your R&D tax credit study report
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   // Placeholder renderers for new views
   const renderBudgets = () => {
@@ -2327,10 +2600,11 @@ export default function Portal() {
                    currentView === "projects" ? "Projects" :
                    currentView === "documents" ? "Documents" :
                    currentView === "questionnaires" ? "AI Assistant" :
+                   currentView === "clients" ? "Client Companies" :
                    currentView.charAt(0).toUpperCase() + currentView.slice(1).replace(/-/g, ' ')}
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  FY{new Date().getFullYear()} R&D Tax Credit Study • {profile?.company_name || "Your Company"}
+                  {selectedClient ? `${selectedClient.name} • FY${selectedClient.tax_year}` : `FY${new Date().getFullYear()} R&D Tax Credit Study`}
                 </p>
               </div>
             </div>
@@ -2356,11 +2630,73 @@ export default function Portal() {
               </button>
 
               {/* Client Selector */}
-              <button className="btn btn-glass btn-sm hidden lg:flex gap-2">
-                {Icons.building}
-                <span>{profile?.company_name || "Select Company"}</span>
-                <span className="badge badge-glass ml-1">FY{new Date().getFullYear()}</span>
-              </button>
+              <div className="relative hidden lg:block">
+                <button 
+                  onClick={() => setShowClientSelector(!showClientSelector)}
+                  className="btn btn-glass btn-sm flex gap-2"
+                >
+                  {Icons.building}
+                  <span className="max-w-[150px] truncate">
+                    {selectedClient?.name || "Select Client"}
+                  </span>
+                  <span className="badge badge-glass ml-1">
+                    FY{selectedClient?.tax_year || new Date().getFullYear()}
+                  </span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="m6 9 6 6 6-6"/>
+                  </svg>
+                </button>
+                
+                {/* Dropdown */}
+                {showClientSelector && (
+                  <div className="absolute right-0 top-full mt-2 w-72 bg-card rounded-xl border border-border shadow-lg z-50 overflow-hidden">
+                    <div className="p-3 border-b border-border">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        Client Companies
+                      </p>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {clientCompanies.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-muted-foreground">
+                          No client companies yet
+                        </div>
+                      ) : (
+                        clientCompanies.map((client) => (
+                          <button
+                            key={client.id}
+                            onClick={() => handleSelectClient(client)}
+                            className={`w-full p-3 text-left hover:bg-muted/50 transition-colors flex items-center justify-between ${
+                              selectedClient?.id === client.id ? "bg-accent/20" : ""
+                            }`}
+                          >
+                            <div>
+                              <p className="font-medium text-foreground">{client.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {client.industry || "No industry"} • FY{client.tax_year}
+                              </p>
+                            </div>
+                            {selectedClient?.id === client.id && (
+                              <span className="text-accent">{Icons.check}</span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                    <div className="p-2 border-t border-border">
+                      <button
+                        onClick={() => {
+                          setShowClientSelector(false);
+                          setShowAddClientModal(true);
+                        }}
+                        className="w-full btn btn-ghost btn-sm justify-center"
+                      >
+                        {Icons.plus}
+                        <span>Add Client Company</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Notifications */}
               <button className="btn btn-ghost btn-icon relative">
@@ -2965,6 +3301,127 @@ export default function Portal() {
           </div>
         </form>
       </Modal>
+
+      {/* Add Client Company Modal */}
+      {showAddClientModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowAddClientModal(false)}
+        >
+          <div 
+            className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold">Add Client Company</h2>
+              <button
+                onClick={() => setShowAddClientModal(false)}
+                className="btn btn-ghost btn-icon-sm"
+              >
+                {Icons.x}
+              </button>
+            </div>
+            <form onSubmit={handleAddClient} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  Company Name *
+                </label>
+                <input
+                  type="text"
+                  value={newClientForm.name}
+                  onChange={(e) => setNewClientForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="input"
+                  placeholder="Acme Corporation"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Industry
+                  </label>
+                  <select
+                    value={newClientForm.industry}
+                    onChange={(e) => setNewClientForm(prev => ({ ...prev, industry: e.target.value }))}
+                    className="input"
+                  >
+                    <option value="">Select industry</option>
+                    <option value="technology">Technology</option>
+                    <option value="healthcare">Healthcare</option>
+                    <option value="manufacturing">Manufacturing</option>
+                    <option value="finance">Finance</option>
+                    <option value="retail">Retail</option>
+                    <option value="energy">Energy</option>
+                    <option value="construction">Construction</option>
+                    <option value="agriculture">Agriculture</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Tax Year
+                  </label>
+                  <input
+                    type="text"
+                    value={newClientForm.tax_year}
+                    onChange={(e) => setNewClientForm(prev => ({ ...prev, tax_year: e.target.value }))}
+                    className="input"
+                    placeholder="2024"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  Contact Name
+                </label>
+                <input
+                  type="text"
+                  value={newClientForm.contact_name}
+                  onChange={(e) => setNewClientForm(prev => ({ ...prev, contact_name: e.target.value }))}
+                  className="input"
+                  placeholder="John Smith"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  Contact Email
+                </label>
+                <input
+                  type="email"
+                  value={newClientForm.contact_email}
+                  onChange={(e) => setNewClientForm(prev => ({ ...prev, contact_email: e.target.value }))}
+                  className="input"
+                  placeholder="john@acme.com"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-4">
+                <button 
+                  type="button" 
+                  onClick={() => setShowAddClientModal(false)} 
+                  className="btn btn-outline btn-md"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isAddingClient || !newClientForm.name.trim()}
+                  className="btn btn-primary btn-md"
+                >
+                  {isAddingClient ? "Adding..." : "Add Client"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Click outside to close client selector */}
+      {showClientSelector && (
+        <div 
+          className="fixed inset-0 z-40" 
+          onClick={() => setShowClientSelector(false)}
+        />
+      )}
     </div>
   );
 }
