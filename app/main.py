@@ -2934,6 +2934,47 @@ async def upload_gap_documentation(
     }
 
 
+@rd_router.get("/session/{session_id}/download")
+async def download_rd_report(
+    session_id: str,
+    user: dict = Depends(get_current_user)
+):
+    """Generate and download R&D analysis Excel report"""
+    from app.rd_excel_generator import generate_rd_workbook
+    
+    if session_id not in rd_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session_data = rd_sessions[session_id]
+    
+    if session_data["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    
+    analysis_result = session_data.get("analysis_result")
+    if not analysis_result:
+        raise HTTPException(status_code=400, detail="Session not yet analyzed")
+    
+    try:
+        # Reconstruct session object
+        session = RDAnalysisSession(**analysis_result)
+        
+        # Generate workbook
+        excel_bytes = generate_rd_workbook(session)
+        
+        # Create filename
+        company_name = session.company_name.replace(" ", "_") if session.company_name else "RD_Study"
+        filename = f"{company_name}_RD_Credit_Study_{session.tax_year}.xlsx"
+        
+        return StreamingResponse(
+            io.BytesIO(excel_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        logger.error(f"Error generating Excel report: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")
+
+
 @rd_router.delete("/session/{session_id}")
 async def delete_rd_session(
     session_id: str,

@@ -1753,6 +1753,20 @@ export async function uploadRDGapDocumentation(
   return await response.json();
 }
 
+export async function downloadRDReport(sessionId: string): Promise<Blob> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/rd-analysis/session/${sessionId}/download`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to download report");
+  }
+
+  return await response.blob();
+}
+
 export async function deleteRDSession(sessionId: string): Promise<{ message: string }> {
   const headers = await getAuthHeaders();
   

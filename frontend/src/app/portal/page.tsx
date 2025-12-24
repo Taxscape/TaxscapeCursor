@@ -42,6 +42,7 @@ import {
   parseRDSession,
   evaluateRDProject,
   uploadRDGapDocumentation,
+  downloadRDReport,
   type ChatMessage,
   type DashboardData,
   type Project,
@@ -507,6 +508,7 @@ export default function Portal() {
   const [rdError, setRdError] = useState<string | null>(null);
   const [evaluatingProjectId, setEvaluatingProjectId] = useState<string | null>(null);
   const [uploadingGapId, setUploadingGapId] = useState<string | null>(null);
+  const [isDownloadingReport, setIsDownloadingReport] = useState(false);
 
   // ============================================================================
   // COMPUTED VALUES
@@ -921,6 +923,34 @@ export default function Portal() {
     setRdSession(null);
     setRdSessionId(null);
     setRdError(null);
+  };
+
+  const handleDownloadRDReport = async () => {
+    if (!rdSessionId) return;
+    
+    setIsDownloadingReport(true);
+    setRdError(null);
+    
+    try {
+      const blob = await downloadRDReport(rdSessionId);
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const companyName = rdSession?.company_name?.replace(/\s+/g, "_") || "RD_Study";
+      a.download = `${companyName}_RD_Credit_Study_${rdSession?.tax_year || 2024}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+    } catch (e) {
+      console.error("Download error:", e);
+      setRdError(e instanceof Error ? e.message : "Failed to download report");
+    } finally {
+      setIsDownloadingReport(false);
+    }
   };
 
   const handleNewChat = () => {
@@ -1969,10 +1999,32 @@ export default function Portal() {
             </p>
           </div>
           {rdSession && (
-            <button onClick={handleResetRDAnalysis} className="btn btn-outline btn-sm">
-              {Icons.refresh}
-              <span>New Analysis</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handleDownloadRDReport} 
+                disabled={isDownloadingReport}
+                className="btn btn-primary btn-sm"
+              >
+                {isDownloadingReport ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    {Icons.download}
+                    <span>Generate Report</span>
+                  </>
+                )}
+              </button>
+              <button onClick={handleResetRDAnalysis} className="btn btn-outline btn-sm">
+                {Icons.refresh}
+                <span>New Analysis</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
