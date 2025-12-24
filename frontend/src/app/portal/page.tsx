@@ -25,6 +25,16 @@ import {
   createVerificationTask,
   updateVerificationTask,
   getAuditLog,
+  getExecutiveOverview,
+  getBudgets,
+  getExpenses,
+  getEngineeringTasks,
+  getTimeLogs,
+  createBudget,
+  createExpense,
+  createEngineeringTask,
+  updateEngineeringTask,
+  createTimeLog,
   type ChatMessage,
   type DashboardData,
   type Project,
@@ -34,6 +44,11 @@ import {
   type OrganizationMember,
   type VerificationTask,
   type AuditLogEntry,
+  type ExecutiveOverview,
+  type Budget,
+  type Expense,
+  type EngineeringTask,
+  type TimeLog,
 } from "@/lib/api";
 
 // ============================================================================
@@ -324,8 +339,28 @@ const Icons = {
 // ============================================================================
 // TYPES
 // ============================================================================
-type UserRole = "admin" | "project_lead" | "vendor_approver" | "supply_approver" | "hr_verifier" | "member";
-type ViewMode = "dashboard" | "admin" | "verify" | "projects" | "expenses" | "documents" | "questionnaires";
+type PortalUserRole = "executive" | "cpa" | "engineer";
+type ViewMode = 
+  // Common views
+  | "dashboard" 
+  | "projects" 
+  | "team" 
+  | "documents" 
+  | "questionnaires"
+  // Executive views
+  | "executive-overview"
+  | "reports"
+  | "audit-log"
+  // CPA views  
+  | "budgets"
+  | "expenses"
+  | "financial-reports"
+  // Engineer views
+  | "tasks"
+  | "time-log"
+  // Legacy views (for backwards compat)
+  | "admin"
+  | "verify";
 
 // Initial chat message
 const initialMessage: ChatMessage = {
@@ -379,8 +414,60 @@ export default function Portal() {
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<string>("member");
+  const [inviteRole, setInviteRole] = useState<string>("engineer");
   const [isInviting, setIsInviting] = useState(false);
+
+  // Pipeline dashboard state (Phase 1)
+  const [executiveOverview, setExecutiveOverview] = useState<ExecutiveOverview | null>(null);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [engineeringTasks, setEngineeringTasks] = useState<EngineeringTask[]>([]);
+  const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
+
+  // Modal state (Phase 2)
+  const [modalOpen, setModalOpen] = useState<'budget' | 'expense' | 'task' | 'timelog' | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Form state for modals
+  const [budgetForm, setBudgetForm] = useState({
+    name: '',
+    project_id: '',
+    total_amount: '',
+    category: '',
+    fiscal_year: new Date().getFullYear().toString(),
+    notes: '',
+  });
+
+  const [expenseForm, setExpenseForm] = useState({
+    description: '',
+    amount: '',
+    budget_id: '',
+    project_id: '',
+    category: '',
+    vendor_name: '',
+    expense_date: new Date().toISOString().split('T')[0],
+  });
+
+  const [taskForm, setTaskForm] = useState({
+    title: '',
+    description: '',
+    project_id: '',
+    priority: 'medium',
+    assigned_to: '',
+    due_date: '',
+    estimated_hours: '',
+    milestone: '',
+  });
+
+  const [timeLogForm, setTimeLogForm] = useState({
+    hours: '',
+    task_id: '',
+    project_id: '',
+    description: '',
+    log_date: new Date().toISOString().split('T')[0],
+    billable: true,
+  });
 
   // ============================================================================
   // COMPUTED VALUES
@@ -413,18 +500,57 @@ export default function Portal() {
     tasks.filter(t => t.status === "verified").length
   , [tasks]);
 
-  // Navigation items
-  const mainNavItems = useMemo(() => [
-    { id: "dashboard" as const, label: "Dashboard", icon: Icons.layoutDashboard },
-    { id: "admin" as const, label: "Admin Portal", icon: Icons.users },
-    { id: "verify" as const, label: "Verification", icon: Icons.checkCircle, badge: pendingTasksCount > 0 ? pendingTasksCount.toString() : undefined },
-    { id: "projects" as const, label: "Projects", icon: Icons.folderKanban, badge: projects.length.toString() },
-    { id: "expenses" as const, label: "Expenses", icon: Icons.dollarSign },
-    { id: "documents" as const, label: "Documents", icon: Icons.fileText },
-  ], [pendingTasksCount, projects.length]);
+  // Navigation items based on role
+  const mainNavItems = useMemo(() => {
+    const currentRole = (userRole as PortalUserRole) || 'engineer';
+    
+    // Common items for all roles
+    const commonItems = [
+      { id: "dashboard" as const, label: "Dashboard", icon: Icons.layoutDashboard },
+      { id: "projects" as const, label: "Projects", icon: Icons.folderKanban, badge: projects.length > 0 ? projects.length.toString() : undefined },
+    ];
+    
+    // Executive/Admin gets full access + org management
+    if (currentRole === 'executive' || isOrgAdmin) {
+      return [
+        ...commonItems,
+        { id: "team" as const, label: "Team", icon: Icons.users },
+        { id: "budgets" as const, label: "Budgets", icon: Icons.dollarSign },
+        { id: "expenses" as const, label: "Expenses", icon: Icons.receipt },
+        { id: "tasks" as const, label: "Tasks", icon: Icons.checkCircle, badge: pendingTasksCount > 0 ? pendingTasksCount.toString() : undefined },
+        { id: "reports" as const, label: "Reports", icon: Icons.trendingUp },
+        { id: "audit-log" as const, label: "Audit Log", icon: Icons.fileCheck },
+      ];
+    }
+    
+    // CPA gets financial views
+    if (currentRole === 'cpa') {
+      return [
+        ...commonItems,
+        { id: "budgets" as const, label: "Budgets", icon: Icons.dollarSign },
+        { id: "expenses" as const, label: "Expenses", icon: Icons.receipt },
+        { id: "financial-reports" as const, label: "Reports", icon: Icons.trendingUp },
+        { id: "team" as const, label: "Team", icon: Icons.users },
+      ];
+    }
+    
+    // Engineer gets task-focused views
+    if (currentRole === 'engineer') {
+      return [
+        ...commonItems,
+        { id: "tasks" as const, label: "My Tasks", icon: Icons.checkCircle, badge: pendingTasksCount > 0 ? pendingTasksCount.toString() : undefined },
+        { id: "time-log" as const, label: "Time Log", icon: Icons.clock },
+        { id: "team" as const, label: "Team", icon: Icons.users },
+      ];
+    }
+    
+    // Fallback - basic access
+    return commonItems;
+  }, [userRole, isOrgAdmin, projects.length, pendingTasksCount]);
 
   const toolsNavItems = useMemo(() => [
-    { id: "questionnaires" as const, label: "Questionnaires", icon: Icons.messageSquare },
+    { id: "questionnaires" as const, label: "AI Assistant", icon: Icons.sparkles },
+    { id: "documents" as const, label: "Documents", icon: Icons.fileText },
   ], []);
 
   // ============================================================================
@@ -469,14 +595,24 @@ export default function Portal() {
 
       // Fetch organization-specific data if user has an organization
       if (organization?.id) {
-        const [membersData, tasksData, auditData] = await Promise.all([
+        const [membersData, tasksData, auditData, overviewData, budgetsData, expensesData, engTasksData, timeLogsData] = await Promise.all([
           getOrganizationMembers(organization.id).catch((e) => { console.error("Members error:", e); return []; }),
           getVerificationTasks(organization.id).catch((e) => { console.error("Tasks error:", e); return []; }),
           isOrgAdmin ? getAuditLog(organization.id, 50).catch((e) => { console.error("Audit error:", e); return []; }) : Promise.resolve([]),
+          getExecutiveOverview(organization.id).catch((e) => { console.error("Overview error:", e); return null; }),
+          getBudgets(organization.id).catch((e) => { console.error("Budgets error:", e); return []; }),
+          getExpenses(organization.id).catch((e) => { console.error("Expenses error:", e); return []; }),
+          getEngineeringTasks(organization.id).catch((e) => { console.error("Eng tasks error:", e); return []; }),
+          getTimeLogs(organization.id).catch((e) => { console.error("Time logs error:", e); return []; }),
         ]);
         setTeamMembers(membersData);
         setTasks(tasksData);
         setAuditLogs(auditData);
+        setExecutiveOverview(overviewData);
+        setBudgets(budgetsData);
+        setExpenses(expensesData);
+        setEngineeringTasks(engTasksData);
+        setTimeLogs(timeLogsData);
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -700,8 +836,12 @@ export default function Portal() {
     return `$${value.toLocaleString()}`;
   };
 
-  const getRoleName = (role: UserRole) => {
-    const names: Record<UserRole, string> = {
+  const getRoleName = (role: string | null) => {
+    const names: Record<string, string> = {
+      executive: "Executive",
+      cpa: "CPA / Finance",
+      engineer: "Engineer",
+      // Legacy roles for backwards compatibility
       admin: "Administrator",
       project_lead: "R&D Project Lead",
       vendor_approver: "Vendor Spend Approver",
@@ -709,7 +849,7 @@ export default function Portal() {
       hr_verifier: "Payroll/HR Verifier",
       member: "Member",
     };
-    return names[role];
+    return role ? names[role] || role : "Member";
   };
 
   // ============================================================================
@@ -756,6 +896,228 @@ export default function Portal() {
       </div>
     );
   }
+
+  // ============================================================================
+  // MODAL COMPONENT & FORM HANDLERS (Phase 2)
+  // ============================================================================
+
+  const Modal = ({ open, onClose, title, children }: { 
+    open: boolean; 
+    onClose: () => void; 
+    title: string; 
+    children: React.ReactNode;
+  }) => {
+    if (!open) return null;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+        <div className="glass-card relative z-10 w-full max-w-lg p-6 m-4 max-h-[90vh] overflow-y-auto animate-fade-in">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+            <button 
+              onClick={onClose} 
+              className="p-2 rounded-lg hover:bg-secondary/50 transition-colors text-muted-foreground hover:text-foreground"
+            >
+              {Icons.x}
+            </button>
+          </div>
+          {formError && (
+            <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+              {formError}
+            </div>
+          )}
+          {children}
+        </div>
+      </div>
+    );
+  };
+
+  const resetForms = () => {
+    setBudgetForm({
+      name: '',
+      project_id: '',
+      total_amount: '',
+      category: '',
+      fiscal_year: new Date().getFullYear().toString(),
+      notes: '',
+    });
+    setExpenseForm({
+      description: '',
+      amount: '',
+      budget_id: '',
+      project_id: '',
+      category: '',
+      vendor_name: '',
+      expense_date: new Date().toISOString().split('T')[0],
+    });
+    setTaskForm({
+      title: '',
+      description: '',
+      project_id: '',
+      priority: 'medium',
+      assigned_to: '',
+      due_date: '',
+      estimated_hours: '',
+      milestone: '',
+    });
+    setTimeLogForm({
+      hours: '',
+      task_id: '',
+      project_id: '',
+      description: '',
+      log_date: new Date().toISOString().split('T')[0],
+      billable: true,
+    });
+    setFormError(null);
+  };
+
+  const closeModal = () => {
+    setModalOpen(null);
+    resetForms();
+  };
+
+  // Budget form handler
+  const handleCreateBudget = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!organization?.id) return;
+    
+    if (!budgetForm.name.trim()) {
+      setFormError('Budget name is required');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError(null);
+    
+    try {
+      await createBudget(organization.id, {
+        name: budgetForm.name,
+        project_id: budgetForm.project_id || undefined,
+        total_amount: budgetForm.total_amount ? parseFloat(budgetForm.total_amount) : 0,
+        category: budgetForm.category || undefined,
+        fiscal_year: budgetForm.fiscal_year,
+        notes: budgetForm.notes || undefined,
+      });
+      closeModal();
+      fetchData();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Failed to create budget');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Expense form handler
+  const handleCreateExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!organization?.id) return;
+    
+    if (!expenseForm.description.trim()) {
+      setFormError('Description is required');
+      return;
+    }
+    if (!expenseForm.amount || parseFloat(expenseForm.amount) <= 0) {
+      setFormError('Valid amount is required');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError(null);
+    
+    try {
+      await createExpense(organization.id, {
+        description: expenseForm.description,
+        amount: parseFloat(expenseForm.amount),
+        budget_id: expenseForm.budget_id || undefined,
+        project_id: expenseForm.project_id || undefined,
+        category: expenseForm.category || undefined,
+        vendor_name: expenseForm.vendor_name || undefined,
+        expense_date: expenseForm.expense_date || undefined,
+      });
+      closeModal();
+      fetchData();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Failed to log expense');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Engineering task form handler
+  const handleCreateEngTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!organization?.id) return;
+    
+    if (!taskForm.title.trim()) {
+      setFormError('Task title is required');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError(null);
+    
+    try {
+      await createEngineeringTask(organization.id, {
+        title: taskForm.title,
+        description: taskForm.description || undefined,
+        project_id: taskForm.project_id || undefined,
+        priority: taskForm.priority,
+        assigned_to: taskForm.assigned_to || undefined,
+        due_date: taskForm.due_date || undefined,
+        estimated_hours: taskForm.estimated_hours ? parseFloat(taskForm.estimated_hours) : undefined,
+        milestone: taskForm.milestone || undefined,
+      });
+      closeModal();
+      fetchData();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Failed to create task');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Time log form handler
+  const handleCreateTimeLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!organization?.id) return;
+    
+    if (!timeLogForm.hours || parseFloat(timeLogForm.hours) <= 0) {
+      setFormError('Valid hours are required');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError(null);
+    
+    try {
+      await createTimeLog(organization.id, {
+        hours: parseFloat(timeLogForm.hours),
+        task_id: timeLogForm.task_id || undefined,
+        project_id: timeLogForm.project_id || undefined,
+        description: timeLogForm.description || undefined,
+        log_date: timeLogForm.log_date || undefined,
+        billable: timeLogForm.billable,
+      });
+      closeModal();
+      fetchData();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Failed to log hours');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Engineering task status update handler
+  const handleUpdateEngTaskStatus = async (taskId: string, status: string) => {
+    if (!organization?.id) return;
+    
+    try {
+      await updateEngineeringTask(organization.id, taskId, { status });
+      fetchData();
+    } catch (error) {
+      console.error('Failed to update task status:', error);
+    }
+  };
 
   // ============================================================================
   // RENDER VIEWS
@@ -813,6 +1175,65 @@ export default function Portal() {
           </div>
         </div>
       </div>
+
+      {/* Executive Overview Section (when data available) */}
+      {executiveOverview && (isOrgAdmin || userRole === 'executive') && (
+        <div className="glass-card p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">Organization Overview</h3>
+              <p className="text-sm text-muted-foreground">Financial and project performance metrics</p>
+            </div>
+            {executiveOverview.alerts.length > 0 && (
+              <span className="badge badge-warning">
+                {executiveOverview.alerts.length} alert{executiveOverview.alerts.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Total Budget</p>
+              <p className="text-xl font-semibold text-foreground mt-1">{formatCurrency(executiveOverview.budget.total)}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Spent</p>
+              <p className="text-xl font-semibold text-foreground mt-1">{formatCurrency(executiveOverview.budget.spent)}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {executiveOverview.budget.usage_percent.toFixed(0)}% of budget
+              </p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Task Progress</p>
+              <p className="text-xl font-semibold text-foreground mt-1">{executiveOverview.tasks.completion_percent.toFixed(0)}%</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {executiveOverview.tasks.completed}/{executiveOverview.tasks.total} completed
+              </p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Monthly Burn</p>
+              <p className="text-xl font-semibold text-foreground mt-1">{formatCurrency(executiveOverview.burn_rate)}</p>
+              <p className="text-xs text-muted-foreground mt-1">Last 30 days</p>
+            </div>
+          </div>
+
+          {/* Alerts */}
+          {executiveOverview.alerts.length > 0 && (
+            <div className="space-y-2">
+              {executiveOverview.alerts.map((alert, idx) => (
+                <div key={idx} className={`p-3 rounded-lg flex items-center gap-3 ${
+                  alert.type === 'critical' ? 'bg-destructive/10 text-destructive' :
+                  alert.type === 'warning' ? 'bg-warning/10 text-warning' :
+                  'bg-accent/10 text-accent-foreground'
+                }`}>
+                  {Icons.alertTriangle}
+                  <span className="text-sm">{alert.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1131,117 +1552,672 @@ export default function Portal() {
     </div>
   );
 
-  const renderVerification = () => (
-    <div className="space-y-6 animate-fade-in">
-      {/* Progress Summary */}
-      <div className="glass-card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-medium text-foreground">Your Progress</h3>
-            <p className="text-sm text-muted-foreground">
-              {verifiedTasksCount} items verified, {pendingTasksCount} pending review
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-success">{Icons.checkCircle}</span>
-              <span className="text-muted-foreground">{verifiedTasksCount} Complete</span>
+  const renderVerification = () => {
+    const engTasksCompleted = engineeringTasks.filter(t => t.status === 'completed').length;
+    const engTasksPending = engineeringTasks.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
+    
+    return (
+      <div className="space-y-6 animate-fade-in">
+        {/* Progress Summary */}
+        <div className="glass-card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-medium text-foreground">Task Overview</h3>
+              <p className="text-sm text-muted-foreground">
+                {engTasksCompleted + verifiedTasksCount} completed, {engTasksPending + pendingTasksCount} in progress
+              </p>
             </div>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-warning">{Icons.clock}</span>
-              <span className="text-muted-foreground">{pendingTasksCount} Pending</span>
-            </div>
-          </div>
-        </div>
-        <div className="progress h-2">
-          <div className="progress-indicator" style={{ width: `${tasks.length > 0 ? (verifiedTasksCount / tasks.length) * 100 : 0}%` }} />
-        </div>
-      </div>
-
-      {/* Tasks List */}
-      <div className="glass-card">
-        <div className="p-6 pb-4">
-          <h3 className="text-lg font-semibold text-foreground">Verification Tasks</h3>
-          <p className="text-sm text-muted-foreground mt-1">Review and verify assigned items</p>
-        </div>
-        <div className="px-6 pb-6">
-          <div className="space-y-4">
-            {tasks.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-14 h-14 rounded-2xl bg-secondary flex items-center justify-center mx-auto mb-4">
-                  {Icons.checkCircle}
-                </div>
-                <p className="text-muted-foreground">No verification tasks assigned</p>
-                <p className="text-xs text-muted-foreground mt-2">Tasks will appear here when assigned by your admin</p>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-success">{Icons.checkCircle}</span>
+                <span className="text-muted-foreground">{engTasksCompleted + verifiedTasksCount} Complete</span>
               </div>
-            ) : (
-              tasks.map((task) => (
-                <div key={task.id} className="border border-border rounded-lg p-4 bg-secondary/10">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="font-medium text-foreground">{task.title}</h3>
-                        <span className={`badge ${
-                          task.status === "verified" ? "badge-success" :
-                          task.status === "denied" ? "badge-destructive" : "badge-warning"
-                        }`}>
-                          {task.status === "verified" ? Icons.check : 
-                           task.status === "denied" ? Icons.x : Icons.clock}
-                          {task.status}
-                        </span>
-                        <span className={`badge badge-muted`}>
-                          {task.category}
-                        </span>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {task.description || "No description"}
-                      </p>
-                      {task.assignee_name && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Assigned to: {task.assignee_name}
-                        </p>
-                      )}
-                    </div>
-                    {task.status === "pending" && (task.assigned_to === user?.id || isOrgAdmin) && (
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => handleUpdateTask(task.id, { status: "verified" })}
-                          className="btn btn-sm bg-success/20 text-success hover:bg-success/30"
-                        >
-                          {Icons.check}
-                          <span>Verify</span>
-                        </button>
-                        <button 
-                          onClick={() => handleUpdateTask(task.id, { status: "denied" })}
-                          className="btn btn-sm bg-destructive/20 text-destructive hover:bg-destructive/30"
-                        >
-                          {Icons.x}
-                          <span>Deny</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-warning">{Icons.clock}</span>
+                <span className="text-muted-foreground">{engTasksPending + pendingTasksCount} Active</span>
+              </div>
+            </div>
+          </div>
+          <div className="progress h-2">
+            <div className="progress-indicator" style={{ 
+              width: `${(engineeringTasks.length + tasks.length) > 0 
+                ? ((engTasksCompleted + verifiedTasksCount) / (engineeringTasks.length + tasks.length)) * 100 
+                : 0}%` 
+            }} />
+          </div>
+        </div>
+
+        {/* Engineering Tasks */}
+        <div className="glass-card">
+          <div className="flex items-center justify-between p-6 pb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">Engineering Tasks</h3>
+              <p className="text-sm text-muted-foreground mt-1">Project tasks and milestones</p>
+            </div>
+            {(userRole === 'engineer' || userRole === 'executive' || isOrgAdmin) && (
+              <button className="btn btn-primary btn-sm" onClick={() => setModalOpen('task')}>
+                {Icons.plus}
+                <span>New Task</span>
+              </button>
             )}
           </div>
+          <div className="px-6 pb-6">
+            <div className="space-y-4">
+              {engineeringTasks.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mx-auto mb-3">
+                    {Icons.checkCircle}
+                  </div>
+                  <p className="text-muted-foreground">No engineering tasks</p>
+                  <p className="text-xs text-muted-foreground mt-1">Create tasks to track project progress</p>
+                </div>
+              ) : (
+                engineeringTasks.map((task) => (
+                  <div key={task.id} className="border border-border rounded-lg p-4 bg-secondary/10 hover:bg-secondary/20 transition-colors">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="font-medium text-foreground">{task.title}</h3>
+                          <span className={`badge ${
+                            task.status === "completed" ? "badge-success" :
+                            task.status === "in_progress" ? "badge-warning" :
+                            task.status === "blocked" ? "badge-destructive" : "badge-muted"
+                          }`}>
+                            {task.status === "completed" ? Icons.check : 
+                             task.status === "blocked" ? Icons.x : Icons.clock}
+                            {task.status.replace('_', ' ')}
+                          </span>
+                          <span className={`badge ${
+                            task.priority === "high" ? "badge-destructive" :
+                            task.priority === "medium" ? "badge-warning" : "badge-muted"
+                          }`}>
+                            {task.priority}
+                          </span>
+                        </div>
+                        {task.description && (
+                          <p className="text-sm text-muted-foreground mb-2">
+                            {task.description}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          {task.assignee_name && (
+                            <span className="flex items-center gap-1">
+                              {Icons.user}
+                              {task.assignee_name}
+                            </span>
+                          )}
+                          {task.project_name && (
+                            <span>{task.project_name}</span>
+                          )}
+                          {task.due_date && (
+                            <span className="flex items-center gap-1">
+                              {Icons.calendar}
+                              {new Date(task.due_date).toLocaleDateString()}
+                            </span>
+                          )}
+                          {task.hours_logged > 0 && (
+                            <span>{task.hours_logged}h logged</span>
+                          )}
+                        </div>
+                      </div>
+                      {task.status !== "completed" && (task.assigned_to === user?.id || userRole === 'engineer' || isOrgAdmin) && (
+                        <div className="flex gap-2">
+                          {task.status === "pending" && (
+                            <button 
+                              className="btn btn-sm btn-secondary"
+                              onClick={() => handleUpdateEngTaskStatus(task.id, 'in_progress')}
+                            >
+                              Start
+                            </button>
+                          )}
+                          {task.status === "in_progress" && (
+                            <button 
+                              className="btn btn-sm bg-success/20 text-success hover:bg-success/30"
+                              onClick={() => handleUpdateEngTaskStatus(task.id, 'completed')}
+                            >
+                              {Icons.check}
+                              <span>Complete</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
+
+        {/* Verification Tasks */}
+        {tasks.length > 0 && (
+          <div className="glass-card">
+            <div className="p-6 pb-4">
+              <h3 className="text-lg font-semibold text-foreground">Verification Tasks</h3>
+              <p className="text-sm text-muted-foreground mt-1">Review and verify assigned items</p>
+            </div>
+            <div className="px-6 pb-6">
+              <div className="space-y-4">
+                {tasks.map((task) => (
+                  <div key={task.id} className="border border-border rounded-lg p-4 bg-secondary/10">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="font-medium text-foreground">{task.title}</h3>
+                          <span className={`badge ${
+                            task.status === "verified" ? "badge-success" :
+                            task.status === "denied" ? "badge-destructive" : "badge-warning"
+                          }`}>
+                            {task.status === "verified" ? Icons.check : 
+                             task.status === "denied" ? Icons.x : Icons.clock}
+                            {task.status}
+                          </span>
+                          <span className={`badge badge-muted`}>
+                            {task.category}
+                          </span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {task.description || "No description"}
+                        </p>
+                        {task.assignee_name && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Assigned to: {task.assignee_name}
+                          </p>
+                        )}
+                      </div>
+                      {task.status === "pending" && (task.assigned_to === user?.id || isOrgAdmin) && (
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => handleUpdateTask(task.id, { status: "verified" })}
+                            className="btn btn-sm bg-success/20 text-success hover:bg-success/30"
+                          >
+                            {Icons.check}
+                            <span>Verify</span>
+                          </button>
+                          <button 
+                            onClick={() => handleUpdateTask(task.id, { status: "denied" })}
+                            className="btn btn-sm bg-destructive/20 text-destructive hover:bg-destructive/30"
+                          >
+                            {Icons.x}
+                            <span>Deny</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderContent = () => {
     switch (currentView) {
       case "dashboard":
         return renderDashboard();
       case "admin":
+      case "team":
         return renderAdmin();
       case "verify":
+      case "tasks":
         return renderVerification();
+      case "budgets":
+        return renderBudgets();
+      case "expenses":
+        return renderExpenses();
+      case "time-log":
+        return renderTimeLog();
+      case "reports":
+      case "financial-reports":
+        return renderReports();
+      case "audit-log":
+        return renderAuditLog();
+      case "projects":
+        return renderProjects();
+      case "documents":
+        return renderDocuments();
       default:
         return renderDashboard();
     }
   };
+
+  // Placeholder renderers for new views
+  const renderBudgets = () => {
+    const totalBudget = budgets.reduce((sum, b) => sum + (b.total_amount || 0), 0);
+    const totalSpent = budgets.reduce((sum, b) => sum + (b.spent || 0), 0);
+    
+    return (
+      <div className="space-y-6 animate-fade-in">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="glass-card p-5">
+            <p className="text-sm font-medium text-muted-foreground">Total Budget</p>
+            <p className="text-2xl font-semibold text-foreground mt-1">{formatCurrency(totalBudget)}</p>
+          </div>
+          <div className="glass-card p-5">
+            <p className="text-sm font-medium text-muted-foreground">Total Spent</p>
+            <p className="text-2xl font-semibold text-foreground mt-1">{formatCurrency(totalSpent)}</p>
+            <div className="progress mt-2 h-1.5">
+              <div className="progress-indicator" style={{ width: `${totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0}%` }} />
+            </div>
+          </div>
+          <div className="glass-card p-5">
+            <p className="text-sm font-medium text-muted-foreground">Remaining</p>
+            <p className="text-2xl font-semibold text-foreground mt-1">{formatCurrency(totalBudget - totalSpent)}</p>
+          </div>
+        </div>
+
+        {/* Budget List */}
+        <div className="glass-card p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-semibold">Budget Management</h2>
+              <p className="text-sm text-muted-foreground">Create and manage project budgets</p>
+            </div>
+            <button className="btn btn-primary" onClick={() => setModalOpen('budget')}>
+              {Icons.plus}
+              <span>New Budget</span>
+            </button>
+          </div>
+          
+          {budgets.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/30 flex items-center justify-center">
+                {Icons.dollarSign}
+              </div>
+              <p className="text-lg font-medium mb-2">No budgets yet</p>
+              <p className="text-sm">Create your first budget to start tracking project finances</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {budgets.map((budget) => (
+                <div key={budget.id} className="p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h3 className="font-medium text-foreground">{budget.name}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {budget.project_name || 'General'} • {budget.fiscal_year}
+                      </p>
+                    </div>
+                    <span className={`badge ${
+                      budget.status === 'active' ? 'badge-success' :
+                      budget.status === 'closed' ? 'badge-muted' : 'badge-warning'
+                    }`}>
+                      {budget.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm">
+                    <span>Budget: {formatCurrency(budget.total_amount || 0)}</span>
+                    <span>Spent: {formatCurrency(budget.spent || 0)}</span>
+                    <span>Remaining: {formatCurrency(budget.remaining || 0)}</span>
+                  </div>
+                  <div className="progress mt-3 h-2">
+                    <div 
+                      className={`progress-indicator ${(budget.spent || 0) / (budget.total_amount || 1) > 0.9 ? 'bg-destructive' : ''}`}
+                      style={{ width: `${(budget.total_amount || 0) > 0 ? ((budget.spent || 0) / (budget.total_amount || 1)) * 100 : 0}%` }} 
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderExpenses = () => {
+    const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const pendingExpenses = expenses.filter(e => e.status === 'pending').reduce((sum, e) => sum + (e.amount || 0), 0);
+    
+    return (
+      <div className="space-y-6 animate-fade-in">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="glass-card p-5">
+            <p className="text-sm font-medium text-muted-foreground">Total Expenses</p>
+            <p className="text-2xl font-semibold text-foreground mt-1">{formatCurrency(totalExpenses)}</p>
+          </div>
+          <div className="glass-card p-5">
+            <p className="text-sm font-medium text-muted-foreground">Pending Approval</p>
+            <p className="text-2xl font-semibold text-warning mt-1">{formatCurrency(pendingExpenses)}</p>
+          </div>
+          <div className="glass-card p-5">
+            <p className="text-sm font-medium text-muted-foreground">This Month</p>
+            <p className="text-2xl font-semibold text-foreground mt-1">{expenses.length} entries</p>
+          </div>
+        </div>
+
+        {/* Expense List */}
+        <div className="glass-card p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-semibold">Expense Tracking</h2>
+              <p className="text-sm text-muted-foreground">Log and monitor project expenses</p>
+            </div>
+            <button className="btn btn-primary" onClick={() => setModalOpen('expense')}>
+              {Icons.plus}
+              <span>Log Expense</span>
+            </button>
+          </div>
+          
+          {expenses.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/30 flex items-center justify-center">
+                {Icons.receipt}
+              </div>
+              <p className="text-lg font-medium mb-2">No expenses logged</p>
+              <p className="text-sm">Start logging expenses to track project costs</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {expenses.map((expense) => (
+                <div key={expense.id} className="p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-medium text-foreground">{expense.description}</h3>
+                        <span className={`badge text-xs ${
+                          expense.status === 'approved' ? 'badge-success' :
+                          expense.status === 'rejected' ? 'badge-destructive' : 'badge-warning'
+                        }`}>
+                          {expense.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <span>{expense.category || 'Uncategorized'}</span>
+                        {expense.vendor_name && <span>• {expense.vendor_name}</span>}
+                        <span>• {new Date(expense.expense_date).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <p className="text-lg font-semibold text-foreground">{formatCurrency(expense.amount)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderTimeLog = () => {
+    const totalHours = timeLogs.reduce((sum, l) => sum + (l.hours || 0), 0);
+    const thisWeekLogs = timeLogs.filter(l => {
+      const logDate = new Date(l.log_date);
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      return logDate >= weekAgo;
+    });
+    const thisWeekHours = thisWeekLogs.reduce((sum, l) => sum + (l.hours || 0), 0);
+    
+    return (
+      <div className="space-y-6 animate-fade-in">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="glass-card p-5">
+            <p className="text-sm font-medium text-muted-foreground">Total Hours</p>
+            <p className="text-2xl font-semibold text-foreground mt-1">{totalHours.toFixed(1)}h</p>
+          </div>
+          <div className="glass-card p-5">
+            <p className="text-sm font-medium text-muted-foreground">This Week</p>
+            <p className="text-2xl font-semibold text-foreground mt-1">{thisWeekHours.toFixed(1)}h</p>
+          </div>
+          <div className="glass-card p-5">
+            <p className="text-sm font-medium text-muted-foreground">Log Entries</p>
+            <p className="text-2xl font-semibold text-foreground mt-1">{timeLogs.length}</p>
+          </div>
+        </div>
+
+        {/* Time Log List */}
+        <div className="glass-card p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-semibold">Time Logging</h2>
+              <p className="text-sm text-muted-foreground">Track hours worked on tasks and projects</p>
+            </div>
+            <button className="btn btn-primary" onClick={() => setModalOpen('timelog')}>
+              {Icons.plus}
+              <span>Log Hours</span>
+            </button>
+          </div>
+          
+          {timeLogs.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/30 flex items-center justify-center">
+                {Icons.clock}
+              </div>
+              <p className="text-lg font-medium mb-2">No time logged</p>
+              <p className="text-sm">Start tracking your work hours for accurate project billing</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {timeLogs.map((log) => (
+                <div key={log.id} className="p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-medium text-foreground">{log.description || 'Time entry'}</h3>
+                        {log.billable && (
+                          <span className="badge badge-success text-xs">Billable</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        {log.task_title && <span>{log.task_title}</span>}
+                        {log.project_name && <span>• {log.project_name}</span>}
+                        <span>• {new Date(log.log_date).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <p className="text-lg font-semibold text-foreground">{log.hours}h</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderReports = () => {
+    const totalBudget = budgets.reduce((sum, b) => sum + (b.total_amount || 0), 0);
+    const totalSpent = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const totalHours = timeLogs.reduce((sum, l) => sum + (l.hours || 0), 0);
+    const completedTasks = engineeringTasks.filter(t => t.status === 'completed').length;
+    
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div className="glass-card p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-semibold">Reports & Analytics</h2>
+              <p className="text-sm text-muted-foreground">View financial and project performance metrics</p>
+            </div>
+            <button className="btn btn-secondary">
+              {Icons.download}
+              <span>Export Report</span>
+            </button>
+          </div>
+          
+          {/* Financial Metrics */}
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">Financial Overview</h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Total Budget</p>
+              <p className="text-2xl font-semibold">{formatCurrency(totalBudget)}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Total Spent</p>
+              <p className="text-2xl font-semibold">{formatCurrency(totalSpent)}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Remaining</p>
+              <p className="text-2xl font-semibold">{formatCurrency(totalBudget - totalSpent)}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Budget Used</p>
+              <p className="text-2xl font-semibold">{totalBudget > 0 ? ((totalSpent / totalBudget) * 100).toFixed(0) : 0}%</p>
+              <div className="progress mt-2 h-1.5">
+                <div 
+                  className={`progress-indicator ${totalBudget > 0 && (totalSpent / totalBudget) > 0.9 ? 'bg-destructive' : ''}`}
+                  style={{ width: `${totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0}%` }} 
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Project Metrics */}
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">Project Performance</h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Active Projects</p>
+              <p className="text-2xl font-semibold">{projects.length}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Total Tasks</p>
+              <p className="text-2xl font-semibold">{engineeringTasks.length}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Completed Tasks</p>
+              <p className="text-2xl font-semibold">{completedTasks}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Total Hours Logged</p>
+              <p className="text-2xl font-semibold">{totalHours.toFixed(1)}h</p>
+            </div>
+          </div>
+
+          {/* Team Overview */}
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">Team Overview</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Team Members</p>
+              <p className="text-2xl font-semibold">{teamMembers.filter(m => m.status === 'active').length}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Pending Invites</p>
+              <p className="text-2xl font-semibold">{teamMembers.filter(m => m.status === 'pending').length}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-sm text-muted-foreground">Active Budgets</p>
+              <p className="text-2xl font-semibold">{budgets.filter(b => b.status === 'active').length}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAuditLog = () => (
+    <div className="space-y-6 animate-fade-in">
+      <div className="glass-card p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-semibold">Audit Log</h2>
+            <p className="text-sm text-muted-foreground">View all activity in your organization</p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          {auditLogs.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/30 flex items-center justify-center">
+                {Icons.fileCheck}
+              </div>
+              <p className="text-lg font-medium mb-2">No activity yet</p>
+              <p className="text-sm">Actions will be logged here as your team works</p>
+            </div>
+          ) : (
+            auditLogs.map((log) => (
+              <div key={log.id} className="p-4 rounded-lg bg-muted/20 flex items-start gap-4">
+                <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center shrink-0">
+                  {Icons.user}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium">{log.action}</p>
+                  <p className="text-sm text-muted-foreground">{log.user_name || log.user_email}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {new Date(log.created_at).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderProjects = () => (
+    <div className="space-y-6 animate-fade-in">
+      <div className="glass-card p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-semibold">Projects</h2>
+            <p className="text-sm text-muted-foreground">R&D Projects for tax credit qualification</p>
+          </div>
+          <button className="btn btn-primary">
+            {Icons.plus}
+            <span>New Project</span>
+          </button>
+        </div>
+        {projects.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/30 flex items-center justify-center">
+              {Icons.folderKanban}
+            </div>
+            <p className="text-lg font-medium mb-2">No projects yet</p>
+            <p className="text-sm">Add your first R&D project to get started</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {projects.map((project) => (
+              <div key={project.id} className="p-4 rounded-lg bg-muted/20">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="font-medium">{project.name}</h3>
+                    <p className="text-sm text-muted-foreground mt-1">{project.description}</p>
+                  </div>
+                  <span className={`badge ${
+                    project.qualification_status === "qualified" ? "badge-success" :
+                    project.qualification_status === "not_qualified" ? "badge-destructive" : "badge-warning"
+                  }`}>
+                    {project.qualification_status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderDocuments = () => (
+    <div className="space-y-6 animate-fade-in">
+      <div className="glass-card p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-semibold">Documents</h2>
+            <p className="text-sm text-muted-foreground">Upload and manage project documentation</p>
+          </div>
+          <button className="btn btn-primary">
+            {Icons.upload}
+            <span>Upload</span>
+          </button>
+        </div>
+        <div className="text-center py-12 text-muted-foreground">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/30 flex items-center justify-center">
+            {Icons.fileText}
+          </div>
+          <p className="text-lg font-medium mb-2">No documents uploaded</p>
+          <p className="text-sm">Upload payroll data, contracts, or other supporting documents</p>
+        </div>
+      </div>
+    </div>
+  );
 
   // ============================================================================
   // MAIN RENDER
@@ -1283,7 +2259,7 @@ export default function Portal() {
                   {!sidebarCollapsed && (
                     <>
                       <span className="flex-1 text-left">{item.label}</span>
-                      {item.badge && (
+                      {'badge' in item && item.badge && (
                         <span className="px-2 py-0.5 text-xs rounded-full bg-accent/50 text-accent-foreground">
                           {item.badge}
                         </span>
@@ -1341,9 +2317,17 @@ export default function Portal() {
               <div>
                 <h1 className="text-lg font-semibold text-foreground">
                   {currentView === "dashboard" ? "Dashboard" :
-                   currentView === "admin" ? "Admin Dashboard" :
-                   currentView === "verify" ? "Verification Portal" :
-                   currentView.charAt(0).toUpperCase() + currentView.slice(1)}
+                   currentView === "admin" || currentView === "team" ? "Team Management" :
+                   currentView === "verify" || currentView === "tasks" ? "Tasks & Verification" :
+                   currentView === "budgets" ? "Budget Management" :
+                   currentView === "expenses" ? "Expense Tracking" :
+                   currentView === "time-log" ? "Time Logging" :
+                   currentView === "reports" || currentView === "financial-reports" ? "Reports & Analytics" :
+                   currentView === "audit-log" ? "Audit Log" :
+                   currentView === "projects" ? "Projects" :
+                   currentView === "documents" ? "Documents" :
+                   currentView === "questionnaires" ? "AI Assistant" :
+                   currentView.charAt(0).toUpperCase() + currentView.slice(1).replace(/-/g, ' ')}
                 </h1>
                 <p className="text-sm text-muted-foreground">
                   FY{new Date().getFullYear()} R&D Tax Credit Study • {profile?.company_name || "Your Company"}
@@ -1597,6 +2581,390 @@ export default function Portal() {
           </div>
         </div>
       )}
+
+      {/* Budget Form Modal */}
+      <Modal open={modalOpen === 'budget'} onClose={closeModal} title="Create New Budget">
+        <form onSubmit={handleCreateBudget} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Budget Name *</label>
+            <input
+              type="text"
+              value={budgetForm.name}
+              onChange={(e) => setBudgetForm(prev => ({ ...prev, name: e.target.value }))}
+              className="input"
+              placeholder="e.g., Q1 Development Budget"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Project</label>
+            <select
+              value={budgetForm.project_id}
+              onChange={(e) => setBudgetForm(prev => ({ ...prev, project_id: e.target.value }))}
+              className="input"
+            >
+              <option value="">General (No specific project)</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Total Amount</label>
+              <input
+                type="number"
+                value={budgetForm.total_amount}
+                onChange={(e) => setBudgetForm(prev => ({ ...prev, total_amount: e.target.value }))}
+                className="input"
+                placeholder="0.00"
+                min="0"
+                step="0.01"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Fiscal Year</label>
+              <input
+                type="text"
+                value={budgetForm.fiscal_year}
+                onChange={(e) => setBudgetForm(prev => ({ ...prev, fiscal_year: e.target.value }))}
+                className="input"
+                placeholder="2024"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Category</label>
+            <select
+              value={budgetForm.category}
+              onChange={(e) => setBudgetForm(prev => ({ ...prev, category: e.target.value }))}
+              className="input"
+            >
+              <option value="">Select category</option>
+              <option value="personnel">Personnel</option>
+              <option value="materials">Materials</option>
+              <option value="software">Software</option>
+              <option value="contractors">Contractors</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Notes</label>
+            <textarea
+              value={budgetForm.notes}
+              onChange={(e) => setBudgetForm(prev => ({ ...prev, notes: e.target.value }))}
+              className="input min-h-[80px]"
+              placeholder="Optional notes about this budget..."
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={closeModal} className="btn btn-outline btn-md">
+              Cancel
+            </button>
+            <button type="submit" disabled={isSubmitting} className="btn btn-primary btn-md">
+              {isSubmitting ? "Creating..." : "Create Budget"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Expense Form Modal */}
+      <Modal open={modalOpen === 'expense'} onClose={closeModal} title="Log New Expense">
+        <form onSubmit={handleCreateExpense} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Description *</label>
+            <input
+              type="text"
+              value={expenseForm.description}
+              onChange={(e) => setExpenseForm(prev => ({ ...prev, description: e.target.value }))}
+              className="input"
+              placeholder="e.g., Software license renewal"
+              required
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Amount *</label>
+              <input
+                type="number"
+                value={expenseForm.amount}
+                onChange={(e) => setExpenseForm(prev => ({ ...prev, amount: e.target.value }))}
+                className="input"
+                placeholder="0.00"
+                min="0"
+                step="0.01"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Date</label>
+              <input
+                type="date"
+                value={expenseForm.expense_date}
+                onChange={(e) => setExpenseForm(prev => ({ ...prev, expense_date: e.target.value }))}
+                className="input"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Budget</label>
+              <select
+                value={expenseForm.budget_id}
+                onChange={(e) => setExpenseForm(prev => ({ ...prev, budget_id: e.target.value }))}
+                className="input"
+              >
+                <option value="">No budget</option>
+                {budgets.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Project</label>
+              <select
+                value={expenseForm.project_id}
+                onChange={(e) => setExpenseForm(prev => ({ ...prev, project_id: e.target.value }))}
+                className="input"
+              >
+                <option value="">No project</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Category</label>
+              <select
+                value={expenseForm.category}
+                onChange={(e) => setExpenseForm(prev => ({ ...prev, category: e.target.value }))}
+                className="input"
+              >
+                <option value="">Select category</option>
+                <option value="personnel">Personnel</option>
+                <option value="materials">Materials</option>
+                <option value="software">Software</option>
+                <option value="contractors">Contractors</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Vendor</label>
+              <input
+                type="text"
+                value={expenseForm.vendor_name}
+                onChange={(e) => setExpenseForm(prev => ({ ...prev, vendor_name: e.target.value }))}
+                className="input"
+                placeholder="Vendor name"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={closeModal} className="btn btn-outline btn-md">
+              Cancel
+            </button>
+            <button type="submit" disabled={isSubmitting} className="btn btn-primary btn-md">
+              {isSubmitting ? "Logging..." : "Log Expense"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Engineering Task Form Modal */}
+      <Modal open={modalOpen === 'task'} onClose={closeModal} title="Create New Task">
+        <form onSubmit={handleCreateEngTask} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Task Title *</label>
+            <input
+              type="text"
+              value={taskForm.title}
+              onChange={(e) => setTaskForm(prev => ({ ...prev, title: e.target.value }))}
+              className="input"
+              placeholder="e.g., Implement user authentication"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Description</label>
+            <textarea
+              value={taskForm.description}
+              onChange={(e) => setTaskForm(prev => ({ ...prev, description: e.target.value }))}
+              className="input min-h-[80px]"
+              placeholder="Describe the task..."
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Project</label>
+              <select
+                value={taskForm.project_id}
+                onChange={(e) => setTaskForm(prev => ({ ...prev, project_id: e.target.value }))}
+                className="input"
+              >
+                <option value="">No project</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Priority</label>
+              <select
+                value={taskForm.priority}
+                onChange={(e) => setTaskForm(prev => ({ ...prev, priority: e.target.value }))}
+                className="input"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Assign To</label>
+              <select
+                value={taskForm.assigned_to}
+                onChange={(e) => setTaskForm(prev => ({ ...prev, assigned_to: e.target.value }))}
+                className="input"
+              >
+                <option value="">Unassigned</option>
+                {teamMembers.filter(m => m.status === 'active').map(m => (
+                  <option key={m.user_id} value={m.user_id}>{m.name || m.email || m.user_id}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Due Date</label>
+              <input
+                type="date"
+                value={taskForm.due_date}
+                onChange={(e) => setTaskForm(prev => ({ ...prev, due_date: e.target.value }))}
+                className="input"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Estimated Hours</label>
+              <input
+                type="number"
+                value={taskForm.estimated_hours}
+                onChange={(e) => setTaskForm(prev => ({ ...prev, estimated_hours: e.target.value }))}
+                className="input"
+                placeholder="0"
+                min="0"
+                step="0.5"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Milestone</label>
+              <input
+                type="text"
+                value={taskForm.milestone}
+                onChange={(e) => setTaskForm(prev => ({ ...prev, milestone: e.target.value }))}
+                className="input"
+                placeholder="e.g., Sprint 1"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={closeModal} className="btn btn-outline btn-md">
+              Cancel
+            </button>
+            <button type="submit" disabled={isSubmitting} className="btn btn-primary btn-md">
+              {isSubmitting ? "Creating..." : "Create Task"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Time Log Form Modal */}
+      <Modal open={modalOpen === 'timelog'} onClose={closeModal} title="Log Work Hours">
+        <form onSubmit={handleCreateTimeLog} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Hours *</label>
+              <input
+                type="number"
+                value={timeLogForm.hours}
+                onChange={(e) => setTimeLogForm(prev => ({ ...prev, hours: e.target.value }))}
+                className="input"
+                placeholder="0.0"
+                min="0.25"
+                step="0.25"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Date</label>
+              <input
+                type="date"
+                value={timeLogForm.log_date}
+                onChange={(e) => setTimeLogForm(prev => ({ ...prev, log_date: e.target.value }))}
+                className="input"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Task</label>
+              <select
+                value={timeLogForm.task_id}
+                onChange={(e) => setTimeLogForm(prev => ({ ...prev, task_id: e.target.value }))}
+                className="input"
+              >
+                <option value="">No specific task</option>
+                {engineeringTasks.filter(t => t.status !== 'completed').map(t => (
+                  <option key={t.id} value={t.id}>{t.title}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Project</label>
+              <select
+                value={timeLogForm.project_id}
+                onChange={(e) => setTimeLogForm(prev => ({ ...prev, project_id: e.target.value }))}
+                className="input"
+              >
+                <option value="">No project</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Description</label>
+            <textarea
+              value={timeLogForm.description}
+              onChange={(e) => setTimeLogForm(prev => ({ ...prev, description: e.target.value }))}
+              className="input min-h-[80px]"
+              placeholder="What did you work on?"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="billable"
+              checked={timeLogForm.billable}
+              onChange={(e) => setTimeLogForm(prev => ({ ...prev, billable: e.target.checked }))}
+              className="w-4 h-4 rounded border-border"
+            />
+            <label htmlFor="billable" className="text-sm text-foreground">Billable hours</label>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={closeModal} className="btn btn-outline btn-md">
+              Cancel
+            </button>
+            <button type="submit" disabled={isSubmitting} className="btn btn-primary btn-md">
+              {isSubmitting ? "Logging..." : "Log Hours"}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -394,7 +394,7 @@ class OrganizationUpdate(BaseModel):
 
 class InviteMemberRequest(BaseModel):
     email: str
-    role: str = "member"  # admin, project_lead, vendor_approver, supply_approver, hr_verifier, member
+    role: str = "engineer"  # executive, cpa, engineer
 
 class UpdateMemberRequest(BaseModel):
     role: Optional[str] = None
@@ -414,6 +414,71 @@ class UpdateTaskRequest(BaseModel):
     comment: Optional[str] = None
     assigned_to: Optional[str] = None
     priority: Optional[str] = None
+
+# --- Budget Models (CPA) ---
+class BudgetCreate(BaseModel):
+    name: str
+    project_id: Optional[str] = None
+    total_amount: float = 0
+    category: Optional[str] = None  # personnel, materials, software, contractors, other
+    fiscal_year: Optional[str] = "2024"
+    notes: Optional[str] = None
+
+class BudgetUpdate(BaseModel):
+    name: Optional[str] = None
+    total_amount: Optional[float] = None
+    allocated_amount: Optional[float] = None
+    category: Optional[str] = None
+    status: Optional[str] = None  # active, closed, draft
+    notes: Optional[str] = None
+
+# --- Expense Models (CPA) ---
+class ExpenseCreate(BaseModel):
+    description: str
+    amount: float
+    budget_id: Optional[str] = None
+    project_id: Optional[str] = None
+    category: Optional[str] = None
+    vendor_name: Optional[str] = None
+    expense_date: Optional[str] = None
+
+class ExpenseUpdate(BaseModel):
+    description: Optional[str] = None
+    amount: Optional[float] = None
+    category: Optional[str] = None
+    vendor_name: Optional[str] = None
+    status: Optional[str] = None  # pending, approved, rejected
+
+# --- Engineering Task Models ---
+class EngineeringTaskCreate(BaseModel):
+    title: str
+    project_id: Optional[str] = None
+    description: Optional[str] = None
+    priority: str = "medium"
+    assigned_to: Optional[str] = None
+    due_date: Optional[str] = None
+    estimated_hours: Optional[float] = 0
+    milestone: Optional[str] = None
+
+class EngineeringTaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None  # pending, in_progress, completed, blocked
+    priority: Optional[str] = None
+    assigned_to: Optional[str] = None
+    due_date: Optional[str] = None
+    hours_logged: Optional[float] = None
+    milestone: Optional[str] = None
+
+# --- Time Log Models ---
+class TimeLogCreate(BaseModel):
+    task_id: Optional[str] = None
+    project_id: Optional[str] = None
+    hours: float
+    description: Optional[str] = None
+    log_date: Optional[str] = None
+    billable: bool = True
+    hourly_rate: Optional[float] = None
 
 
 # --- Organization Router ---
@@ -437,7 +502,7 @@ def get_user_organization(user: dict) -> Optional[Dict]:
 
 
 def check_org_admin(user: dict, org_id: str) -> bool:
-    """Check if user is an admin of the organization."""
+    """Check if user is an executive (admin) of the organization."""
     supabase = get_supabase()
     if not supabase:
         return False
@@ -449,10 +514,74 @@ def check_org_admin(user: dict, org_id: str) -> bool:
             .eq("user_id", user["id"])\
             .single()\
             .execute()
-        return member.data and member.data.get("role") == "admin" and member.data.get("status") == "active"
+        return member.data and member.data.get("role") == "executive" and member.data.get("status") == "active"
     except Exception as e:
         logger.error(f"Error checking org admin: {e}")
     return False
+
+
+def check_org_cpa(user: dict, org_id: str) -> bool:
+    """Check if user is a CPA of the organization."""
+    supabase = get_supabase()
+    if not supabase:
+        return False
+    
+    try:
+        member = supabase.table("organization_members")\
+            .select("role, status")\
+            .eq("organization_id", org_id)\
+            .eq("user_id", user["id"])\
+            .single()\
+            .execute()
+        return member.data and member.data.get("role") == "cpa" and member.data.get("status") == "active"
+    except Exception as e:
+        logger.error(f"Error checking org cpa: {e}")
+    return False
+
+
+def check_org_engineer(user: dict, org_id: str) -> bool:
+    """Check if user is an engineer of the organization."""
+    supabase = get_supabase()
+    if not supabase:
+        return False
+    
+    try:
+        member = supabase.table("organization_members")\
+            .select("role, status")\
+            .eq("organization_id", org_id)\
+            .eq("user_id", user["id"])\
+            .single()\
+            .execute()
+        return member.data and member.data.get("role") == "engineer" and member.data.get("status") == "active"
+    except Exception as e:
+        logger.error(f"Error checking org engineer: {e}")
+    return False
+
+
+def get_user_role(user: dict, org_id: str) -> Optional[str]:
+    """Get user's role in the organization."""
+    supabase = get_supabase()
+    if not supabase:
+        return None
+    
+    try:
+        member = supabase.table("organization_members")\
+            .select("role, status")\
+            .eq("organization_id", org_id)\
+            .eq("user_id", user["id"])\
+            .single()\
+            .execute()
+        if member.data and member.data.get("status") == "active":
+            return member.data.get("role")
+    except Exception as e:
+        logger.error(f"Error getting user role: {e}")
+    return None
+
+
+def check_role(user: dict, org_id: str, allowed_roles: List[str]) -> bool:
+    """Check if user has one of the allowed roles."""
+    role = get_user_role(user, org_id)
+    return role in allowed_roles
 
 
 def log_audit(org_id: str, user_id: str, action: str, item_type: str = None, item_id: str = None, details: dict = None):
@@ -899,6 +1028,633 @@ async def get_audit_log(org_id: str, limit: int = 50, user: dict = Depends(get_c
     except Exception as e:
         logger.error(f"Error fetching audit log: {e}")
         return {"logs": []}
+
+
+# --- Executive Overview ---
+@org_router.get("/{org_id}/overview")
+async def get_executive_overview(org_id: str, user: dict = Depends(get_current_user)):
+    """Get executive overview with aggregated metrics."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        return {"overview": None}
+    
+    try:
+        # Get budget totals
+        budgets = supabase.table("budgets").select("total_amount, allocated_amount, status")\
+            .eq("organization_id", org_id).execute()
+        total_budget = sum(b.get("total_amount", 0) or 0 for b in budgets.data)
+        
+        # Get expense totals
+        expenses = supabase.table("expenses").select("amount, status")\
+            .eq("organization_id", org_id).execute()
+        total_expenses = sum(e.get("amount", 0) or 0 for e in expenses.data)
+        pending_expenses = sum(e.get("amount", 0) or 0 for e in expenses.data if e.get("status") == "pending")
+        
+        # Get task stats
+        tasks = supabase.table("engineering_tasks").select("status")\
+            .eq("organization_id", org_id).execute()
+        total_tasks = len(tasks.data)
+        completed_tasks = len([t for t in tasks.data if t.get("status") == "completed"])
+        in_progress_tasks = len([t for t in tasks.data if t.get("status") == "in_progress"])
+        blocked_tasks = len([t for t in tasks.data if t.get("status") == "blocked"])
+        
+        # Get project count
+        projects = supabase.table("projects").select("id")\
+            .eq("organization_id", org_id).execute()
+        
+        # Get team count
+        members = supabase.table("organization_members").select("role")\
+            .eq("organization_id", org_id).eq("status", "active").execute()
+        
+        # Calculate burn rate (expenses in last 30 days)
+        from datetime import timedelta
+        thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
+        recent_expenses = supabase.table("expenses").select("amount")\
+            .eq("organization_id", org_id)\
+            .gte("expense_date", thirty_days_ago[:10])\
+            .execute()
+        burn_rate = sum(e.get("amount", 0) or 0 for e in recent_expenses.data)
+        
+        # Budget alerts
+        alerts = []
+        if total_budget > 0:
+            budget_usage = (total_expenses / total_budget) * 100
+            if budget_usage >= 90:
+                alerts.append({"type": "critical", "message": f"Budget usage at {budget_usage:.0f}%"})
+            elif budget_usage >= 75:
+                alerts.append({"type": "warning", "message": f"Budget usage at {budget_usage:.0f}%"})
+        
+        if blocked_tasks > 0:
+            alerts.append({"type": "warning", "message": f"{blocked_tasks} task(s) blocked"})
+        
+        if pending_expenses > 10000:
+            alerts.append({"type": "info", "message": f"${pending_expenses:,.0f} in pending expenses"})
+        
+        return {
+            "overview": {
+                "budget": {
+                    "total": total_budget,
+                    "spent": total_expenses,
+                    "remaining": total_budget - total_expenses,
+                    "usage_percent": (total_expenses / total_budget * 100) if total_budget > 0 else 0,
+                },
+                "tasks": {
+                    "total": total_tasks,
+                    "completed": completed_tasks,
+                    "in_progress": in_progress_tasks,
+                    "blocked": blocked_tasks,
+                    "completion_percent": (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0,
+                },
+                "projects": len(projects.data),
+                "team_size": len(members.data),
+                "burn_rate": burn_rate,
+                "alerts": alerts,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching executive overview: {e}")
+        return {"overview": None}
+
+
+# --- Budget Management (CPA) ---
+@org_router.get("/{org_id}/budgets")
+async def get_budgets(org_id: str, project_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Get all budgets for the organization."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        return {"budgets": []}
+    
+    try:
+        query = supabase.table("budgets")\
+            .select("*, projects(id, name), profiles!created_by(id, full_name)")\
+            .eq("organization_id", org_id)
+        
+        if project_id:
+            query = query.eq("project_id", project_id)
+        
+        result = query.order("created_at", desc=True).execute()
+        
+        budgets = []
+        for b in result.data:
+            project = b.get("projects", {})
+            creator = b.get("profiles", {})
+            
+            # Calculate spent from expenses
+            expenses = supabase.table("expenses").select("amount")\
+                .eq("budget_id", b["id"]).execute()
+            spent = sum(e.get("amount", 0) or 0 for e in expenses.data)
+            
+            budgets.append({
+                **{k: v for k, v in b.items() if k not in ["projects", "profiles"]},
+                "project_name": project.get("name") if project else None,
+                "creator_name": creator.get("full_name") if creator else None,
+                "spent": spent,
+                "remaining": (b.get("total_amount", 0) or 0) - spent,
+            })
+        
+        return {"budgets": budgets}
+    except Exception as e:
+        logger.error(f"Error fetching budgets: {e}")
+        return {"budgets": []}
+
+
+@org_router.post("/{org_id}/budgets")
+async def create_budget(org_id: str, budget: BudgetCreate, user: dict = Depends(get_current_user)):
+    """Create a new budget (CPA or Executive only)."""
+    if not check_role(user, org_id, ["executive", "cpa"]):
+        raise HTTPException(status_code=403, detail="CPA or Executive access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        budget_data = {
+            "organization_id": org_id,
+            "name": budget.name,
+            "total_amount": budget.total_amount,
+            "category": budget.category,
+            "fiscal_year": budget.fiscal_year,
+            "notes": budget.notes,
+            "created_by": user["id"],
+        }
+        if budget.project_id:
+            budget_data["project_id"] = budget.project_id
+        
+        result = supabase.table("budgets").insert(budget_data).execute()
+        log_audit(org_id, user["id"], "budget_created", "budget", result.data[0]["id"], {"name": budget.name})
+        return {"budget": result.data[0]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.patch("/{org_id}/budgets/{budget_id}")
+async def update_budget(org_id: str, budget_id: str, budget: BudgetUpdate, user: dict = Depends(get_current_user)):
+    """Update a budget (CPA or Executive only)."""
+    if not check_role(user, org_id, ["executive", "cpa"]):
+        raise HTTPException(status_code=403, detail="CPA or Executive access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        update_data = {k: v for k, v in budget.dict().items() if v is not None}
+        if update_data:
+            result = supabase.table("budgets").update(update_data).eq("id", budget_id).execute()
+            log_audit(org_id, user["id"], "budget_updated", "budget", budget_id, update_data)
+            return {"budget": result.data[0] if result.data else None}
+        return {"budget": None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.delete("/{org_id}/budgets/{budget_id}")
+async def delete_budget(org_id: str, budget_id: str, user: dict = Depends(get_current_user)):
+    """Delete a budget (Executive only)."""
+    if not check_org_admin(user, org_id):
+        raise HTTPException(status_code=403, detail="Executive access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        supabase.table("budgets").delete().eq("id", budget_id).execute()
+        log_audit(org_id, user["id"], "budget_deleted", "budget", budget_id, {})
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Expense Management (CPA) ---
+@org_router.get("/{org_id}/expenses")
+async def get_expenses(
+    org_id: str, 
+    budget_id: Optional[str] = None, 
+    project_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Get all expenses for the organization."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        return {"expenses": []}
+    
+    try:
+        query = supabase.table("expenses")\
+            .select("*, budgets(id, name), projects(id, name), profiles!logged_by(id, full_name)")\
+            .eq("organization_id", org_id)
+        
+        if budget_id:
+            query = query.eq("budget_id", budget_id)
+        if project_id:
+            query = query.eq("project_id", project_id)
+        if status:
+            query = query.eq("status", status)
+        
+        result = query.order("expense_date", desc=True).execute()
+        
+        expenses = []
+        for e in result.data:
+            budget = e.get("budgets", {})
+            project = e.get("projects", {})
+            logger_profile = e.get("profiles", {})
+            expenses.append({
+                **{k: v for k, v in e.items() if k not in ["budgets", "projects", "profiles"]},
+                "budget_name": budget.get("name") if budget else None,
+                "project_name": project.get("name") if project else None,
+                "logged_by_name": logger_profile.get("full_name") if logger_profile else None,
+            })
+        
+        return {"expenses": expenses}
+    except Exception as e:
+        logger.error(f"Error fetching expenses: {e}")
+        return {"expenses": []}
+
+
+@org_router.get("/{org_id}/expenses/summary")
+async def get_expense_summary(org_id: str, user: dict = Depends(get_current_user)):
+    """Get expense summary by category."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        return {"summary": {}}
+    
+    try:
+        expenses = supabase.table("expenses").select("amount, category, status")\
+            .eq("organization_id", org_id).execute()
+        
+        by_category = {}
+        by_status = {"pending": 0, "approved": 0, "rejected": 0}
+        total = 0
+        
+        for e in expenses.data:
+            amount = e.get("amount", 0) or 0
+            category = e.get("category") or "other"
+            status = e.get("status") or "pending"
+            
+            total += amount
+            by_category[category] = by_category.get(category, 0) + amount
+            by_status[status] = by_status.get(status, 0) + amount
+        
+        return {
+            "summary": {
+                "total": total,
+                "by_category": by_category,
+                "by_status": by_status,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching expense summary: {e}")
+        return {"summary": {}}
+
+
+@org_router.post("/{org_id}/expenses")
+async def create_expense(org_id: str, expense: ExpenseCreate, user: dict = Depends(get_current_user)):
+    """Log a new expense (CPA or Executive only)."""
+    if not check_role(user, org_id, ["executive", "cpa"]):
+        raise HTTPException(status_code=403, detail="CPA or Executive access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        expense_data = {
+            "organization_id": org_id,
+            "description": expense.description,
+            "amount": expense.amount,
+            "category": expense.category,
+            "vendor_name": expense.vendor_name,
+            "logged_by": user["id"],
+        }
+        if expense.budget_id:
+            expense_data["budget_id"] = expense.budget_id
+        if expense.project_id:
+            expense_data["project_id"] = expense.project_id
+        if expense.expense_date:
+            expense_data["expense_date"] = expense.expense_date
+        
+        result = supabase.table("expenses").insert(expense_data).execute()
+        log_audit(org_id, user["id"], "expense_created", "expense", result.data[0]["id"], 
+                  {"description": expense.description, "amount": expense.amount})
+        return {"expense": result.data[0]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.patch("/{org_id}/expenses/{expense_id}")
+async def update_expense(org_id: str, expense_id: str, expense: ExpenseUpdate, user: dict = Depends(get_current_user)):
+    """Update an expense (CPA or Executive only)."""
+    if not check_role(user, org_id, ["executive", "cpa"]):
+        raise HTTPException(status_code=403, detail="CPA or Executive access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        update_data = {k: v for k, v in expense.dict().items() if v is not None}
+        
+        # If approving/rejecting, add metadata
+        if expense.status in ["approved", "rejected"]:
+            update_data["approved_by"] = user["id"]
+            update_data["approved_at"] = datetime.utcnow().isoformat()
+        
+        if update_data:
+            result = supabase.table("expenses").update(update_data).eq("id", expense_id).execute()
+            log_audit(org_id, user["id"], f"expense_{expense.status or 'updated'}", "expense", expense_id, update_data)
+            return {"expense": result.data[0] if result.data else None}
+        return {"expense": None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Engineering Tasks ---
+@org_router.get("/{org_id}/engineering-tasks")
+async def get_engineering_tasks(
+    org_id: str,
+    project_id: Optional[str] = None,
+    status: Optional[str] = None,
+    assigned_to: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Get engineering tasks for the organization."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        return {"tasks": []}
+    
+    try:
+        query = supabase.table("engineering_tasks")\
+            .select("*, projects(id, name), profiles!assigned_to(id, full_name, email)")\
+            .eq("organization_id", org_id)
+        
+        if project_id:
+            query = query.eq("project_id", project_id)
+        if status:
+            query = query.eq("status", status)
+        if assigned_to:
+            query = query.eq("assigned_to", assigned_to)
+        
+        result = query.order("created_at", desc=True).execute()
+        
+        tasks = []
+        for t in result.data:
+            project = t.get("projects", {})
+            assignee = t.get("profiles", {})
+            tasks.append({
+                **{k: v for k, v in t.items() if k not in ["projects", "profiles"]},
+                "project_name": project.get("name") if project else None,
+                "assignee_name": assignee.get("full_name") if assignee else None,
+                "assignee_email": assignee.get("email") if assignee else None,
+            })
+        
+        return {"tasks": tasks}
+    except Exception as e:
+        logger.error(f"Error fetching engineering tasks: {e}")
+        return {"tasks": []}
+
+
+@org_router.post("/{org_id}/engineering-tasks")
+async def create_engineering_task(org_id: str, task: EngineeringTaskCreate, user: dict = Depends(get_current_user)):
+    """Create a new engineering task (Engineer or Executive)."""
+    if not check_role(user, org_id, ["executive", "engineer"]):
+        raise HTTPException(status_code=403, detail="Engineer or Executive access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        task_data = {
+            "organization_id": org_id,
+            "title": task.title,
+            "description": task.description,
+            "priority": task.priority,
+            "estimated_hours": task.estimated_hours or 0,
+            "milestone": task.milestone,
+            "created_by": user["id"],
+        }
+        if task.project_id:
+            task_data["project_id"] = task.project_id
+        if task.assigned_to:
+            task_data["assigned_to"] = task.assigned_to
+        if task.due_date:
+            task_data["due_date"] = task.due_date
+        
+        result = supabase.table("engineering_tasks").insert(task_data).execute()
+        log_audit(org_id, user["id"], "engineering_task_created", "engineering_task", result.data[0]["id"], 
+                  {"title": task.title})
+        return {"task": result.data[0]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.patch("/{org_id}/engineering-tasks/{task_id}")
+async def update_engineering_task(org_id: str, task_id: str, task: EngineeringTaskUpdate, user: dict = Depends(get_current_user)):
+    """Update an engineering task."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Get task to check permissions
+        existing = supabase.table("engineering_tasks").select("assigned_to").eq("id", task_id).single().execute()
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        # Check permission - assigned user, engineer, or executive can update
+        is_assigned = existing.data.get("assigned_to") == user["id"]
+        has_role = check_role(user, org_id, ["executive", "engineer"])
+        
+        if not is_assigned and not has_role:
+            raise HTTPException(status_code=403, detail="Not authorized to update this task")
+        
+        update_data = {k: v for k, v in task.dict().items() if v is not None}
+        
+        # If completing, add completion timestamp
+        if task.status == "completed":
+            update_data["completed_at"] = datetime.utcnow().isoformat()
+        
+        if update_data:
+            result = supabase.table("engineering_tasks").update(update_data).eq("id", task_id).execute()
+            log_audit(org_id, user["id"], f"engineering_task_{task.status or 'updated'}", "engineering_task", task_id, update_data)
+            return {"task": result.data[0] if result.data else None}
+        return {"task": None}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.delete("/{org_id}/engineering-tasks/{task_id}")
+async def delete_engineering_task(org_id: str, task_id: str, user: dict = Depends(get_current_user)):
+    """Delete an engineering task (Executive only)."""
+    if not check_org_admin(user, org_id):
+        raise HTTPException(status_code=403, detail="Executive access required")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        supabase.table("engineering_tasks").delete().eq("id", task_id).execute()
+        log_audit(org_id, user["id"], "engineering_task_deleted", "engineering_task", task_id, {})
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Time Logs ---
+@org_router.get("/{org_id}/time-logs")
+async def get_time_logs(
+    org_id: str,
+    task_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Get time logs for the organization."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        return {"time_logs": []}
+    
+    try:
+        query = supabase.table("time_logs")\
+            .select("*, engineering_tasks(id, title), projects(id, name), profiles(id, full_name)")\
+            .eq("organization_id", org_id)
+        
+        if task_id:
+            query = query.eq("task_id", task_id)
+        if project_id:
+            query = query.eq("project_id", project_id)
+        if user_id:
+            query = query.eq("user_id", user_id)
+        
+        result = query.order("log_date", desc=True).execute()
+        
+        logs = []
+        for log in result.data:
+            task = log.get("engineering_tasks", {})
+            project = log.get("projects", {})
+            profile = log.get("profiles", {})
+            logs.append({
+                **{k: v for k, v in log.items() if k not in ["engineering_tasks", "projects", "profiles"]},
+                "task_title": task.get("title") if task else None,
+                "project_name": project.get("name") if project else None,
+                "user_name": profile.get("full_name") if profile else None,
+            })
+        
+        return {"time_logs": logs}
+    except Exception as e:
+        logger.error(f"Error fetching time logs: {e}")
+        return {"time_logs": []}
+
+
+@org_router.post("/{org_id}/time-logs")
+async def create_time_log(org_id: str, time_log: TimeLogCreate, user: dict = Depends(get_current_user)):
+    """Log hours worked."""
+    current_org = get_user_organization(user)
+    if not current_org or current_org["id"] != org_id:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        log_data = {
+            "organization_id": org_id,
+            "user_id": user["id"],
+            "hours": time_log.hours,
+            "description": time_log.description,
+            "billable": time_log.billable,
+            "hourly_rate": time_log.hourly_rate,
+        }
+        if time_log.task_id:
+            log_data["task_id"] = time_log.task_id
+        if time_log.project_id:
+            log_data["project_id"] = time_log.project_id
+        if time_log.log_date:
+            log_data["log_date"] = time_log.log_date
+        
+        result = supabase.table("time_logs").insert(log_data).execute()
+        
+        # Update task hours_logged if task_id provided
+        if time_log.task_id:
+            task = supabase.table("engineering_tasks").select("hours_logged").eq("id", time_log.task_id).single().execute()
+            if task.data:
+                new_hours = (task.data.get("hours_logged") or 0) + time_log.hours
+                supabase.table("engineering_tasks").update({"hours_logged": new_hours}).eq("id", time_log.task_id).execute()
+        
+        log_audit(org_id, user["id"], "time_logged", "time_log", result.data[0]["id"], 
+                  {"hours": time_log.hours})
+        return {"time_log": result.data[0]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@org_router.delete("/{org_id}/time-logs/{log_id}")
+async def delete_time_log(org_id: str, log_id: str, user: dict = Depends(get_current_user)):
+    """Delete a time log (own logs or Executive)."""
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Get log to check ownership
+        log = supabase.table("time_logs").select("user_id, hours, task_id").eq("id", log_id).single().execute()
+        if not log.data:
+            raise HTTPException(status_code=404, detail="Time log not found")
+        
+        is_owner = log.data.get("user_id") == user["id"]
+        is_admin = check_org_admin(user, org_id)
+        
+        if not is_owner and not is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this time log")
+        
+        # Update task hours_logged if task_id exists
+        if log.data.get("task_id"):
+            task = supabase.table("engineering_tasks").select("hours_logged").eq("id", log.data["task_id"]).single().execute()
+            if task.data:
+                new_hours = max(0, (task.data.get("hours_logged") or 0) - log.data.get("hours", 0))
+                supabase.table("engineering_tasks").update({"hours_logged": new_hours}).eq("id", log.data["task_id"]).execute()
+        
+        supabase.table("time_logs").delete().eq("id", log_id).execute()
+        log_audit(org_id, user["id"], "time_log_deleted", "time_log", log_id, {})
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- Public Endpoints (no auth required) ---

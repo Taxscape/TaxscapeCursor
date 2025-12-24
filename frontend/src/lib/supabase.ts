@@ -16,13 +16,121 @@ export type OrganizationMember = {
   id: string;
   organization_id: string;
   user_id: string;
-  role: 'admin' | 'project_lead' | 'vendor_approver' | 'supply_approver' | 'hr_verifier' | 'member';
+  role: 'executive' | 'cpa' | 'engineer';
   status: 'active' | 'pending' | 'inactive';
   invited_by: string | null;
   invited_at: string;
   accepted_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type Budget = {
+  id: string;
+  organization_id: string;
+  project_id: string | null;
+  name: string;
+  total_amount: number;
+  allocated_amount: number;
+  category: 'personnel' | 'materials' | 'software' | 'contractors' | 'other' | null;
+  fiscal_year: string;
+  status: 'active' | 'closed' | 'draft';
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Computed fields from API
+  project_name?: string | null;
+  creator_name?: string | null;
+  spent?: number;
+  remaining?: number;
+};
+
+export type Expense = {
+  id: string;
+  organization_id: string;
+  budget_id: string | null;
+  project_id: string | null;
+  description: string;
+  amount: number;
+  category: 'personnel' | 'materials' | 'software' | 'contractors' | 'other' | null;
+  vendor_name: string | null;
+  expense_date: string;
+  receipt_url: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  approved_by: string | null;
+  approved_at: string | null;
+  logged_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Computed fields from API
+  budget_name?: string | null;
+  project_name?: string | null;
+  logged_by_name?: string | null;
+};
+
+export type EngineeringTask = {
+  id: string;
+  organization_id: string;
+  project_id: string | null;
+  title: string;
+  description: string | null;
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  priority: 'high' | 'medium' | 'low';
+  assigned_to: string | null;
+  due_date: string | null;
+  estimated_hours: number;
+  hours_logged: number;
+  milestone: string | null;
+  completed_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Computed fields from API
+  project_name?: string | null;
+  assignee_name?: string | null;
+  assignee_email?: string | null;
+};
+
+export type TimeLog = {
+  id: string;
+  organization_id: string;
+  task_id: string | null;
+  project_id: string | null;
+  user_id: string;
+  hours: number;
+  description: string | null;
+  log_date: string;
+  billable: boolean;
+  hourly_rate: number | null;
+  created_at: string;
+  // Computed fields from API
+  task_title?: string | null;
+  project_name?: string | null;
+  user_name?: string | null;
+};
+
+export type ExecutiveOverview = {
+  budget: {
+    total: number;
+    spent: number;
+    remaining: number;
+    usage_percent: number;
+  };
+  tasks: {
+    total: number;
+    completed: number;
+    in_progress: number;
+    blocked: number;
+    completion_percent: number;
+  };
+  projects: number;
+  team_size: number;
+  burn_rate: number;
+  alerts: Array<{
+    type: 'critical' | 'warning' | 'info';
+    message: string;
+  }>;
 };
 
 export type VerificationTask = {

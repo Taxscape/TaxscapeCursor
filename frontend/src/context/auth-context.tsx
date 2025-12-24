@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 import { User, Session, AuthChangeEvent, EmailOtpType } from "@supabase/supabase-js";
 import { getSupabaseClient, Profile, Organization, OrganizationMember } from "@/lib/supabase";
 
-export type UserRole = 'admin' | 'project_lead' | 'vendor_approver' | 'supply_approver' | 'hr_verifier' | 'member';
+export type UserRole = 'executive' | 'cpa' | 'engineer';
 
 type AuthContextType = {
   user: User | null;
@@ -14,7 +14,10 @@ type AuthContextType = {
   userRole: UserRole | null;
   isLoading: boolean;
   isAdmin: boolean;
-  isOrgAdmin: boolean;
+  isOrgAdmin: boolean;  // alias for isExecutive
+  isExecutive: boolean;
+  isCPA: boolean;
+  isEngineer: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, fullName: string, companyName: string) => Promise<{ error: Error | null; needsVerification: boolean }>;
   signOut: () => Promise<void>;
@@ -75,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (memberError) {
         console.error("Error fetching member role:", memberError);
         // User might be the creator without a member record yet
-        return { organization: orgData as Organization, role: 'admin' as UserRole };
+        return { organization: orgData as Organization, role: 'executive' as UserRole };
       }
 
       return {
@@ -318,7 +321,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     userRole,
     isLoading,
     isAdmin: profile?.is_admin ?? false,
-    isOrgAdmin: userRole === 'admin',
+    isOrgAdmin: userRole === 'executive',
+    isExecutive: userRole === 'executive',
+    isCPA: userRole === 'cpa',
+    isEngineer: userRole === 'engineer',
     signIn,
     signUp,
     signOut,

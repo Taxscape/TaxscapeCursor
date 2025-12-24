@@ -863,6 +863,482 @@ export async function getAuditLog(orgId: string, limit?: number): Promise<AuditL
 }
 
 // =============================================================================
+// EXECUTIVE OVERVIEW ENDPOINTS
+// =============================================================================
+
+export type ExecutiveOverview = {
+  budget: {
+    total: number;
+    spent: number;
+    remaining: number;
+    usage_percent: number;
+  };
+  tasks: {
+    total: number;
+    completed: number;
+    in_progress: number;
+    blocked: number;
+    completion_percent: number;
+  };
+  projects: number;
+  team_size: number;
+  burn_rate: number;
+  alerts: Array<{
+    type: 'critical' | 'warning' | 'info';
+    message: string;
+  }>;
+};
+
+export async function getExecutiveOverview(orgId: string): Promise<ExecutiveOverview | null> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/overview`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch executive overview");
+  }
+
+  const data = await response.json();
+  return data.overview;
+}
+
+// =============================================================================
+// BUDGET ENDPOINTS (CPA)
+// =============================================================================
+
+export type Budget = {
+  id: string;
+  organization_id: string;
+  project_id: string | null;
+  name: string;
+  total_amount: number;
+  allocated_amount: number;
+  category: string | null;
+  fiscal_year: string;
+  status: string;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  project_name?: string | null;
+  creator_name?: string | null;
+  spent?: number;
+  remaining?: number;
+};
+
+export async function getBudgets(orgId: string, projectId?: string): Promise<Budget[]> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (projectId) params.set("project_id", projectId);
+  
+  const url = `${API_URL}/organizations/${orgId}/budgets${params.toString() ? `?${params}` : ""}`;
+  
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch budgets");
+  }
+
+  const data = await response.json();
+  return data.budgets;
+}
+
+export async function createBudget(orgId: string, data: {
+  name: string;
+  project_id?: string;
+  total_amount?: number;
+  category?: string;
+  fiscal_year?: string;
+  notes?: string;
+}): Promise<Budget> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/budgets`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to create budget");
+  }
+
+  const result = await response.json();
+  return result.budget;
+}
+
+export async function updateBudget(orgId: string, budgetId: string, data: {
+  name?: string;
+  total_amount?: number;
+  allocated_amount?: number;
+  category?: string;
+  status?: string;
+  notes?: string;
+}): Promise<Budget> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/budgets/${budgetId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to update budget");
+  }
+
+  const result = await response.json();
+  return result.budget;
+}
+
+export async function deleteBudget(orgId: string, budgetId: string): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/budgets/${budgetId}`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to delete budget");
+  }
+
+  return await response.json();
+}
+
+// =============================================================================
+// EXPENSE ENDPOINTS (CPA)
+// =============================================================================
+
+export type Expense = {
+  id: string;
+  organization_id: string;
+  budget_id: string | null;
+  project_id: string | null;
+  description: string;
+  amount: number;
+  category: string | null;
+  vendor_name: string | null;
+  expense_date: string;
+  receipt_url: string | null;
+  status: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  logged_by: string | null;
+  created_at: string;
+  updated_at: string;
+  budget_name?: string | null;
+  project_name?: string | null;
+  logged_by_name?: string | null;
+};
+
+export type ExpenseSummary = {
+  total: number;
+  by_category: Record<string, number>;
+  by_status: {
+    pending: number;
+    approved: number;
+    rejected: number;
+  };
+};
+
+export async function getExpenses(orgId: string, filters?: {
+  budget_id?: string;
+  project_id?: string;
+  status?: string;
+}): Promise<Expense[]> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (filters?.budget_id) params.set("budget_id", filters.budget_id);
+  if (filters?.project_id) params.set("project_id", filters.project_id);
+  if (filters?.status) params.set("status", filters.status);
+  
+  const url = `${API_URL}/organizations/${orgId}/expenses${params.toString() ? `?${params}` : ""}`;
+  
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch expenses");
+  }
+
+  const data = await response.json();
+  return data.expenses;
+}
+
+export async function getExpenseSummary(orgId: string): Promise<ExpenseSummary> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/expenses/summary`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch expense summary");
+  }
+
+  const data = await response.json();
+  return data.summary;
+}
+
+export async function createExpense(orgId: string, data: {
+  description: string;
+  amount: number;
+  budget_id?: string;
+  project_id?: string;
+  category?: string;
+  vendor_name?: string;
+  expense_date?: string;
+}): Promise<Expense> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/expenses`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to create expense");
+  }
+
+  const result = await response.json();
+  return result.expense;
+}
+
+export async function updateExpense(orgId: string, expenseId: string, data: {
+  description?: string;
+  amount?: number;
+  category?: string;
+  vendor_name?: string;
+  status?: string;
+}): Promise<Expense> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/expenses/${expenseId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to update expense");
+  }
+
+  const result = await response.json();
+  return result.expense;
+}
+
+// =============================================================================
+// ENGINEERING TASK ENDPOINTS
+// =============================================================================
+
+export type EngineeringTask = {
+  id: string;
+  organization_id: string;
+  project_id: string | null;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  assigned_to: string | null;
+  due_date: string | null;
+  estimated_hours: number;
+  hours_logged: number;
+  milestone: string | null;
+  completed_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  project_name?: string | null;
+  assignee_name?: string | null;
+  assignee_email?: string | null;
+};
+
+export async function getEngineeringTasks(orgId: string, filters?: {
+  project_id?: string;
+  status?: string;
+  assigned_to?: string;
+}): Promise<EngineeringTask[]> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (filters?.project_id) params.set("project_id", filters.project_id);
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.assigned_to) params.set("assigned_to", filters.assigned_to);
+  
+  const url = `${API_URL}/organizations/${orgId}/engineering-tasks${params.toString() ? `?${params}` : ""}`;
+  
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch engineering tasks");
+  }
+
+  const data = await response.json();
+  return data.tasks;
+}
+
+export async function createEngineeringTask(orgId: string, data: {
+  title: string;
+  project_id?: string;
+  description?: string;
+  priority?: string;
+  assigned_to?: string;
+  due_date?: string;
+  estimated_hours?: number;
+  milestone?: string;
+}): Promise<EngineeringTask> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/engineering-tasks`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to create task");
+  }
+
+  const result = await response.json();
+  return result.task;
+}
+
+export async function updateEngineeringTask(orgId: string, taskId: string, data: {
+  title?: string;
+  description?: string;
+  status?: string;
+  priority?: string;
+  assigned_to?: string;
+  due_date?: string;
+  hours_logged?: number;
+  milestone?: string;
+}): Promise<EngineeringTask> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/engineering-tasks/${taskId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to update task");
+  }
+
+  const result = await response.json();
+  return result.task;
+}
+
+export async function deleteEngineeringTask(orgId: string, taskId: string): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/engineering-tasks/${taskId}`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to delete task");
+  }
+
+  return await response.json();
+}
+
+// =============================================================================
+// TIME LOG ENDPOINTS
+// =============================================================================
+
+export type TimeLog = {
+  id: string;
+  organization_id: string;
+  task_id: string | null;
+  project_id: string | null;
+  user_id: string;
+  hours: number;
+  description: string | null;
+  log_date: string;
+  billable: boolean;
+  hourly_rate: number | null;
+  created_at: string;
+  task_title?: string | null;
+  project_name?: string | null;
+  user_name?: string | null;
+};
+
+export async function getTimeLogs(orgId: string, filters?: {
+  task_id?: string;
+  project_id?: string;
+  user_id?: string;
+}): Promise<TimeLog[]> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (filters?.task_id) params.set("task_id", filters.task_id);
+  if (filters?.project_id) params.set("project_id", filters.project_id);
+  if (filters?.user_id) params.set("user_id", filters.user_id);
+  
+  const url = `${API_URL}/organizations/${orgId}/time-logs${params.toString() ? `?${params}` : ""}`;
+  
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch time logs");
+  }
+
+  const data = await response.json();
+  return data.time_logs;
+}
+
+export async function createTimeLog(orgId: string, data: {
+  hours: number;
+  task_id?: string;
+  project_id?: string;
+  description?: string;
+  log_date?: string;
+  billable?: boolean;
+  hourly_rate?: number;
+}): Promise<TimeLog> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/time-logs`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to create time log");
+  }
+
+  const result = await response.json();
+  return result.time_log;
+}
+
+export async function deleteTimeLog(orgId: string, logId: string): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/organizations/${orgId}/time-logs/${logId}`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to delete time log");
+  }
+
+  return await response.json();
+}
+
+// =============================================================================
 // ADMIN ENDPOINTS
 // =============================================================================
 

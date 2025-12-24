@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS public.organization_members (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'project_lead', 'vendor_approver', 'supply_approver', 'hr_verifier', 'member')),
+    role TEXT NOT NULL DEFAULT 'engineer' CHECK (role IN ('executive', 'cpa', 'engineer')),
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('active', 'pending', 'inactive')),
     invited_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
     invited_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS public.organization_members (
 CREATE INDEX IF NOT EXISTS idx_org_members_organization_id ON public.organization_members(organization_id);
 CREATE INDEX IF NOT EXISTS idx_org_members_user_id ON public.organization_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_org_members_status ON public.organization_members(status);
+CREATE INDEX IF NOT EXISTS idx_org_members_role ON public.organization_members(role);
 
 -- ============================================
 -- VERIFICATION TASKS TABLE
@@ -185,6 +186,111 @@ CREATE INDEX IF NOT EXISTS idx_allocations_employee_id ON public.project_allocat
 CREATE INDEX IF NOT EXISTS idx_allocations_project_id ON public.project_allocations(project_id);
 
 -- ============================================
+-- BUDGETS TABLE (CPA manages)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.budgets (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
+    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    total_amount DECIMAL(12, 2) DEFAULT 0,
+    allocated_amount DECIMAL(12, 2) DEFAULT 0,
+    category TEXT CHECK (category IN ('personnel', 'materials', 'software', 'contractors', 'other')),
+    fiscal_year TEXT DEFAULT '2024',
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'closed', 'draft')),
+    notes TEXT,
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_budgets_organization_id ON public.budgets(organization_id);
+CREATE INDEX IF NOT EXISTS idx_budgets_project_id ON public.budgets(project_id);
+CREATE INDEX IF NOT EXISTS idx_budgets_category ON public.budgets(category);
+CREATE INDEX IF NOT EXISTS idx_budgets_status ON public.budgets(status);
+
+-- ============================================
+-- EXPENSES TABLE (CPA logs)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.expenses (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
+    budget_id UUID REFERENCES public.budgets(id) ON DELETE SET NULL,
+    project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
+    description TEXT NOT NULL,
+    amount DECIMAL(12, 2) NOT NULL,
+    category TEXT CHECK (category IN ('personnel', 'materials', 'software', 'contractors', 'other')),
+    vendor_name TEXT,
+    expense_date DATE DEFAULT CURRENT_DATE,
+    receipt_url TEXT,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    approved_at TIMESTAMP WITH TIME ZONE,
+    logged_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_expenses_organization_id ON public.expenses(organization_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_budget_id ON public.expenses(budget_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_project_id ON public.expenses(project_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_category ON public.expenses(category);
+CREATE INDEX IF NOT EXISTS idx_expenses_expense_date ON public.expenses(expense_date DESC);
+CREATE INDEX IF NOT EXISTS idx_expenses_status ON public.expenses(status);
+
+-- ============================================
+-- ENGINEERING TASKS TABLE (Engineers use)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.engineering_tasks (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
+    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'blocked')),
+    priority TEXT DEFAULT 'medium' CHECK (priority IN ('high', 'medium', 'low')),
+    assigned_to UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    due_date TIMESTAMP WITH TIME ZONE,
+    estimated_hours DECIMAL(6, 2) DEFAULT 0,
+    hours_logged DECIMAL(6, 2) DEFAULT 0,
+    milestone TEXT,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_eng_tasks_organization_id ON public.engineering_tasks(organization_id);
+CREATE INDEX IF NOT EXISTS idx_eng_tasks_project_id ON public.engineering_tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_eng_tasks_assigned_to ON public.engineering_tasks(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_eng_tasks_status ON public.engineering_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_eng_tasks_priority ON public.engineering_tasks(priority);
+CREATE INDEX IF NOT EXISTS idx_eng_tasks_due_date ON public.engineering_tasks(due_date);
+
+-- ============================================
+-- TIME LOGS TABLE (Engineers log hours)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.time_logs (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
+    task_id UUID REFERENCES public.engineering_tasks(id) ON DELETE CASCADE,
+    project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    hours DECIMAL(6, 2) NOT NULL,
+    description TEXT,
+    log_date DATE DEFAULT CURRENT_DATE,
+    billable BOOLEAN DEFAULT TRUE,
+    hourly_rate DECIMAL(10, 2),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_time_logs_organization_id ON public.time_logs(organization_id);
+CREATE INDEX IF NOT EXISTS idx_time_logs_task_id ON public.time_logs(task_id);
+CREATE INDEX IF NOT EXISTS idx_time_logs_project_id ON public.time_logs(project_id);
+CREATE INDEX IF NOT EXISTS idx_time_logs_user_id ON public.time_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_time_logs_log_date ON public.time_logs(log_date DESC);
+
+-- ============================================
 -- CHAT SESSIONS TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.chat_sessions (
@@ -265,7 +371,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to check if user is org admin
+-- Function to check if user is org executive (admin)
 CREATE OR REPLACE FUNCTION public.is_org_admin(org_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -273,9 +379,52 @@ BEGIN
         SELECT 1 FROM public.organization_members
         WHERE organization_id = org_id
         AND user_id = auth.uid()
-        AND role = 'admin'
+        AND role = 'executive'
         AND status = 'active'
     );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to check if user is org CPA
+CREATE OR REPLACE FUNCTION public.is_org_cpa(org_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.organization_members
+        WHERE organization_id = org_id
+        AND user_id = auth.uid()
+        AND role = 'cpa'
+        AND status = 'active'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to check if user is org engineer
+CREATE OR REPLACE FUNCTION public.is_org_engineer(org_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.organization_members
+        WHERE organization_id = org_id
+        AND user_id = auth.uid()
+        AND role = 'engineer'
+        AND status = 'active'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to check user's role in org
+CREATE OR REPLACE FUNCTION public.get_user_role(org_id UUID)
+RETURNS TEXT AS $$
+DECLARE
+    user_role TEXT;
+BEGIN
+    SELECT role INTO user_role
+    FROM public.organization_members
+    WHERE organization_id = org_id
+    AND user_id = auth.uid()
+    AND status = 'active';
+    RETURN user_role;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -369,10 +518,10 @@ BEGIN
         TRUE -- First user is admin
     );
     
-    -- Add user as org admin if organization created
+    -- Add user as org executive if organization created
     IF new_org_id IS NOT NULL THEN
         INSERT INTO public.organization_members (organization_id, user_id, role, status, accepted_at)
-        VALUES (new_org_id, NEW.id, 'admin', 'active', NOW());
+        VALUES (new_org_id, NEW.id, 'executive', 'active', NOW());
     END IF;
     
     RETURN NEW;
@@ -705,6 +854,123 @@ CREATE POLICY "Admins can update demo requests" ON public.demo_requests
     FOR UPDATE USING (
         EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_admin = TRUE)
     );
+
+-- ============================================
+-- BUDGETS POLICIES
+-- ============================================
+ALTER TABLE public.budgets ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view org budgets" ON public.budgets
+    FOR SELECT USING (
+        organization_id = public.get_user_org_id()
+    );
+
+CREATE POLICY "CPAs and Executives can insert budgets" ON public.budgets
+    FOR INSERT WITH CHECK (
+        public.is_org_admin(organization_id) OR public.is_org_cpa(organization_id)
+    );
+
+CREATE POLICY "CPAs and Executives can update budgets" ON public.budgets
+    FOR UPDATE USING (
+        public.is_org_admin(organization_id) OR public.is_org_cpa(organization_id)
+    );
+
+CREATE POLICY "Executives can delete budgets" ON public.budgets
+    FOR DELETE USING (
+        public.is_org_admin(organization_id)
+    );
+
+-- ============================================
+-- EXPENSES POLICIES
+-- ============================================
+ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view org expenses" ON public.expenses
+    FOR SELECT USING (
+        organization_id = public.get_user_org_id()
+    );
+
+CREATE POLICY "CPAs can insert expenses" ON public.expenses
+    FOR INSERT WITH CHECK (
+        public.is_org_admin(organization_id) OR public.is_org_cpa(organization_id)
+    );
+
+CREATE POLICY "CPAs can update expenses" ON public.expenses
+    FOR UPDATE USING (
+        public.is_org_admin(organization_id) OR public.is_org_cpa(organization_id)
+    );
+
+CREATE POLICY "Executives can delete expenses" ON public.expenses
+    FOR DELETE USING (
+        public.is_org_admin(organization_id)
+    );
+
+-- ============================================
+-- ENGINEERING TASKS POLICIES
+-- ============================================
+ALTER TABLE public.engineering_tasks ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view org engineering tasks" ON public.engineering_tasks
+    FOR SELECT USING (
+        organization_id = public.get_user_org_id()
+    );
+
+CREATE POLICY "Engineers and Executives can insert tasks" ON public.engineering_tasks
+    FOR INSERT WITH CHECK (
+        public.is_org_admin(organization_id) OR public.is_org_engineer(organization_id)
+    );
+
+CREATE POLICY "Assigned users can update tasks" ON public.engineering_tasks
+    FOR UPDATE USING (
+        assigned_to = auth.uid() OR 
+        public.is_org_admin(organization_id) OR 
+        public.is_org_engineer(organization_id)
+    );
+
+CREATE POLICY "Executives can delete tasks" ON public.engineering_tasks
+    FOR DELETE USING (
+        public.is_org_admin(organization_id)
+    );
+
+-- ============================================
+-- TIME LOGS POLICIES
+-- ============================================
+ALTER TABLE public.time_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view org time logs" ON public.time_logs
+    FOR SELECT USING (
+        organization_id = public.get_user_org_id()
+    );
+
+CREATE POLICY "Engineers can insert time logs" ON public.time_logs
+    FOR INSERT WITH CHECK (
+        user_id = auth.uid() AND public.is_org_member(organization_id)
+    );
+
+CREATE POLICY "Users can update own time logs" ON public.time_logs
+    FOR UPDATE USING (
+        user_id = auth.uid()
+    );
+
+CREATE POLICY "Users can delete own time logs" ON public.time_logs
+    FOR DELETE USING (
+        user_id = auth.uid() OR public.is_org_admin(organization_id)
+    );
+
+-- ============================================
+-- TRIGGERS FOR NEW TABLES
+-- ============================================
+DROP TRIGGER IF EXISTS update_budgets_updated_at ON public.budgets;
+CREATE TRIGGER update_budgets_updated_at BEFORE UPDATE ON public.budgets
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_expenses_updated_at ON public.expenses;
+CREATE TRIGGER update_expenses_updated_at BEFORE UPDATE ON public.expenses
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_eng_tasks_updated_at ON public.engineering_tasks;
+CREATE TRIGGER update_eng_tasks_updated_at BEFORE UPDATE ON public.engineering_tasks
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ============================================
 -- STORAGE BUCKET FOR STUDIES

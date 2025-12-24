@@ -265,12 +265,14 @@ export default function HomePage() {
                 Get Started
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </Link>
-              <Link 
-                href="/login"
+              <a 
+                href="https://calendly.com/sam-taxscape/30min"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-8 py-4 text-gray-600 hover:text-gray-900 text-base font-medium transition-colors"
               >
                 Book a Demo
-              </Link>
+              </a>
             </div>
           </div>
         </div>
@@ -626,12 +628,14 @@ export default function HomePage() {
                 Get Started
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </Link>
-              <Link 
-                href="/login"
+              <a 
+                href="https://calendly.com/sam-taxscape/30min"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center px-8 py-4 text-gray-400 hover:text-white text-base font-medium transition-colors"
               >
                 Book a Demo
-              </Link>
+              </a>
             </div>
 
             {/* Compliance badges */}
