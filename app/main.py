@@ -2726,7 +2726,234 @@ async def debug_token(authorization: Optional[str] = Header(None)):
         }
 
 
+# =============================================================================
+# R&D ANALYSIS ENDPOINTS
+# =============================================================================
+
+rd_router = APIRouter(prefix="/api/rd-analysis", tags=["rd-analysis"])
+
+# In-memory session storage (for MVP - use database in production)
+rd_sessions: Dict[str, Any] = {}
+
+from app.rd_parser import (
+    RDAnalysisSession, RDProject, FourPartTestResult, GapItem,
+    create_analysis_session, evaluate_project_with_ai, TestStatus
+)
+
+
+class RDUploadResponse(BaseModel):
+    session_id: str
+    files_received: int
+    message: str
+
+
+class RDAnalysisResponse(BaseModel):
+    session: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+@rd_router.post("/upload", response_model=RDUploadResponse)
+async def upload_rd_files(
+    files: List[UploadFile] = File(...),
+    user: dict = Depends(get_current_user)
+):
+    """Upload files for R&D analysis"""
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    
+    session_id = str(uuid.uuid4())
+    file_data = []
+    
+    for file in files:
+        try:
+            content = await file.read()
+            file_data.append({
+                "filename": file.filename,
+                "content": content,
+                "content_type": file.content_type,
+                "size": len(content)
+            })
+            logger.info(f"Received file: {file.filename} ({len(content)} bytes)")
+        except Exception as e:
+            logger.error(f"Error reading file {file.filename}: {e}")
+            raise HTTPException(status_code=400, detail=f"Error reading file {file.filename}")
+    
+    # Store files temporarily
+    rd_sessions[session_id] = {
+        "files": file_data,
+        "user_id": user["id"],
+        "status": "uploaded",
+        "created_at": datetime.utcnow().isoformat()
+    }
+    
+    return RDUploadResponse(
+        session_id=session_id,
+        files_received=len(file_data),
+        message=f"Successfully uploaded {len(file_data)} files. Call /parse to analyze."
+    )
+
+
+@rd_router.post("/parse/{session_id}")
+async def parse_rd_files(
+    session_id: str,
+    use_ai: bool = True,
+    user: dict = Depends(get_current_user)
+):
+    """Parse uploaded files and run R&D analysis"""
+    if session_id not in rd_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session_data = rd_sessions[session_id]
+    
+    if session_data["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    
+    if session_data["status"] == "analyzed":
+        # Return cached results
+        return {"session": session_data.get("analysis_result")}
+    
+    try:
+        # Run analysis
+        analysis = create_analysis_session(session_data["files"], use_ai=use_ai)
+        
+        # Store results
+        session_data["status"] = "analyzed"
+        session_data["analysis_result"] = analysis.dict()
+        rd_sessions[session_id] = session_data
+        
+        return {"session": analysis.dict()}
+    except Exception as e:
+        logger.error(f"Error parsing files: {e}")
+        raise HTTPException(status_code=500, detail=f"Error analyzing files: {str(e)}")
+
+
+@rd_router.get("/session/{session_id}")
+async def get_rd_session(
+    session_id: str,
+    user: dict = Depends(get_current_user)
+):
+    """Get R&D analysis session results"""
+    if session_id not in rd_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session_data = rd_sessions[session_id]
+    
+    if session_data["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    
+    return {
+        "session_id": session_id,
+        "status": session_data["status"],
+        "created_at": session_data["created_at"],
+        "files_count": len(session_data.get("files", [])),
+        "analysis": session_data.get("analysis_result")
+    }
+
+
+@rd_router.post("/session/{session_id}/evaluate-project/{project_id}")
+async def evaluate_single_project(
+    session_id: str,
+    project_id: str,
+    additional_context: str = "",
+    user: dict = Depends(get_current_user)
+):
+    """Re-evaluate a single project with AI"""
+    if session_id not in rd_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session_data = rd_sessions[session_id]
+    
+    if session_data["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    
+    analysis_result = session_data.get("analysis_result")
+    if not analysis_result:
+        raise HTTPException(status_code=400, detail="Session not yet analyzed")
+    
+    # Find project
+    projects = analysis_result.get("projects", [])
+    project_idx = None
+    for i, p in enumerate(projects):
+        if p["project_id"] == project_id:
+            project_idx = i
+            break
+    
+    if project_idx is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    try:
+        project = RDProject(**projects[project_idx])
+        updated_project = evaluate_project_with_ai(project, additional_context)
+        
+        # Update session
+        analysis_result["projects"][project_idx] = updated_project.dict()
+        session_data["analysis_result"] = analysis_result
+        rd_sessions[session_id] = session_data
+        
+        return {"project": updated_project.dict()}
+    except Exception as e:
+        logger.error(f"Error evaluating project: {e}")
+        raise HTTPException(status_code=500, detail=f"Error evaluating project: {str(e)}")
+
+
+@rd_router.post("/session/{session_id}/upload-gap/{gap_id}")
+async def upload_gap_documentation(
+    session_id: str,
+    gap_id: str,
+    files: List[UploadFile] = File(...),
+    user: dict = Depends(get_current_user)
+):
+    """Upload additional documentation for a specific gap"""
+    if session_id not in rd_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session_data = rd_sessions[session_id]
+    
+    if session_data["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    
+    # Read new files
+    new_files = []
+    for file in files:
+        content = await file.read()
+        new_files.append({
+            "filename": file.filename,
+            "content": content,
+            "content_type": file.content_type,
+            "gap_id": gap_id
+        })
+    
+    # Add to session files
+    session_data["files"].extend(new_files)
+    session_data["status"] = "updated"  # Mark for re-analysis
+    rd_sessions[session_id] = session_data
+    
+    return {
+        "message": f"Added {len(new_files)} files for gap {gap_id}",
+        "files_total": len(session_data["files"])
+    }
+
+
+@rd_router.delete("/session/{session_id}")
+async def delete_rd_session(
+    session_id: str,
+    user: dict = Depends(get_current_user)
+):
+    """Delete an R&D analysis session"""
+    if session_id not in rd_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session_data = rd_sessions[session_id]
+    
+    if session_data["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    
+    del rd_sessions[session_id]
+    return {"message": "Session deleted"}
+
+
 # Register Routers
 app.include_router(api_router)
 app.include_router(admin_router)
 app.include_router(org_router)
+app.include_router(rd_router)

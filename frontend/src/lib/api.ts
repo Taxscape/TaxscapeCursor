@@ -1548,3 +1548,222 @@ export async function adminGetStats(): Promise<{ total_users: number; total_stud
 
   return await response.json();
 }
+
+// =============================================================================
+// R&D ANALYSIS TYPES & ENDPOINTS
+// =============================================================================
+
+export type TestStatus = "pass" | "fail" | "needs_review" | "missing_data";
+
+export type FourPartTestResult = {
+  permitted_purpose: TestStatus;
+  permitted_purpose_reasoning: string;
+  elimination_uncertainty: TestStatus;
+  elimination_uncertainty_reasoning: string;
+  process_experimentation: TestStatus;
+  process_experimentation_reasoning: string;
+  technological_nature: TestStatus;
+  technological_nature_reasoning: string;
+};
+
+export type RDProject = {
+  project_id: string;
+  project_name: string;
+  category: string | null;
+  description: string | null;
+  budget: number | null;
+  four_part_test: FourPartTestResult;
+  confidence_score: number;
+  missing_info: string[];
+  ai_summary: string;
+  qualified: boolean;
+};
+
+export type RDEmployee = {
+  employee_id: string;
+  name: string;
+  job_title: string | null;
+  department: string | null;
+  location: string | null;
+  w2_wages: number;
+  qre_wage_base: number;
+  rd_allocation_percent: number;
+  stock_compensation: number;
+  severance: number;
+};
+
+export type RDVendor = {
+  vendor_id: string;
+  vendor_name: string;
+  risk_bearer: string;
+  ip_rights: string;
+  country: string;
+  qualified: boolean;
+};
+
+export type RDExpense = {
+  transaction_id: string;
+  vendor_id: string | null;
+  description: string;
+  amount: number;
+  qre_amount: number;
+  qualified: boolean;
+  category: string;
+};
+
+export type GapItem = {
+  gap_id: string;
+  category: string;
+  item_id: string;
+  item_name: string;
+  gap_type: string;
+  description: string;
+  required_info: string[];
+  priority: string;
+};
+
+export type RDAnalysisSession = {
+  session_id: string;
+  created_at: string;
+  company_name: string;
+  industry: string;
+  tax_year: number;
+  projects: RDProject[];
+  employees: RDEmployee[];
+  vendors: RDVendor[];
+  expenses: RDExpense[];
+  gaps: GapItem[];
+  total_qre: number;
+  wage_qre: number;
+  supply_qre: number;
+  contract_qre: number;
+  total_employees: number;
+  rd_employees: number;
+  qualified_projects: number;
+  parsing_complete: boolean;
+  analysis_complete: boolean;
+  errors: string[];
+};
+
+export async function uploadRDFiles(files: File[]): Promise<{ session_id: string; files_received: number; message: string }> {
+  const headers = await getAuthHeadersForUpload();
+  
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append("files", file);
+  });
+  
+  const response = await fetch(`${API_URL}/api/rd-analysis/upload`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to upload files");
+  }
+
+  return await response.json();
+}
+
+export async function parseRDSession(sessionId: string, useAI: boolean = true): Promise<{ session: RDAnalysisSession }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/rd-analysis/parse/${sessionId}?use_ai=${useAI}`, {
+    method: "POST",
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to parse files");
+  }
+
+  return await response.json();
+}
+
+export async function getRDSession(sessionId: string): Promise<{
+  session_id: string;
+  status: string;
+  created_at: string;
+  files_count: number;
+  analysis: RDAnalysisSession | null;
+}> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/rd-analysis/session/${sessionId}`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch session");
+  }
+
+  return await response.json();
+}
+
+export async function evaluateRDProject(
+  sessionId: string, 
+  projectId: string, 
+  additionalContext: string = ""
+): Promise<{ project: RDProject }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(
+    `${API_URL}/api/rd-analysis/session/${sessionId}/evaluate-project/${projectId}?additional_context=${encodeURIComponent(additionalContext)}`,
+    {
+      method: "POST",
+      headers,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to evaluate project");
+  }
+
+  return await response.json();
+}
+
+export async function uploadRDGapDocumentation(
+  sessionId: string,
+  gapId: string,
+  files: File[]
+): Promise<{ message: string; files_total: number }> {
+  const headers = await getAuthHeadersForUpload();
+  
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append("files", file);
+  });
+  
+  const response = await fetch(
+    `${API_URL}/api/rd-analysis/session/${sessionId}/upload-gap/${gapId}`,
+    {
+      method: "POST",
+      headers,
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to upload gap documentation");
+  }
+
+  return await response.json();
+}
+
+export async function deleteRDSession(sessionId: string): Promise<{ message: string }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/rd-analysis/session/${sessionId}`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to delete session");
+  }
+
+  return await response.json();
+}

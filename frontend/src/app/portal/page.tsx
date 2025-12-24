@@ -38,6 +38,10 @@ import {
   getClientCompanies,
   createClientCompany,
   setSelectedClient,
+  uploadRDFiles,
+  parseRDSession,
+  evaluateRDProject,
+  uploadRDGapDocumentation,
   type ChatMessage,
   type DashboardData,
   type Project,
@@ -53,7 +57,13 @@ import {
   type EngineeringTask,
   type TimeLog,
   type ClientCompany,
+  type RDAnalysisSession,
+  type RDProject,
 } from "@/lib/api";
+
+import { FileUploadZone } from "@/components/rd/FileUploadZone";
+import { FourPartTestCard, FourPartTestSummary } from "@/components/rd/FourPartTestCard";
+import { GapAnalysisPanel } from "@/components/rd/GapAnalysisPanel";
 
 // ============================================================================
 // ICONS - Lucide-style SVG icons
@@ -360,6 +370,7 @@ type ViewMode =
   | "budgets"
   | "expenses"
   | "financial-reports"
+  | "rd-analysis"
   // Engineer views
   | "tasks"
   | "time-log"
@@ -488,6 +499,15 @@ export default function Portal() {
   });
   const [isAddingClient, setIsAddingClient] = useState(false);
 
+  // R&D Analysis state
+  const [rdSession, setRdSession] = useState<RDAnalysisSession | null>(null);
+  const [rdSessionId, setRdSessionId] = useState<string | null>(null);
+  const [isRdUploading, setIsRdUploading] = useState(false);
+  const [isRdParsing, setIsRdParsing] = useState(false);
+  const [rdError, setRdError] = useState<string | null>(null);
+  const [evaluatingProjectId, setEvaluatingProjectId] = useState<string | null>(null);
+  const [uploadingGapId, setUploadingGapId] = useState<string | null>(null);
+
   // ============================================================================
   // COMPUTED VALUES
   // ============================================================================
@@ -570,6 +590,7 @@ export default function Portal() {
   }, [userRole, isOrgAdmin, projects.length, pendingTasksCount, clientCompanies.length]);
 
   const toolsNavItems = useMemo(() => [
+    { id: "rd-analysis" as const, label: "R&D Analysis", icon: Icons.beaker },
     { id: "questionnaires" as const, label: "AI Assistant", icon: Icons.sparkles },
     { id: "documents" as const, label: "Documents", icon: Icons.fileText },
   ], []);
@@ -819,6 +840,87 @@ export default function Portal() {
     } finally {
       setIsAddingClient(false);
     }
+  };
+
+  // R&D Analysis Handlers
+  const handleRDFilesSelected = async (files: File[]) => {
+    setIsRdUploading(true);
+    setRdError(null);
+    
+    try {
+      // Upload files
+      const uploadResult = await uploadRDFiles(files);
+      setRdSessionId(uploadResult.session_id);
+      
+      // Parse and analyze
+      setIsRdUploading(false);
+      setIsRdParsing(true);
+      
+      const parseResult = await parseRDSession(uploadResult.session_id, true);
+      setRdSession(parseResult.session);
+      
+    } catch (e) {
+      console.error("R&D analysis error:", e);
+      setRdError(e instanceof Error ? e.message : "Failed to analyze files");
+    } finally {
+      setIsRdUploading(false);
+      setIsRdParsing(false);
+    }
+  };
+
+  const handleReEvaluateProject = async (projectId: string) => {
+    if (!rdSessionId) return;
+    
+    setEvaluatingProjectId(projectId);
+    
+    try {
+      const result = await evaluateRDProject(rdSessionId, projectId);
+      
+      // Update project in session
+      if (rdSession) {
+        const updatedProjects = rdSession.projects.map(p => 
+          p.project_id === projectId ? result.project : p
+        );
+        setRdSession({
+          ...rdSession,
+          projects: updatedProjects,
+          qualified_projects: updatedProjects.filter(p => p.qualified).length
+        });
+      }
+    } catch (e) {
+      console.error("Re-evaluation error:", e);
+      setRdError(e instanceof Error ? e.message : "Failed to re-evaluate project");
+    } finally {
+      setEvaluatingProjectId(null);
+    }
+  };
+
+  const handleUploadForGap = async (gapId: string, files: File[]) => {
+    if (!rdSessionId) return;
+    
+    setUploadingGapId(gapId);
+    
+    try {
+      await uploadRDGapDocumentation(rdSessionId, gapId, files);
+      
+      // Re-parse to update analysis
+      setIsRdParsing(true);
+      const parseResult = await parseRDSession(rdSessionId, true);
+      setRdSession(parseResult.session);
+      
+    } catch (e) {
+      console.error("Gap upload error:", e);
+      setRdError(e instanceof Error ? e.message : "Failed to upload documentation");
+    } finally {
+      setUploadingGapId(null);
+      setIsRdParsing(false);
+    }
+  };
+
+  const handleResetRDAnalysis = () => {
+    setRdSession(null);
+    setRdSessionId(null);
+    setRdError(null);
   };
 
   const handleNewChat = () => {
@@ -1846,12 +1948,211 @@ export default function Portal() {
         return renderDocuments();
       case "questionnaires":
         return renderAIAssistant();
+      case "rd-analysis":
+        return renderRDAnalysis();
       case "clients":
         return renderClients();
       default:
         return renderDashboard();
     }
   };
+
+  const renderRDAnalysis = () => (
+    <div className="space-y-6 animate-fade-in">
+      {/* Header */}
+      <div className="glass-card p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold">R&D Tax Credit Analysis</h2>
+            <p className="text-sm text-muted-foreground">
+              Upload source data files to analyze R&D expenditures against the four-part test
+            </p>
+          </div>
+          {rdSession && (
+            <button onClick={handleResetRDAnalysis} className="btn btn-outline btn-sm">
+              {Icons.refresh}
+              <span>New Analysis</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Error Display */}
+      {rdError && (
+        <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive">
+          <div className="flex items-start gap-3">
+            {Icons.alertTriangle}
+            <div>
+              <p className="font-medium">Analysis Error</p>
+              <p className="text-sm mt-1">{rdError}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Zone - Show when no session */}
+      {!rdSession && !isRdParsing && (
+        <div className="glass-card p-6">
+          <FileUploadZone
+            onFilesSelected={handleRDFilesSelected}
+            isUploading={isRdUploading}
+            acceptedTypes={[".xlsx", ".xls", ".csv", ".pdf", ".docx"]}
+            maxFiles={10}
+          />
+        </div>
+      )}
+
+      {/* Parsing Progress */}
+      {isRdParsing && (
+        <div className="glass-card p-8 text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-accent/20 flex items-center justify-center">
+            <svg className="animate-spin h-8 w-8 text-accent" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          </div>
+          <p className="text-lg font-medium text-foreground">Analyzing with AI...</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Evaluating projects against the four-part test
+          </p>
+        </div>
+      )}
+
+      {/* Analysis Results */}
+      {rdSession && !isRdParsing && (
+        <>
+          {/* Company Info */}
+          {rdSession.company_name && (
+            <div className="glass-card p-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center text-accent">
+                  {Icons.building}
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground">{rdSession.company_name}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {rdSession.industry || "Industry not specified"} • Tax Year {rdSession.tax_year}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Summary Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div className="glass-card p-4 text-center">
+              <p className="text-2xl font-bold text-foreground">{rdSession.projects.length}</p>
+              <p className="text-xs text-muted-foreground">Projects</p>
+            </div>
+            <div className="glass-card p-4 text-center">
+              <p className="text-2xl font-bold text-success">{rdSession.qualified_projects}</p>
+              <p className="text-xs text-muted-foreground">Qualified</p>
+            </div>
+            <div className="glass-card p-4 text-center">
+              <p className="text-2xl font-bold text-foreground">{rdSession.total_employees}</p>
+              <p className="text-xs text-muted-foreground">Employees</p>
+            </div>
+            <div className="glass-card p-4 text-center">
+              <p className="text-2xl font-bold text-foreground">{rdSession.rd_employees}</p>
+              <p className="text-xs text-muted-foreground">R&D Staff</p>
+            </div>
+            <div className="glass-card p-4 text-center">
+              <p className="text-2xl font-bold text-foreground">{formatCurrency(rdSession.total_qre)}</p>
+              <p className="text-xs text-muted-foreground">Total QRE</p>
+            </div>
+            <div className="glass-card p-4 text-center">
+              <p className="text-2xl font-bold text-warning">{rdSession.gaps.length}</p>
+              <p className="text-xs text-muted-foreground">Gaps</p>
+            </div>
+          </div>
+
+          {/* QRE Breakdown */}
+          {rdSession.total_qre > 0 && (
+            <div className="glass-card p-6">
+              <h3 className="text-lg font-semibold mb-4">QRE Breakdown</h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-4 rounded-lg bg-muted/30">
+                  <p className="text-sm text-muted-foreground">Wage QRE</p>
+                  <p className="text-xl font-semibold">{formatCurrency(rdSession.wage_qre)}</p>
+                  <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-accent rounded-full" 
+                      style={{ width: `${rdSession.total_qre > 0 ? (rdSession.wage_qre / rdSession.total_qre) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="p-4 rounded-lg bg-muted/30">
+                  <p className="text-sm text-muted-foreground">Supply QRE</p>
+                  <p className="text-xl font-semibold">{formatCurrency(rdSession.supply_qre)}</p>
+                  <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-success rounded-full" 
+                      style={{ width: `${rdSession.total_qre > 0 ? (rdSession.supply_qre / rdSession.total_qre) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="p-4 rounded-lg bg-muted/30">
+                  <p className="text-sm text-muted-foreground">Contract QRE</p>
+                  <p className="text-xl font-semibold">{formatCurrency(rdSession.contract_qre)}</p>
+                  <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-warning rounded-full" 
+                      style={{ width: `${rdSession.total_qre > 0 ? (rdSession.contract_qre / rdSession.total_qre) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Four-Part Test Results */}
+          {rdSession.projects.length > 0 && (
+            <div className="glass-card p-6">
+              <h3 className="text-lg font-semibold mb-4">Four-Part Test Analysis</h3>
+              <FourPartTestSummary projects={rdSession.projects as RDProject[]} />
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {rdSession.projects.map((project) => (
+                  <FourPartTestCard
+                    key={project.project_id}
+                    project={project as RDProject}
+                    onReEvaluate={handleReEvaluateProject}
+                    isEvaluating={evaluatingProjectId === project.project_id}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Gap Analysis */}
+          {rdSession.gaps.length > 0 && (
+            <div className="glass-card p-6">
+              <GapAnalysisPanel
+                gaps={rdSession.gaps}
+                onUploadForGap={handleUploadForGap}
+                isUploading={!!uploadingGapId}
+                uploadingGapId={uploadingGapId || undefined}
+              />
+            </div>
+          )}
+
+          {/* Errors from parsing */}
+          {rdSession.errors && rdSession.errors.length > 0 && (
+            <div className="glass-card p-6">
+              <h3 className="text-lg font-semibold mb-4 text-warning">Parsing Warnings</h3>
+              <ul className="space-y-2">
+                {rdSession.errors.map((err, idx) => (
+                  <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <span className="text-warning">•</span>
+                    {err}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 
   const renderClients = () => (
     <div className="space-y-6 animate-fade-in">
@@ -2600,6 +2901,7 @@ export default function Portal() {
                    currentView === "projects" ? "Projects" :
                    currentView === "documents" ? "Documents" :
                    currentView === "questionnaires" ? "AI Assistant" :
+                   currentView === "rd-analysis" ? "R&D Analysis" :
                    currentView === "clients" ? "Client Companies" :
                    currentView.charAt(0).toUpperCase() + currentView.slice(1).replace(/-/g, ' ')}
                 </h1>
