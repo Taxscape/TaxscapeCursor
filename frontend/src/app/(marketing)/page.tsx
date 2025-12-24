@@ -200,7 +200,7 @@ export default function HomePage() {
       >
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <span className="text-xl tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <span className="text-xl tracking-tight" >
               TaxScape
             </span>
           </Link>
@@ -243,7 +243,7 @@ export default function HomePage() {
             
             <h1 
               className="text-5xl md:text-6xl lg:text-7xl font-normal text-gray-900 mb-8 leading-[1.1] tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               Precision tools for
               <br />
@@ -290,7 +290,7 @@ export default function HomePage() {
               </p>
               <h2 
                 className="text-4xl md:text-5xl font-normal text-gray-900 tracking-tight"
-                style={{ fontFamily: "'Playfair Display', serif" }}
+                
               >
                 Your AI-powered R&D studio
               </h2>
@@ -364,7 +364,7 @@ export default function HomePage() {
           <div className="text-center mb-16">
             <h2 
               className="text-4xl md:text-5xl font-normal tracking-tight mb-4"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               Four ways we transform your practice
             </h2>
@@ -393,7 +393,7 @@ export default function HomePage() {
                   </div>
                   <h3 
                     className="text-xl font-medium mb-3"
-                    style={{ fontFamily: "'Playfair Display', serif" }}
+                    
                   >
                     {feature.title}
                   </h3>
@@ -416,7 +416,7 @@ export default function HomePage() {
             </p>
             <h2 
               className="text-4xl md:text-5xl font-normal text-gray-900 tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               R&D credits in 3 steps
             </h2>
@@ -441,14 +441,14 @@ export default function HomePage() {
                 <div className="relative inline-flex items-center justify-center w-24 h-24 rounded-full bg-gray-100 mb-6">
                   <span 
                     className="text-4xl font-light text-gray-900"
-                    style={{ fontFamily: "'Playfair Display', serif" }}
+                    
                   >
                     {step.number}
                   </span>
                 </div>
                 <h3 
                   className="text-xl font-medium text-gray-900 mb-3"
-                  style={{ fontFamily: "'Playfair Display', serif" }}
+                  
                 >
                   {step.title}
                 </h3>
@@ -475,7 +475,7 @@ export default function HomePage() {
                 <div key={stat.label} className="text-center" style={{ transitionDelay: `${index * 100}ms` }}>
                   <div 
                     className="text-5xl md:text-6xl font-light mb-2"
-                    style={{ fontFamily: "'Playfair Display', serif" }}
+                    
                   >
                     <CountUp end={stat.value} isInView={statsRef.isInView} />{stat.suffix}
                   </div>
@@ -498,7 +498,7 @@ export default function HomePage() {
             </p>
             <h2 
               className="text-4xl md:text-5xl font-normal text-gray-900 tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               Manual vs AI-Assisted
             </h2>
@@ -518,7 +518,7 @@ export default function HomePage() {
                   </div>
                   <h3 
                     className="text-2xl font-normal text-gray-900"
-                    style={{ fontFamily: "'Playfair Display', serif" }}
+                    
                   >
                     Manual Methods
                   </h3>
@@ -541,7 +541,7 @@ export default function HomePage() {
                   </div>
                   <h3 
                     className="text-2xl font-normal"
-                    style={{ fontFamily: "'Playfair Display', serif" }}
+                    
                   >
                     AI-Assisted
                   </h3>
@@ -569,7 +569,7 @@ export default function HomePage() {
             </p>
             <h2 
               className="text-4xl md:text-5xl font-normal text-gray-900 tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               Frequently asked questions
             </h2>
@@ -613,7 +613,7 @@ export default function HomePage() {
           <div className={`transition-all duration-700 ${ctaRef.isInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <h2 
               className="text-4xl md:text-5xl font-normal mb-6 tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               Ready to transform your practice?
             </h2>
@@ -667,7 +667,7 @@ export default function HomePage() {
             <div className="md:col-span-2">
               <span 
                 className="text-xl tracking-tight text-gray-900"
-                style={{ fontFamily: "'Playfair Display', serif" }}
+                
               >
                 TaxScape
               </span>

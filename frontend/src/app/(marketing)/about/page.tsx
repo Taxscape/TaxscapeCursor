@@ -133,7 +133,7 @@ export default function AboutPage() {
       >
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <span className="text-xl tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <span className="text-xl tracking-tight" >
               TaxScape
             </span>
           </Link>
@@ -175,7 +175,7 @@ export default function AboutPage() {
             
             <h1 
               className="text-5xl md:text-6xl font-normal text-gray-900 mb-8 leading-[1.1] tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               Building the future of
               <br />
@@ -200,7 +200,7 @@ export default function AboutPage() {
               </p>
               <h2 
                 className="text-4xl font-normal text-gray-900 mb-6 tracking-tight leading-tight"
-                style={{ fontFamily: "'Playfair Display', serif" }}
+                
               >
                 From complexity to clarity
               </h2>
@@ -243,7 +243,7 @@ export default function AboutPage() {
             </p>
             <h2 
               className="text-4xl md:text-5xl font-normal text-gray-900 mb-8 tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               Augmenting expertise,
               <br />
@@ -269,7 +269,7 @@ export default function AboutPage() {
               </p>
               <h2 
                 className="text-4xl md:text-5xl font-normal text-gray-900 mb-6 tracking-tight leading-tight"
-                style={{ fontFamily: "'Playfair Display', serif" }}
+                
               >
                 Tailored for every practice
               </h2>
@@ -328,7 +328,7 @@ export default function AboutPage() {
             </p>
             <h2 
               className="text-4xl font-normal text-gray-900 tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               The people behind TaxScape
             </h2>
@@ -351,7 +351,7 @@ export default function AboutPage() {
                 </div>
                 <h3 
                   className="text-lg font-medium text-gray-900 mb-1"
-                  style={{ fontFamily: "'Playfair Display', serif" }}
+                  
                 >
                   {member.name}
                 </h3>
@@ -374,7 +374,7 @@ export default function AboutPage() {
             </p>
             <h2 
               className="text-4xl font-normal text-gray-900 tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               What guides us
             </h2>
@@ -393,7 +393,7 @@ export default function AboutPage() {
               >
                 <h3 
                   className="text-xl font-medium text-gray-900 mb-3"
-                  style={{ fontFamily: "'Playfair Display', serif" }}
+                  
                 >
                   {value.title}
                 </h3>
@@ -415,7 +415,7 @@ export default function AboutPage() {
             </p>
             <h2 
               className="text-4xl font-normal text-gray-900 tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}
+              
             >
               Trusted by leading firms
             </h2>
@@ -451,7 +451,7 @@ export default function AboutPage() {
         <div className="max-w-3xl mx-auto px-6 text-center">
           <h2 
             className="text-4xl font-normal text-white mb-6 tracking-tight"
-            style={{ fontFamily: "'Playfair Display', serif" }}
+            
           >
             Join us on the journey
           </h2>
@@ -484,7 +484,7 @@ export default function AboutPage() {
             <div className="md:col-span-2">
               <span 
                 className="text-xl tracking-tight text-gray-900"
-                style={{ fontFamily: "'Playfair Display', serif" }}
+                
               >
                 TaxScape
               </span>
