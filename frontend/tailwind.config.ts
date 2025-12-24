@@ -18,7 +18,7 @@ const config: Config = {
     },
     extend: {
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
+        sans: ["Diatype", "system-ui", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
