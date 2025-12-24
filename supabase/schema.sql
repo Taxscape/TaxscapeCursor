@@ -622,7 +622,9 @@ CREATE POLICY "Users can view own profile" ON public.profiles
 
 CREATE POLICY "Users can view org members profiles" ON public.profiles
     FOR SELECT USING (
-        organization_id = public.get_user_org_id()
+        organization_id IN (
+            SELECT organization_id FROM public.organization_members WHERE user_id = auth.uid()
+        )
     );
 
 CREATE POLICY "Users can update own profile" ON public.profiles
