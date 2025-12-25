@@ -40,6 +40,7 @@ import {
   setSelectedClient,
   uploadRDFiles,
   parseRDSession,
+  getRDSession,
   evaluateRDProject,
   uploadRDGapDocumentation,
   downloadRDReport,
@@ -608,6 +609,35 @@ export default function Portal() {
       router.push("/login?redirect=/portal");
     }
   }, [authLoading, user, router]);
+
+  // Verify R&D session when navigating to R&D Analysis
+  useEffect(() => {
+    const verifyRDSession = async () => {
+      if (currentView === "rd-analysis" && rdSessionId && !isRdParsing) {
+        try {
+          await getRDSession(rdSessionId);
+          // Session exists, also check AI status
+          const status = await getAIStatus();
+          setAiStatus(status);
+        } catch (e) {
+          // Session doesn't exist anymore, clear it
+          console.log("R&D session expired, clearing...");
+          setRdSession(null);
+          setRdSessionId(null);
+          setRdError(null);
+          // Check AI status for the upload form
+          const status = await getAIStatus();
+          setAiStatus(status);
+        }
+      } else if (currentView === "rd-analysis" && !rdSessionId) {
+        // No session, just check AI status
+        const status = await getAIStatus();
+        setAiStatus(status);
+      }
+    };
+    
+    verifyRDSession();
+  }, [currentView, rdSessionId, isRdParsing]);
 
   // Fetch all data
   const fetchData = useCallback(async () => {
@@ -2215,12 +2245,20 @@ export default function Portal() {
       {/* Error Display */}
       {rdError && (
         <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive">
-          <div className="flex items-start gap-3">
-            {Icons.alertTriangle}
-            <div>
-              <p className="font-medium">Analysis Error</p>
-              <p className="text-sm mt-1">{rdError}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              {Icons.alertTriangle}
+              <div>
+                <p className="font-medium">Analysis Error</p>
+                <p className="text-sm mt-1">{rdError}</p>
+              </div>
             </div>
+            <button 
+              onClick={handleResetRDAnalysis}
+              className="btn btn-sm bg-destructive/20 hover:bg-destructive/30 text-destructive"
+            >
+              Clear & Start Over
+            </button>
           </div>
         </div>
       )}
