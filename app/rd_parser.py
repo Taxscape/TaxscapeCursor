@@ -18,13 +18,15 @@ from datetime import datetime
 import pandas as pd
 from pydantic import BaseModel
 
-# Try to import optional dependencies
+# Try to import Gemini (use same client as chatbot_agent)
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
     genai = None
+    types = None
 
 try:
     import PyPDF2
@@ -663,17 +665,39 @@ Evidence should show: hypothesis → test → evaluate → refine cycle
 """
 
 
-def get_gemini_model():
-    """Get configured Gemini model"""
+# Model configuration (same as chatbot_agent)
+RD_MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+
+# Initialize client (same approach as chatbot_agent)
+_rd_client = None
+_rd_client_error = None
+
+def _get_gemini_client():
+    """Get or create Gemini client (singleton pattern)"""
+    global _rd_client, _rd_client_error
+    
+    if _rd_client is not None:
+        return _rd_client
+    
+    if _rd_client_error is not None:
+        raise ValueError(_rd_client_error)
+    
     if not GEMINI_AVAILABLE:
-        raise ValueError("Gemini AI not available. Install google-generativeai.")
+        _rd_client_error = "google-genai package not installed. Run: pip install google-genai"
+        raise ValueError(_rd_client_error)
     
-    api_key = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
-        raise ValueError("GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY not set. Please configure your API key.")
+        _rd_client_error = "GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY not set"
+        raise ValueError(_rd_client_error)
     
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-3-flash-preview")
+    try:
+        _rd_client = genai.Client(api_key=api_key)
+        logger.info(f"R&D Gemini client initialized with model: {RD_MODEL_NAME}")
+        return _rd_client
+    except Exception as e:
+        _rd_client_error = f"Failed to initialize Gemini client: {str(e)}"
+        raise ValueError(_rd_client_error)
 
 
 def check_ai_available() -> Dict[str, Any]:
@@ -682,14 +706,15 @@ def check_ai_available() -> Dict[str, Any]:
         "available": False,
         "gemini_installed": GEMINI_AVAILABLE,
         "api_key_set": False,
-        "error": None
+        "error": None,
+        "model": RD_MODEL_NAME
     }
     
     if not GEMINI_AVAILABLE:
-        result["error"] = "google-generativeai package not installed"
+        result["error"] = "google-genai package not installed"
         return result
     
-    api_key = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         result["error"] = "GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY environment variable not set"
         return result
@@ -697,15 +722,24 @@ def check_ai_available() -> Dict[str, Any]:
     result["api_key_set"] = True
     
     try:
-        model = get_gemini_model()
-        # Quick test
-        response = model.generate_content("Say 'OK' if you can hear me.")
+        client = _get_gemini_client()
+        # Quick test using same API as chatbot
+        response = client.models.generate_content(
+            model=RD_MODEL_NAME,
+            contents="Say 'OK' if you can hear me.",
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=50,
+            ),
+        )
         if response and response.text:
             result["available"] = True
+            logger.info("R&D AI check passed")
         else:
             result["error"] = "AI returned empty response"
     except Exception as e:
         result["error"] = f"AI connection test failed: {str(e)}"
+        logger.error(f"R&D AI check failed: {e}")
     
     return result
 
@@ -756,7 +790,7 @@ def parse_gap_documents(files: List[Dict[str, Any]]) -> str:
 def evaluate_project_with_ai(project: RDProject, additional_context: str = "") -> RDProject:
     """Use Gemini to evaluate a project against the four-part test with strict IRS criteria"""
     try:
-        model = get_gemini_model()
+        client = _get_gemini_client()
         
         prompt = f"""{FOUR_PART_TEST_DEFINITIONS}
 
@@ -806,8 +840,17 @@ Respond in this EXACT JSON format (no markdown, just raw JSON):
 }}
 """
         
-        logger.info(f"Sending project {project.project_id} to AI for evaluation...")
-        response = model.generate_content(prompt)
+        logger.info(f"Sending project {project.project_id} to AI for evaluation using {RD_MODEL_NAME}...")
+        
+        # Use same API as chatbot_agent
+        response = client.models.generate_content(
+            model=RD_MODEL_NAME,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                max_output_tokens=4096,
+            ),
+        )
         
         if not response or not response.text:
             raise ValueError("AI returned empty response")
