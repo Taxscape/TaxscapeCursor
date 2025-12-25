@@ -925,7 +925,16 @@ export default function Portal() {
       }
     } catch (e) {
       console.error("Re-evaluation error:", e);
-      setRdError(e instanceof Error ? e.message : "Failed to re-evaluate project");
+      const errorMsg = e instanceof Error ? e.message : "Failed to re-evaluate project";
+      
+      // Check if session expired (server restarted)
+      if (errorMsg.includes("Session not found") || errorMsg.includes("not found")) {
+        setRdError("Session expired. The server was restarted. Please re-upload your files.");
+        setRdSession(null);
+        setRdSessionId(null);
+      } else {
+        setRdError(errorMsg);
+      }
     } finally {
       setEvaluatingProjectId(null);
     }
@@ -978,7 +987,16 @@ export default function Portal() {
       
     } catch (e) {
       console.error("Gap upload error:", e);
-      setRdError(e instanceof Error ? e.message : "Failed to upload documentation");
+      const errorMsg = e instanceof Error ? e.message : "Failed to upload documentation";
+      
+      // Check if session expired
+      if (errorMsg.includes("Session not found") || errorMsg.includes("not found")) {
+        setRdError("Session expired. The server was restarted. Please re-upload your files.");
+        setRdSession(null);
+        setRdSessionId(null);
+      } else {
+        setRdError(errorMsg);
+      }
     } finally {
       setUploadingGapId(null);
     }
@@ -1012,7 +1030,16 @@ export default function Portal() {
       
     } catch (e) {
       console.error("Download error:", e);
-      setRdError(e instanceof Error ? e.message : "Failed to download report");
+      const errorMsg = e instanceof Error ? e.message : "Failed to download report";
+      
+      // Check if session expired
+      if (errorMsg.includes("Session not found") || errorMsg.includes("not found")) {
+        setRdError("Session expired. The server was restarted. Please re-upload your files.");
+        setRdSession(null);
+        setRdSessionId(null);
+      } else {
+        setRdError(errorMsg);
+      }
     } finally {
       setIsDownloadingReport(false);
     }
