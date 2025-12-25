@@ -673,7 +673,7 @@ def get_gemini_model():
         raise ValueError("GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY not set. Please configure your API key.")
     
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-1.5-flash")
+    return genai.GenerativeModel("gemini-2.0-flash")
 
 
 def check_ai_available() -> Dict[str, Any]:
