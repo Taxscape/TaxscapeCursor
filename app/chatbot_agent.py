@@ -16,7 +16,7 @@ load_dotenv()
 API_KEY = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
 # Model configuration
-MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
 TEMPERATURE = float(os.environ.get("GEMINI_TEMPERATURE", "0.2"))
 
 # Initialize client with error handling
@@ -215,7 +215,7 @@ def get_chat_response(messages: List[Dict[str, str]], user_context: Optional[str
         elif "400" in error_msg or "INVALID_ARGUMENT" in error_msg:
             return f"Invalid Request: There was an issue with the request format.\n\nDetails: {error_msg}"
         elif "404" in error_msg or "NOT_FOUND" in error_msg:
-            return f"Model Not Found: The model '{MODEL_NAME}' is not available. Try setting GEMINI_MODEL=gemini-1.5-flash.\n\nDetails: {error_msg}"
+            return f"Model Not Found: The model '{MODEL_NAME}' is not available. Try setting GEMINI_MODEL=gemini-3-flash-preview.\n\nDetails: {error_msg}"
         elif "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
             return "Rate Limit: Too many requests. Please wait a moment and try again."
         elif "quota" in error_msg.lower():
