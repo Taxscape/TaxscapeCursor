@@ -1725,11 +1725,28 @@ export async function evaluateRDProject(
   return await response.json();
 }
 
+export type GapUploadReEvaluation = {
+  project_id?: string;
+  project_name?: string;
+  qualified?: boolean;
+  four_part_test?: FourPartTestResult;
+  ai_summary?: string;
+  confidence_score?: number;
+  error?: string;
+};
+
+export type GapUploadResponse = {
+  message: string;
+  files_total: number;
+  re_evaluation: GapUploadReEvaluation | null;
+  updated_gaps_count: number;
+};
+
 export async function uploadRDGapDocumentation(
   sessionId: string,
   gapId: string,
   files: File[]
-): Promise<{ message: string; files_total: number }> {
+): Promise<GapUploadResponse> {
   const headers = await getAuthHeadersForUpload();
   
   const formData = new FormData();
@@ -1748,6 +1765,32 @@ export async function uploadRDGapDocumentation(
 
   if (!response.ok) {
     throw new Error("Failed to upload gap documentation");
+  }
+
+  return await response.json();
+}
+
+export type AIStatus = {
+  available: boolean;
+  gemini_installed: boolean;
+  api_key_set: boolean;
+  error: string | null;
+};
+
+export async function getAIStatus(): Promise<AIStatus> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/rd-analysis/ai-status`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    return {
+      available: false,
+      gemini_installed: false,
+      api_key_set: false,
+      error: "Failed to check AI status"
+    };
   }
 
   return await response.json();

@@ -43,6 +43,9 @@ import {
   evaluateRDProject,
   uploadRDGapDocumentation,
   downloadRDReport,
+  getAIStatus,
+  type AIStatus,
+  type GapUploadResponse,
   type ChatMessage,
   type DashboardData,
   type Project,
@@ -509,6 +512,7 @@ export default function Portal() {
   const [evaluatingProjectId, setEvaluatingProjectId] = useState<string | null>(null);
   const [uploadingGapId, setUploadingGapId] = useState<string | null>(null);
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
+  const [aiStatus, setAiStatus] = useState<AIStatus | null>(null);
 
   // ============================================================================
   // COMPUTED VALUES
@@ -543,7 +547,7 @@ export default function Portal() {
 
   // Navigation items based on role
   const mainNavItems = useMemo(() => {
-    const currentRole = (userRole as PortalUserRole) || 'engineer';
+    const currentRole = (userRole as PortalUserRole) || 'cpa';
     
     // Common items for all roles
     const commonItems = [
@@ -559,13 +563,12 @@ export default function Portal() {
         { id: "team" as const, label: "Team", icon: Icons.users },
         { id: "budgets" as const, label: "Budgets", icon: Icons.dollarSign },
         { id: "expenses" as const, label: "Expenses", icon: Icons.receipt },
-        { id: "tasks" as const, label: "Tasks", icon: Icons.checkCircle, badge: pendingTasksCount > 0 ? pendingTasksCount.toString() : undefined },
         { id: "reports" as const, label: "Reports", icon: Icons.trendingUp },
         { id: "audit-log" as const, label: "Audit Log", icon: Icons.fileCheck },
       ];
     }
     
-    // CPA gets financial views + client management
+    // CPA gets financial views + client management (no Tasks, Time Log, Team)
     if (currentRole === 'cpa') {
       return [
         ...commonItems,
@@ -573,23 +576,21 @@ export default function Portal() {
         { id: "budgets" as const, label: "Budgets", icon: Icons.dollarSign },
         { id: "expenses" as const, label: "Expenses", icon: Icons.receipt },
         { id: "financial-reports" as const, label: "Reports", icon: Icons.trendingUp },
-        { id: "team" as const, label: "Team", icon: Icons.users },
       ];
     }
     
-    // Engineer gets task-focused views
+    // Engineer gets project-focused views (simplified)
     if (currentRole === 'engineer') {
       return [
         ...commonItems,
-        { id: "tasks" as const, label: "My Tasks", icon: Icons.checkCircle, badge: pendingTasksCount > 0 ? pendingTasksCount.toString() : undefined },
-        { id: "time-log" as const, label: "Time Log", icon: Icons.clock },
-        { id: "team" as const, label: "Team", icon: Icons.users },
+        { id: "budgets" as const, label: "Budgets", icon: Icons.dollarSign },
+        { id: "expenses" as const, label: "Expenses", icon: Icons.receipt },
       ];
     }
     
     // Fallback - basic access
     return commonItems;
-  }, [userRole, isOrgAdmin, projects.length, pendingTasksCount, clientCompanies.length]);
+  }, [userRole, isOrgAdmin, projects.length, clientCompanies.length]);
 
   const toolsNavItems = useMemo(() => [
     { id: "rd-analysis" as const, label: "R&D Analysis", icon: Icons.beaker },
@@ -845,11 +846,34 @@ export default function Portal() {
   };
 
   // R&D Analysis Handlers
+  const checkAIStatus = async () => {
+    try {
+      const status = await getAIStatus();
+      setAiStatus(status);
+      return status;
+    } catch (e) {
+      console.error("Failed to check AI status:", e);
+      setAiStatus({
+        available: false,
+        gemini_installed: false,
+        api_key_set: false,
+        error: "Failed to check AI status"
+      });
+      return null;
+    }
+  };
+
   const handleRDFilesSelected = async (files: File[]) => {
     setIsRdUploading(true);
     setRdError(null);
     
     try {
+      // Check AI status first
+      const status = await checkAIStatus();
+      if (!status?.available) {
+        setRdError(`AI is not available: ${status?.error || 'Unknown error'}. Files will be parsed but not evaluated.`);
+      }
+      
       // Upload files
       const uploadResult = await uploadRDFiles(files);
       setRdSessionId(uploadResult.session_id);
@@ -858,8 +882,18 @@ export default function Portal() {
       setIsRdUploading(false);
       setIsRdParsing(true);
       
-      const parseResult = await parseRDSession(uploadResult.session_id, true);
+      const parseResult = await parseRDSession(uploadResult.session_id, status?.available ?? false);
       setRdSession(parseResult.session);
+      
+      // Check if any projects have AI errors
+      if (parseResult.session?.projects) {
+        const aiErrors = parseResult.session.projects.filter(
+          p => p.ai_summary?.includes("AI evaluation failed") || p.ai_summary?.includes("error")
+        );
+        if (aiErrors.length > 0) {
+          setRdError(`AI evaluation had issues with ${aiErrors.length} project(s). Check individual projects for details.`);
+        }
+      }
       
     } catch (e) {
       console.error("R&D analysis error:", e);
@@ -898,24 +932,55 @@ export default function Portal() {
   };
 
   const handleUploadForGap = async (gapId: string, files: File[]) => {
-    if (!rdSessionId) return;
+    if (!rdSessionId || !rdSession) return;
     
     setUploadingGapId(gapId);
+    setRdError(null);
     
     try {
-      await uploadRDGapDocumentation(rdSessionId, gapId, files);
+      // Upload and get re-evaluation results
+      const result = await uploadRDGapDocumentation(rdSessionId, gapId, files);
       
-      // Re-parse to update analysis
-      setIsRdParsing(true);
-      const parseResult = await parseRDSession(rdSessionId, true);
-      setRdSession(parseResult.session);
+      // If re-evaluation succeeded, update the session with new project data
+      if (result.re_evaluation && !result.re_evaluation.error) {
+        const reEval = result.re_evaluation;
+        
+        // Update the project in the session
+        const updatedProjects = rdSession.projects.map(p => {
+          if (p.project_id === reEval.project_id) {
+            return {
+              ...p,
+              qualified: reEval.qualified || false,
+              four_part_test: reEval.four_part_test || p.four_part_test,
+              ai_summary: reEval.ai_summary || p.ai_summary,
+              confidence_score: reEval.confidence_score || p.confidence_score,
+            };
+          }
+          return p;
+        });
+        
+        // Fetch fresh session to get updated gaps
+        const sessionResult = await parseRDSession(rdSessionId, false); // Don't re-run AI
+        
+        setRdSession({
+          ...rdSession,
+          ...sessionResult.session,
+          projects: updatedProjects,
+          qualified_projects: updatedProjects.filter(p => p.qualified).length,
+        });
+        
+        // Show success message
+        console.log(`Project ${reEval.project_id} re-evaluated: qualified=${reEval.qualified}`);
+        
+      } else if (result.re_evaluation?.error) {
+        setRdError(`Re-evaluation error: ${result.re_evaluation.error}`);
+      }
       
     } catch (e) {
       console.error("Gap upload error:", e);
       setRdError(e instanceof Error ? e.message : "Failed to upload documentation");
     } finally {
       setUploadingGapId(null);
-      setIsRdParsing(false);
     }
   };
 
@@ -1320,8 +1385,41 @@ export default function Portal() {
   // RENDER VIEWS
   // ============================================================================
 
+  // Compute dashboard values from R&D session if available
+  const dashboardQRE = rdSession?.total_qre || kpiData.total_qre || 0;
+  const dashboardCredit = rdSession ? (rdSession.total_qre * 0.14) : kpiData.total_credit; // ASC rate
+  const dashboardProjects = rdSession?.projects.length || kpiData.project_count || projects.length;
+  const dashboardQualified = rdSession?.qualified_projects || 0;
+  const dashboardGaps = rdSession?.gaps.length || 0;
+  const rdProgress = rdSession 
+    ? Math.round((rdSession.qualified_projects / Math.max(rdSession.projects.length, 1)) * 100)
+    : overallProgress;
+
   const renderDashboard = () => (
     <div className="space-y-6 animate-fade-in">
+      {/* R&D Analysis Status Banner */}
+      {rdSession && (
+        <div className="p-4 rounded-xl bg-accent/10 border border-accent/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {Icons.beaker}
+              <div>
+                <p className="font-medium text-foreground">R&D Analysis Active</p>
+                <p className="text-sm text-muted-foreground">
+                  {rdSession.company_name || 'Company'} • Tax Year {rdSession.tax_year} • {rdSession.projects.length} projects analyzed
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setCurrentView("rd-analysis")}
+              className="btn btn-outline btn-sm"
+            >
+              View Analysis
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="glass-card p-5">
@@ -1329,12 +1427,19 @@ export default function Portal() {
             <div>
               <p className="text-sm font-medium text-muted-foreground">Total QRE</p>
               <p className="text-2xl font-semibold text-foreground mt-1">
-                {formatCurrency(kpiData.total_qre || 0)}
+                {formatCurrency(dashboardQRE)}
               </p>
-              <p className="text-xs text-success mt-1 flex items-center gap-1">
-                {Icons.trendingUp}
-                Based on current data
-              </p>
+              {rdSession && (
+                <p className="text-xs text-accent mt-1 flex items-center gap-1">
+                  {Icons.beaker}
+                  From R&D Analysis
+                </p>
+              )}
+              {!rdSession && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Upload files in R&D Analysis
+                </p>
+              )}
             </div>
             <div className="p-3 rounded-lg bg-accent/30">
               <span className="text-accent-foreground">{Icons.dollarSign}</span>
@@ -1347,9 +1452,11 @@ export default function Portal() {
             <div>
               <p className="text-sm font-medium text-muted-foreground">Estimated Credit</p>
               <p className="text-2xl font-semibold text-foreground mt-1">
-                {formatCurrency(kpiData.total_credit)}
+                {formatCurrency(dashboardCredit)}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">10% federal credit rate</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {rdSession ? "14% ASC method" : "10% federal credit rate"}
+              </p>
             </div>
             <div className="p-3 rounded-lg bg-success/20">
               <span className="text-success">{Icons.trendingUp}</span>
@@ -1360,11 +1467,18 @@ export default function Portal() {
         <div className="glass-card p-5 animation-delay-400">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Claim Progress</p>
-              <p className="text-2xl font-semibold text-foreground mt-1">{overallProgress}%</p>
+              <p className="text-sm font-medium text-muted-foreground">
+                {rdSession ? "Qualification Rate" : "Claim Progress"}
+              </p>
+              <p className="text-2xl font-semibold text-foreground mt-1">{rdProgress}%</p>
               <div className="progress mt-2 h-1.5">
-                <div className="progress-indicator" style={{ width: `${overallProgress}%` }} />
+                <div className="progress-indicator" style={{ width: `${rdProgress}%` }} />
               </div>
+              {rdSession && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {dashboardQualified}/{dashboardProjects} projects qualified
+                </p>
+              )}
             </div>
             <div className="p-3 rounded-lg bg-warning/20">
               <span className="text-warning">{Icons.fileCheck}</span>
@@ -1372,6 +1486,37 @@ export default function Portal() {
           </div>
         </div>
       </div>
+
+      {/* R&D Analysis Summary (when session exists) */}
+      {rdSession && (
+        <div className="glass-card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">R&D Credit Summary</h3>
+            {dashboardGaps > 0 && (
+              <span className="badge badge-warning">{dashboardGaps} gaps need attention</span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Wage QRE</p>
+              <p className="text-xl font-semibold text-foreground mt-1">{formatCurrency(rdSession.wage_qre)}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Supply QRE</p>
+              <p className="text-xl font-semibold text-foreground mt-1">{formatCurrency(rdSession.supply_qre)}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-secondary/30">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Contract QRE</p>
+              <p className="text-xl font-semibold text-foreground mt-1">{formatCurrency(rdSession.contract_qre)}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-accent/20">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Employees</p>
+              <p className="text-xl font-semibold text-foreground mt-1">{rdSession.rd_employees}/{rdSession.total_employees}</p>
+              <p className="text-xs text-muted-foreground">R&D staff</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Executive Overview Section (when data available) */}
       {executiveOverview && (isOrgAdmin || userRole === 'executive') && (
@@ -1997,6 +2142,17 @@ export default function Portal() {
             <p className="text-sm text-muted-foreground">
               Upload source data files to analyze R&D expenditures against the four-part test
             </p>
+            {/* AI Status Indicator */}
+            {aiStatus && (
+              <div className={`mt-2 inline-flex items-center gap-2 px-2 py-1 rounded text-xs ${
+                aiStatus.available 
+                  ? "bg-success/20 text-success" 
+                  : "bg-destructive/20 text-destructive"
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${aiStatus.available ? "bg-success" : "bg-destructive"}`} />
+                {aiStatus.available ? "AI Ready" : `AI Unavailable: ${aiStatus.error || 'Check configuration'}`}
+              </div>
+            )}
           </div>
           {rdSession && (
             <div className="flex items-center gap-2">

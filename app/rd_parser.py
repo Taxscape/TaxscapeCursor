@@ -579,6 +579,90 @@ def identify_gaps(session: RDAnalysisSession) -> List[GapItem]:
 # GEMINI AI INTEGRATION
 # =============================================================================
 
+# Strict IRS Section 41 Four-Part Test Definitions
+FOUR_PART_TEST_DEFINITIONS = """
+## IRS SECTION 41 FOUR-PART TEST - STRICT EVALUATION CRITERIA
+
+You are an expert R&D tax credit analyst. Evaluate STRICTLY according to IRS guidelines.
+Be conservative - when in doubt, mark as "needs_review" not "pass".
+
+### TEST 1: PERMITTED PURPOSE (IRC Section 174)
+
+**PASS** - Activity MUST aim to:
+- Develop NEW functionality that did not previously exist
+- IMPROVE existing function, performance, reliability, or quality (not just cosmetic)
+- Create a new or improved business component (product, process, technique, formula, invention, software)
+- The improvement must be MORE than incremental/routine
+
+**FAIL** - Activity is:
+- Routine data collection or quality control
+- Cosmetic or aesthetic changes only
+- Adapting existing product to customer specifications WITHOUT technical uncertainty
+- Style, taste, or seasonal design changes
+- Market research or surveys
+- Management studies or efficiency surveys
+- Advertising or promotions
+- Acquisition of another's patent or know-how
+
+**NEEDS_REVIEW** - Unclear if improvement is substantial or routine
+
+### TEST 2: ELIMINATION OF UNCERTAINTY
+
+**PASS** - At project START, there was genuine uncertainty about:
+- CAPABILITY: Can it be done at all? Is it technically feasible?
+- METHOD: What is the best approach? How should it be developed?
+- DESIGN: What is the appropriate design? What specifications will work?
+
+The uncertainty must be TECHNOLOGICAL, not just business/economic uncertainty.
+
+**FAIL** - Activity where:
+- Outcome was known or predictable from the start
+- Following well-established procedures or industry standards
+- Only uncertainty was about cost, time, or market acceptance
+- Using proven technology in standard applications
+- Implementing vendor's documented solution
+
+**NEEDS_REVIEW** - Some technical questions but unclear if truly uncertain
+
+### TEST 3: PROCESS OF EXPERIMENTATION
+
+**PASS** - Taxpayer MUST have used one or more of:
+- Systematic trial and error (documented attempts and failures)
+- Modeling or simulation to test alternatives
+- Testing of hypotheses with measurable outcomes
+- Iterative design with documented iterations
+- Evaluation of alternatives through technical analysis
+
+Evidence should show: hypothesis → test → evaluate → refine cycle
+
+**FAIL** - Activity where:
+- No documented testing or evaluation occurred
+- Single approach used with no alternatives considered
+- Purchased off-the-shelf solution
+- Followed step-by-step instructions without modification
+- "Trial and error" was just guessing without systematic approach
+
+**NEEDS_REVIEW** - Some testing occurred but documentation is unclear
+
+### TEST 4: TECHNOLOGICAL IN NATURE
+
+**PASS** - Process fundamentally relies on principles of:
+- Physical sciences (physics, chemistry, materials science)
+- Biological sciences (biology, biochemistry, microbiology)
+- Engineering disciplines (mechanical, electrical, civil, chemical, software)
+- Computer science (algorithms, data structures, system architecture)
+
+**FAIL** - Process relies primarily on:
+- Social sciences, economics, psychology
+- Business or management studies
+- Market research or consumer behavior
+- Artistic or aesthetic development
+- Human factors without engineering basis
+
+**NEEDS_REVIEW** - Mixed technical/non-technical basis
+"""
+
+
 def get_gemini_model():
     """Get configured Gemini model"""
     if not GEMINI_AVAILABLE:
@@ -586,71 +670,164 @@ def get_gemini_model():
     
     api_key = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY not set")
+        raise ValueError("GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY not set. Please configure your API key.")
     
     genai.configure(api_key=api_key)
     return genai.GenerativeModel("gemini-1.5-flash")
 
 
+def check_ai_available() -> Dict[str, Any]:
+    """Check if AI is available and configured"""
+    result = {
+        "available": False,
+        "gemini_installed": GEMINI_AVAILABLE,
+        "api_key_set": False,
+        "error": None
+    }
+    
+    if not GEMINI_AVAILABLE:
+        result["error"] = "google-generativeai package not installed"
+        return result
+    
+    api_key = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        result["error"] = "GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY environment variable not set"
+        return result
+    
+    result["api_key_set"] = True
+    
+    try:
+        model = get_gemini_model()
+        # Quick test
+        response = model.generate_content("Say 'OK' if you can hear me.")
+        if response and response.text:
+            result["available"] = True
+        else:
+            result["error"] = "AI returned empty response"
+    except Exception as e:
+        result["error"] = f"AI connection test failed: {str(e)}"
+    
+    return result
+
+
+def parse_gap_documents(files: List[Dict[str, Any]]) -> str:
+    """Parse uploaded gap documents and extract text content"""
+    extracted_texts = []
+    
+    for file_info in files:
+        filename = file_info.get("filename", "unknown")
+        content = file_info.get("content", b"")
+        
+        try:
+            if filename.lower().endswith(".pdf"):
+                if PDF_AVAILABLE:
+                    text = parse_pdf_file(content, filename)
+                    extracted_texts.append(f"=== From {filename} ===\n{text}")
+                else:
+                    extracted_texts.append(f"=== {filename} ===\n[PDF parsing not available]")
+                    
+            elif filename.lower().endswith(".docx"):
+                if DOCX_AVAILABLE:
+                    text = parse_docx_file(content, filename)
+                    extracted_texts.append(f"=== From {filename} ===\n{text}")
+                else:
+                    extracted_texts.append(f"=== {filename} ===\n[DOCX parsing not available]")
+                    
+            elif filename.lower().endswith((".xlsx", ".xls")):
+                # Extract text from Excel
+                sheets = parse_excel_file(content, filename)
+                text_parts = []
+                for sheet_name, df in sheets.items():
+                    text_parts.append(f"Sheet: {sheet_name}")
+                    text_parts.append(df.to_string(max_rows=50))
+                extracted_texts.append(f"=== From {filename} ===\n" + "\n".join(text_parts))
+                
+            elif filename.lower().endswith((".txt", ".csv")):
+                text = content.decode("utf-8", errors="ignore")
+                extracted_texts.append(f"=== From {filename} ===\n{text[:5000]}")
+                
+        except Exception as e:
+            logger.error(f"Error parsing gap document {filename}: {e}")
+            extracted_texts.append(f"=== {filename} ===\n[Error parsing: {str(e)}]")
+    
+    return "\n\n".join(extracted_texts)
+
+
 def evaluate_project_with_ai(project: RDProject, additional_context: str = "") -> RDProject:
-    """Use Gemini to evaluate a project against the four-part test"""
+    """Use Gemini to evaluate a project against the four-part test with strict IRS criteria"""
     try:
         model = get_gemini_model()
         
-        prompt = f"""Evaluate this R&D project against the IRS Section 41 four-part test for R&D tax credits.
+        prompt = f"""{FOUR_PART_TEST_DEFINITIONS}
 
-PROJECT INFORMATION:
-- Name: {project.project_name}
-- Category: {project.category or 'Not specified'}
-- Description: {project.description or 'Not provided'}
-- Budget: ${project.budget:,.2f if project.budget else 'Not specified'}
+---
 
-{f"ADDITIONAL CONTEXT:{chr(10)}{additional_context}" if additional_context else ""}
+## PROJECT TO EVALUATE
 
-Evaluate each of the four tests and provide your assessment:
+**Project Name:** {project.project_name}
+**Category:** {project.category or 'Not specified'}
+**Description:** {project.description or 'No description provided - this is a significant gap'}
+**Budget:** {f'${project.budget:,.2f}' if project.budget else 'Not specified'}
 
-1. PERMITTED PURPOSE TEST: Does the project aim to develop new or improved function, performance, reliability, or quality of a business component?
+{('## ADDITIONAL DOCUMENTATION/CONTEXT' + chr(10) + additional_context) if additional_context else '## NO ADDITIONAL DOCUMENTATION PROVIDED' + chr(10) + 'Without supporting documentation, many tests will likely need review.'}
 
-2. ELIMINATION OF UNCERTAINTY TEST: Is there uncertainty concerning the development or improvement of the product at the outset?
+---
 
-3. PROCESS OF EXPERIMENTATION TEST: Does the taxpayer evaluate alternatives through modeling, simulation, systematic trial and error, or other methods?
+## YOUR TASK
 
-4. TECHNOLOGICAL IN NATURE TEST: Does the process rely on principles of physical science, biological science, engineering, or computer science?
+Evaluate this project against each of the four tests using the STRICT criteria above.
 
-Respond in this exact JSON format:
+For each test:
+1. Cite specific evidence from the project description/documentation
+2. If evidence is missing, say what specific documentation would be needed
+3. Be CONSERVATIVE - if evidence is weak or missing, mark as "needs_review" or "fail"
+
+Respond in this EXACT JSON format (no markdown, just raw JSON):
 {{
     "permitted_purpose": {{
         "status": "pass" | "fail" | "needs_review",
-        "reasoning": "explanation"
+        "reasoning": "Cite specific evidence or explain what's missing. Be specific."
     }},
     "elimination_uncertainty": {{
         "status": "pass" | "fail" | "needs_review",
-        "reasoning": "explanation"
+        "reasoning": "What technical uncertainty existed? Cite evidence or explain gap."
     }},
     "process_experimentation": {{
         "status": "pass" | "fail" | "needs_review",
-        "reasoning": "explanation"
+        "reasoning": "What experimentation was performed? Cite evidence or explain gap."
     }},
     "technological_nature": {{
         "status": "pass" | "fail" | "needs_review",
-        "reasoning": "explanation"
+        "reasoning": "What scientific/engineering principles were applied? Cite evidence."
     }},
     "confidence_score": 0.0 to 1.0,
-    "summary": "brief overall assessment",
-    "missing_info": ["list of missing information that would help evaluation"]
+    "summary": "2-3 sentence overall assessment of qualification likelihood",
+    "missing_info": ["specific document or information needed to improve evaluation"]
 }}
 """
         
+        logger.info(f"Sending project {project.project_id} to AI for evaluation...")
         response = model.generate_content(prompt)
-        response_text = response.text
         
-        # Extract JSON from response
+        if not response or not response.text:
+            raise ValueError("AI returned empty response")
+        
+        response_text = response.text.strip()
+        logger.info(f"AI response received for project {project.project_id}, length: {len(response_text)}")
+        
+        # Extract JSON from response (handle markdown code blocks)
         if "```json" in response_text:
             response_text = response_text.split("```json")[1].split("```")[0]
         elif "```" in response_text:
             response_text = response_text.split("```")[1].split("```")[0]
         
-        result = json.loads(response_text.strip())
+        response_text = response_text.strip()
+        
+        try:
+            result = json.loads(response_text)
+        except json.JSONDecodeError as je:
+            logger.error(f"JSON parse error: {je}. Response was: {response_text[:500]}")
+            raise ValueError(f"AI response was not valid JSON: {str(je)}")
         
         # Update project with AI evaluation
         fpt = project.four_part_test
@@ -662,34 +839,76 @@ Respond in this exact JSON format:
         }
         
         if "permitted_purpose" in result:
-            fpt.permitted_purpose = status_map.get(result["permitted_purpose"]["status"], TestStatus.NEEDS_REVIEW)
-            fpt.permitted_purpose_reasoning = result["permitted_purpose"].get("reasoning", "")
+            status = result["permitted_purpose"].get("status", "needs_review").lower()
+            fpt.permitted_purpose = status_map.get(status, TestStatus.NEEDS_REVIEW)
+            fpt.permitted_purpose_reasoning = result["permitted_purpose"].get("reasoning", "No reasoning provided")
         
         if "elimination_uncertainty" in result:
-            fpt.elimination_uncertainty = status_map.get(result["elimination_uncertainty"]["status"], TestStatus.NEEDS_REVIEW)
-            fpt.elimination_uncertainty_reasoning = result["elimination_uncertainty"].get("reasoning", "")
+            status = result["elimination_uncertainty"].get("status", "needs_review").lower()
+            fpt.elimination_uncertainty = status_map.get(status, TestStatus.NEEDS_REVIEW)
+            fpt.elimination_uncertainty_reasoning = result["elimination_uncertainty"].get("reasoning", "No reasoning provided")
         
         if "process_experimentation" in result:
-            fpt.process_experimentation = status_map.get(result["process_experimentation"]["status"], TestStatus.NEEDS_REVIEW)
-            fpt.process_experimentation_reasoning = result["process_experimentation"].get("reasoning", "")
+            status = result["process_experimentation"].get("status", "needs_review").lower()
+            fpt.process_experimentation = status_map.get(status, TestStatus.NEEDS_REVIEW)
+            fpt.process_experimentation_reasoning = result["process_experimentation"].get("reasoning", "No reasoning provided")
         
         if "technological_nature" in result:
-            fpt.technological_nature = status_map.get(result["technological_nature"]["status"], TestStatus.NEEDS_REVIEW)
-            fpt.technological_nature_reasoning = result["technological_nature"].get("reasoning", "")
+            status = result["technological_nature"].get("status", "needs_review").lower()
+            fpt.technological_nature = status_map.get(status, TestStatus.NEEDS_REVIEW)
+            fpt.technological_nature_reasoning = result["technological_nature"].get("reasoning", "No reasoning provided")
         
         project.four_part_test = fpt
         project.confidence_score = float(result.get("confidence_score", 0.5))
-        project.ai_summary = result.get("summary", "")
+        project.ai_summary = result.get("summary", "Evaluation completed")
         project.missing_info = result.get("missing_info", [])
         project.qualified = fpt.pass_count == 4
         
-        logger.info(f"AI evaluated project {project.project_id}: {fpt.pass_count}/4 tests pass")
+        logger.info(f"AI evaluated project {project.project_id}: {fpt.pass_count}/4 tests pass, qualified={project.qualified}")
         
     except Exception as e:
-        logger.error(f"Error evaluating project with AI: {e}")
-        project.ai_summary = f"AI evaluation failed: {str(e)}"
+        error_msg = str(e)
+        logger.error(f"Error evaluating project {project.project_id} with AI: {error_msg}")
+        
+        # Set all tests to needs_review with error info
+        project.four_part_test.permitted_purpose = TestStatus.NEEDS_REVIEW
+        project.four_part_test.permitted_purpose_reasoning = f"AI evaluation error: {error_msg}"
+        project.four_part_test.elimination_uncertainty = TestStatus.NEEDS_REVIEW
+        project.four_part_test.elimination_uncertainty_reasoning = f"AI evaluation error: {error_msg}"
+        project.four_part_test.process_experimentation = TestStatus.NEEDS_REVIEW
+        project.four_part_test.process_experimentation_reasoning = f"AI evaluation error: {error_msg}"
+        project.four_part_test.technological_nature = TestStatus.NEEDS_REVIEW
+        project.four_part_test.technological_nature_reasoning = f"AI evaluation error: {error_msg}"
+        
+        project.ai_summary = f"AI evaluation failed: {error_msg}. Manual review required."
+        project.confidence_score = 0.0
+        project.missing_info = ["AI evaluation failed - please retry or review manually"]
+        project.qualified = False
     
     return project
+
+
+def re_evaluate_project_with_gap_context(
+    project: RDProject, 
+    gap_documents: List[Dict[str, Any]],
+    existing_context: str = ""
+) -> RDProject:
+    """Re-evaluate a project after new gap documentation is uploaded"""
+    
+    # Parse the new gap documents
+    new_context = parse_gap_documents(gap_documents)
+    
+    # Combine with existing context
+    full_context = ""
+    if existing_context:
+        full_context += f"=== PREVIOUS CONTEXT ===\n{existing_context}\n\n"
+    if new_context:
+        full_context += f"=== NEW DOCUMENTATION UPLOADED ===\n{new_context}"
+    
+    logger.info(f"Re-evaluating project {project.project_id} with {len(gap_documents)} new documents")
+    
+    # Re-run AI evaluation with combined context
+    return evaluate_project_with_ai(project, full_context)
 
 
 def analyze_document_with_ai(text: str, context: str = "") -> Dict[str, Any]:

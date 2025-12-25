@@ -2903,7 +2903,9 @@ async def upload_gap_documentation(
     files: List[UploadFile] = File(...),
     user: dict = Depends(get_current_user)
 ):
-    """Upload additional documentation for a specific gap"""
+    """Upload additional documentation for a specific gap and trigger AI re-evaluation"""
+    from app.rd_parser import re_evaluate_project_with_gap_context, parse_gap_documents, identify_gaps
+    
     if session_id not in rd_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
     
@@ -2911,6 +2913,10 @@ async def upload_gap_documentation(
     
     if session_data["user_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    
+    analysis_result = session_data.get("analysis_result")
+    if not analysis_result:
+        raise HTTPException(status_code=400, detail="Session not yet analyzed")
     
     # Read new files
     new_files = []
@@ -2925,13 +2931,86 @@ async def upload_gap_documentation(
     
     # Add to session files
     session_data["files"].extend(new_files)
-    session_data["status"] = "updated"  # Mark for re-analysis
+    
+    # Extract project_id from gap_id (format: "gap-{project_id}" or "gap-review-{project_id}")
+    project_id = None
+    if gap_id.startswith("gap-review-"):
+        project_id = gap_id.replace("gap-review-", "")
+    elif gap_id.startswith("gap-"):
+        project_id = gap_id.replace("gap-", "")
+    
+    re_evaluation_result = None
+    
+    if project_id:
+        # Find the project in the analysis results
+        projects = analysis_result.get("projects", [])
+        project_idx = None
+        for i, p in enumerate(projects):
+            if p["project_id"] == project_id:
+                project_idx = i
+                break
+        
+        if project_idx is not None:
+            try:
+                # Re-evaluate the project with the new documents
+                project = RDProject(**projects[project_idx])
+                
+                logger.info(f"Re-evaluating project {project_id} with {len(new_files)} new documents")
+                
+                updated_project = re_evaluate_project_with_gap_context(
+                    project=project,
+                    gap_documents=new_files,
+                    existing_context=""
+                )
+                
+                # Update the project in the analysis results
+                analysis_result["projects"][project_idx] = updated_project.dict()
+                
+                # Recalculate qualified projects count
+                analysis_result["qualified_projects"] = len([
+                    p for p in analysis_result["projects"] if p.get("qualified", False)
+                ])
+                
+                # Re-identify gaps
+                session_obj = RDAnalysisSession(**analysis_result)
+                new_gaps = identify_gaps(session_obj)
+                analysis_result["gaps"] = [g.dict() for g in new_gaps]
+                
+                re_evaluation_result = {
+                    "project_id": project_id,
+                    "project_name": updated_project.project_name,
+                    "qualified": updated_project.qualified,
+                    "four_part_test": updated_project.four_part_test.dict(),
+                    "ai_summary": updated_project.ai_summary,
+                    "confidence_score": updated_project.confidence_score
+                }
+                
+                logger.info(f"Project {project_id} re-evaluated: qualified={updated_project.qualified}")
+                
+            except Exception as e:
+                logger.error(f"Error re-evaluating project {project_id}: {e}")
+                re_evaluation_result = {"error": str(e)}
+    
+    # Update session
+    session_data["analysis_result"] = analysis_result
+    session_data["status"] = "re-analyzed"
     rd_sessions[session_id] = session_data
     
     return {
         "message": f"Added {len(new_files)} files for gap {gap_id}",
-        "files_total": len(session_data["files"])
+        "files_total": len(session_data["files"]),
+        "re_evaluation": re_evaluation_result,
+        "updated_gaps_count": len(analysis_result.get("gaps", []))
     }
+
+
+@rd_router.get("/ai-status")
+async def get_ai_status(user: dict = Depends(get_current_user)):
+    """Check AI availability and status"""
+    from app.rd_parser import check_ai_available
+    
+    status = check_ai_available()
+    return status
 
 
 @rd_router.get("/session/{session_id}/download")
