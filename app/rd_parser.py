@@ -957,12 +957,12 @@ def re_evaluate_project_with_gap_context(
 def analyze_document_with_ai(text: str, context: str = "") -> Dict[str, Any]:
     """Use Gemini to extract structured information from document text"""
     try:
-        model = get_gemini_model()
+        client = _get_gemini_client()
         
         prompt = f"""Analyze this document and extract relevant R&D tax credit information.
 
 DOCUMENT TEXT:
-{text[:10000]}  # Limit to first 10k chars
+{text[:10000]}
 
 {f"CONTEXT: {context}" if context else ""}
 
@@ -993,7 +993,14 @@ Respond in JSON format:
 }}
 """
         
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=RD_MODEL_NAME,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                max_output_tokens=4096,
+            ),
+        )
         response_text = response.text
         
         # Extract JSON from response

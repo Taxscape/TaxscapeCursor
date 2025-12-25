@@ -898,27 +898,34 @@ export default function Portal() {
     setRdError(null);
     
     try {
-      // Check AI status first
-      const status = await checkAIStatus();
-      if (!status?.available) {
-        setRdError(`AI is not available: ${status?.error || 'Unknown error'}. Files will be parsed but not evaluated.`);
-      }
+      console.log("[R&D] Starting file upload...", files.length, "files");
       
-      // Upload files
+      // Upload files first
       const uploadResult = await uploadRDFiles(files);
+      console.log("[R&D] Upload complete, session:", uploadResult.session_id);
       setRdSessionId(uploadResult.session_id);
       
-      // Parse and analyze
+      // Parse and analyze with AI
       setIsRdUploading(false);
       setIsRdParsing(true);
       
-      const parseResult = await parseRDSession(uploadResult.session_id, status?.available ?? false);
+      console.log("[R&D] Starting AI analysis...");
+      const parseResult = await parseRDSession(uploadResult.session_id, true);
+      console.log("[R&D] Analysis complete:", parseResult);
       setRdSession(parseResult.session);
+      
+      // Check AI status after parsing
+      try {
+        const status = await getAIStatus();
+        setAiStatus(status);
+      } catch (statusErr) {
+        console.warn("[R&D] Could not fetch AI status:", statusErr);
+      }
       
       // Check if any projects have AI errors
       if (parseResult.session?.projects) {
         const aiErrors = parseResult.session.projects.filter(
-          p => p.ai_summary?.includes("AI evaluation failed") || p.ai_summary?.includes("error")
+          (p: { ai_summary?: string }) => p.ai_summary?.includes("AI evaluation failed") || p.ai_summary?.includes("error")
         );
         if (aiErrors.length > 0) {
           setRdError(`AI evaluation had issues with ${aiErrors.length} project(s). Check individual projects for details.`);
@@ -926,8 +933,16 @@ export default function Portal() {
       }
       
     } catch (e) {
-      console.error("R&D analysis error:", e);
-      setRdError(e instanceof Error ? e.message : "Failed to analyze files");
+      console.error("[R&D] Analysis error:", e);
+      const errorMsg = e instanceof Error ? e.message : "Failed to analyze files";
+      
+      // Try to parse JSON error detail
+      try {
+        const parsed = JSON.parse(errorMsg);
+        setRdError(parsed.detail || errorMsg);
+      } catch {
+        setRdError(errorMsg);
+      }
     } finally {
       setIsRdUploading(false);
       setIsRdParsing(false);
