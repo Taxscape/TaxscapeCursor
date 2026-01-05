@@ -124,6 +124,13 @@ import {
 } from "./types";
 import { SavedView } from "./schemas";
 
+// Re-export types from types.ts for backward compatibility
+export type { 
+  ChatMessage, ChatResult, DashboardData, Project, Employee, Contractor, 
+  Study, ChatSession, UserContext, WorkflowSummary, ProjectWorkflowStatus,
+  WorkflowOverallState
+} from "./types";
+
 // =============================================================================
 // TASK MANAGEMENT ENDPOINTS (RBAC)
 // =============================================================================

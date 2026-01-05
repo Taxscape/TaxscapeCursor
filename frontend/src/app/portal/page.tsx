@@ -3,12 +3,14 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/auth-context";
+import { ChatMessage, WorkflowSummary, ProjectWorkflowStatus } from "@/lib/types";
 import {
   sendChatMessage,
   sendChatMessageDemo,
   downloadChatExcel,
   getDashboard,
   getProjects,
+  createProject,
   getChatSessions,
   getEmployees,
   getContractors,
@@ -38,6 +40,7 @@ import {
   getClientCompanies,
   createClientCompany,
   setSelectedClient,
+  getClientWorkflowSummary,
   uploadRDFiles,
   parseRDSession,
   getRDSession,
@@ -47,7 +50,6 @@ import {
   getAIStatus,
   type AIStatus,
   type GapUploadResponse,
-  type ChatMessage,
   type DashboardData,
   type Project,
   type ChatSession,
@@ -354,6 +356,19 @@ const Icons = {
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
       <polyline points="16 17 21 12 16 7" />
       <line x1="21" x2="9" y1="12" y2="12" />
+    </svg>
+  ),
+  edit: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  ),
+  trash: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 6h18" />
+      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
     </svg>
   ),
 };
@@ -1229,6 +1244,153 @@ export default function Portal() {
   };
 
   // ============================================================================
+  // WORKFLOW MEMOS (must be before early returns)
+  // ============================================================================
+
+  const workflowSteps = useMemo(() => {
+    // Default onboarding steps when workflow summary is not available
+    const defaultSteps = [
+      {
+        id: 0,
+        label: "Client Setup",
+        description: "Verify client details and tax year baseline.",
+        actionLabel: "Manage Clients",
+        view: "clients" as ViewMode,
+        icon: Icons.building,
+        isComplete: selectedClient !== null
+      },
+      {
+        id: 1,
+        label: "Project Identification",
+        description: "Identify R&D projects for evaluation.",
+        actionLabel: "Identify Projects",
+        view: "projects" as ViewMode,
+        icon: Icons.folderKanban,
+        isComplete: projects.length > 0
+      },
+      {
+        id: 2,
+        label: "AI Analysis & Evidence",
+        description: "Upload documentation for AI analysis.",
+        actionLabel: "Start AI Analysis",
+        view: "rd-analysis" as ViewMode,
+        icon: Icons.beaker,
+        isComplete: rdSession !== null
+      },
+      {
+        id: 3,
+        label: "Final Review",
+        description: "Review and approve completed projects.",
+        actionLabel: "Final Review",
+        view: "reports" as ViewMode,
+        icon: Icons.trendingUp,
+        isComplete: false
+      }
+    ];
+
+    if (!workflowSummary) return defaultSteps;
+    
+    return [
+      {
+        id: 0,
+        label: "Client Setup",
+        description: "Verify client details and tax year baseline.",
+        actionLabel: "Manage Clients",
+        view: "clients" as ViewMode,
+        icon: Icons.building,
+        isComplete: selectedClient !== null
+      },
+      {
+        id: 1,
+        label: "Project Identification",
+        description: `${workflowSummary.by_state.not_started || 0} projects not started, ${workflowSummary.by_state.in_progress || 0} in progress.`,
+        actionLabel: "Identify Projects",
+        view: "projects" as ViewMode,
+        icon: Icons.folderKanban,
+        isComplete: (workflowSummary.total_projects || 0) > 0
+      },
+      {
+        id: 2,
+        label: "AI Analysis & Evidence",
+        description: `${workflowSummary.needs_follow_up?.length || 0} projects need additional documentation.`,
+        actionLabel: "Start AI Analysis",
+        view: "rd-analysis" as ViewMode,
+        icon: Icons.beaker,
+        isComplete: (workflowSummary.by_state.ready_for_review || 0) > 0
+      },
+      {
+        id: 3,
+        label: "Final Review",
+        description: `${workflowSummary.by_state.ready_for_review || 0} projects ready for approval.`,
+        actionLabel: "Final Review",
+        view: "reports" as ViewMode,
+        icon: Icons.trendingUp,
+        isComplete: (workflowSummary.by_state.approved || 0) > 0
+      }
+    ];
+  }, [workflowSummary, selectedClient, projects.length, rdSession]);
+
+  const nextActions = useMemo(() => {
+    const actions: Array<{
+      title: string;
+      description: string;
+      action: () => void;
+      label: string;
+      icon: React.ReactNode;
+      effort?: string;
+    }> = [];
+    
+    // If we have real NBAs from the workflow engine, use them
+    if (workflowSummary?.next_best_actions) {
+      return workflowSummary.next_best_actions.map(nba => ({
+        title: nba.reason,
+        description: `Action: ${nba.action_type.replace('_', ' ').toUpperCase()} • Target: ${nba.target}`,
+        action: () => {
+          if (nba.action_type === 'edit_field' || nba.action_type === 'request_evidence') {
+            setCurrentView('projects');
+          } else if (nba.action_type === 'upload_doc' || nba.action_type === 're_evaluate_ai') {
+            setCurrentView('rd-analysis');
+          } else if (nba.action_type === 'review_decision') {
+            setCurrentView('reports');
+          }
+        },
+        label: nba.action_type.replace('_', ' ').toUpperCase(),
+        icon: nba.blocking ? Icons.alertTriangle : Icons.sparkles,
+        effort: nba.estimated_effort
+      }));
+    }
+
+    // Fallback to basic onboarding actions
+    if (clientCompanies.length === 0) {
+      actions.push({
+        title: "Setup your first client",
+        description: "To start an R&D study, you first need to create a client company profile.",
+        action: () => setShowAddClientModal(true),
+        label: "Add Client",
+        icon: Icons.building
+      });
+    } else if (projects.length === 0) {
+      actions.push({
+        title: "Identify R&D Projects",
+        description: "List the technical projects your team worked on this year to evaluate for tax credits.",
+        action: () => setCurrentView("projects"),
+        label: "Go to Projects",
+        icon: Icons.folderKanban
+      });
+    } else if (!rdSession) {
+      actions.push({
+        title: "Upload Documentation",
+        description: "Upload payroll and project data to let our AI identify qualifying expenditures.",
+        action: () => setCurrentView("rd-analysis"),
+        label: "Start Analysis",
+        icon: Icons.upload
+      });
+    }
+
+    return actions;
+  }, [clientCompanies.length, projects, rdSession, workflowSummary, setCurrentView, setShowAddClientModal]);
+
+  // ============================================================================
   // LOADING STATES
   // ============================================================================
 
@@ -1511,102 +1673,6 @@ export default function Portal() {
     ? Math.round((rdSession.qualified_projects / Math.max(rdSession.projects.length, 1)) * 100)
     : overallProgress;
 
-  const workflowSteps = useMemo(() => {
-    if (!workflowSummary) return onboardingSteps;
-    
-    return [
-      {
-        id: 0,
-        label: "Client Setup",
-        description: "Verify client details and tax year baseline.",
-        actionLabel: "Manage Clients",
-        view: "clients" as ViewMode,
-        icon: Icons.building,
-        isComplete: selectedClient !== null
-      },
-      {
-        id: 1,
-        label: "Project Identification",
-        description: `${workflowSummary.by_state.not_started || 0} projects not started, ${workflowSummary.by_state.in_progress || 0} in progress.`,
-        actionLabel: "Identify Projects",
-        view: "projects" as ViewMode,
-        icon: Icons.folderKanban,
-        isComplete: (workflowSummary.total_projects || 0) > 0
-      },
-      {
-        id: 2,
-        label: "AI Analysis & Evidence",
-        description: `${workflowSummary.needs_follow_up?.length || 0} projects need additional documentation.`,
-        actionLabel: "Start AI Analysis",
-        view: "rd-analysis" as ViewMode,
-        icon: Icons.beaker,
-        isComplete: (workflowSummary.by_state.ready_for_review || 0) > 0
-      },
-      {
-        id: 3,
-        label: "Final Review",
-        description: `${workflowSummary.by_state.ready_for_review || 0} projects ready for approval.`,
-        actionLabel: "Final Review",
-        view: "reports" as ViewMode,
-        icon: Icons.trendingUp,
-        isComplete: (workflowSummary.by_state.approved || 0) > 0
-      }
-    ];
-  }, [workflowSummary, selectedClient, onboardingSteps]);
-
-  const nextActions = useMemo(() => {
-    const actions = [];
-    
-    // If we have real NBAs from the workflow engine, use them
-    if (workflowSummary?.next_best_actions) {
-      return workflowSummary.next_best_actions.map(nba => ({
-        title: nba.reason,
-        description: `Action: ${nba.action_type.replace('_', ' ').toUpperCase()} • Target: ${nba.target}`,
-        action: () => {
-          if (nba.action_type === 'edit_field' || nba.action_type === 'request_evidence') {
-            setCurrentView('projects');
-          } else if (nba.action_type === 'upload_doc' || nba.action_type === 're_evaluate_ai') {
-            setCurrentView('rd-analysis');
-          } else if (nba.action_type === 'review_decision') {
-            setCurrentView('reports');
-          }
-        },
-        label: nba.action_type.replace('_', ' ').toUpperCase(),
-        icon: nba.blocking ? Icons.alertTriangle : Icons.sparkles,
-        effort: nba.estimated_effort
-      }));
-    }
-
-    // Fallback to basic onboarding actions
-    if (clientCompanies.length === 0) {
-      actions.push({
-        title: "Setup your first client",
-        description: "To start an R&D study, you first need to create a client company profile.",
-        action: () => setShowAddClientModal(true),
-        label: "Add Client",
-        icon: Icons.building
-      });
-    } else if (projects.length === 0) {
-      actions.push({
-        title: "Identify R&D Projects",
-        description: "List the technical projects your team worked on this year to evaluate for tax credits.",
-        action: () => setCurrentView("projects"),
-        label: "Go to Projects",
-        icon: Icons.folderKanban
-      });
-    } else if (!rdSession) {
-      actions.push({
-        title: "Upload Documentation",
-        description: "Upload payroll and project data to let our AI identify qualifying expenditures.",
-        action: () => setCurrentView("rd-analysis"),
-        label: "Start Analysis",
-        icon: Icons.upload
-      });
-    }
-
-    return actions;
-  }, [clientCompanies.length, projects, rdSession, workflowSummary]);
-
   const renderDashboard = () => (
     <div className="space-y-6 animate-fade-in">
       {/* R&D Analysis Status Banner */}
@@ -1875,16 +1941,6 @@ export default function Portal() {
                       Follow our TurboTax-style guide to qualify projects and maximize your tax credit.
                     </p>
                   </div>
-                ) : (
-                  <div className="text-center py-8 space-y-3">
-                    <div className="w-16 h-16 mx-auto rounded-full bg-muted/30 flex items-center justify-center text-muted-foreground">
-                      {Icons.sparkles}
-                    </div>
-                    <p className="text-sm font-medium text-foreground">Select a workflow step</p>
-                    <p className="text-xs text-muted-foreground px-4">
-                      Follow our TurboTax-style guide to qualify projects and maximize your tax credit.
-                    </p>
-                  </div>
                 )}
               </div>
             </div>
@@ -1922,7 +1978,7 @@ export default function Portal() {
                 ))
               ) : (
                 <div className="text-center py-6">
-                  <p className="text-sm text-muted-foreground">You're all caught up! ✨</p>
+                  <p className="text-sm text-muted-foreground">You&apos;re all caught up! ✨</p>
                 </div>
               )}
             </div>
@@ -2239,7 +2295,7 @@ export default function Portal() {
           <div className="flex items-center gap-2 border-b border-border pb-4">
             {[
               { id: 'my', label: 'My Tasks', icon: Icons.user },
-              { id: 'client', label: 'Client Tasks', icon: Icons.folder },
+              { id: 'client', label: 'Client Tasks', icon: Icons.folderKanban },
               { id: 'review', label: 'Review Queue', icon: Icons.checkCircle },
               { id: 'blockers', label: 'Blockers', icon: Icons.alertTriangle },
             ].map((tab) => (

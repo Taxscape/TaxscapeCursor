@@ -105,7 +105,8 @@ class PerformanceCollector {
       result = result.filter(m => m.name === filter.name);
     }
     if (filter?.since) {
-      result = result.filter(m => m.timestamp >= filter.since);
+      const sinceTime = filter.since;
+      result = result.filter(m => m.timestamp >= sinceTime);
     }
 
     return result;
@@ -356,7 +357,7 @@ export function useMemoryMonitor(intervalMs: number = 10000) {
 
 export function instrumentFetch(originalFetch: typeof fetch): typeof fetch {
   return async (input, init) => {
-    const url = typeof input === 'string' ? input : input.url;
+    const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : input.toString());
     const method = init?.method || 'GET';
     const timer = createTimer('apiLatency', 'api');
 

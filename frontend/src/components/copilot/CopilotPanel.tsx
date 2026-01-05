@@ -79,7 +79,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ clientId, projectId,
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground italic">No critical blockers identified. You're on track!</p>
+            <p className="text-sm text-muted-foreground italic">No critical blockers identified. You&apos;re on track!</p>
           )}
         </section>
 

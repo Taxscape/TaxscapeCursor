@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useCallback } from 'react';
 import { queryClient, CACHE_KEYS } from './query-client';
-import { getSupabaseClient } from './supabase';
+import { getSupabaseClient } from '@/lib/supabase';
 import { inlineEditEntity } from '@/lib/api';
 import { toast } from 'react-hot-toast';
 
@@ -32,7 +32,7 @@ export const DataWorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       
       if (error.message === 'CONFLICT') {
         toast.error('Version conflict: Someone else updated this record. Reloading...');
-        queryClient.invalidateQueries(CACHE_KEYS.project(id));
+        queryClient.invalidateQueries({ queryKey: CACHE_KEYS.project(id) });
       } else {
         toast.error(`Update failed: ${error.message}`);
       }
@@ -48,7 +48,7 @@ export const DataWorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       .on(
         'postgres_changes',
         { event: '*', schema: 'public' },
-        (payload) => {
+        (payload: { table: string; eventType: string; new: any; old: any }) => {
           console.log('[Realtime] Change detected:', payload);
           const { table, eventType, new: newRecord, old: oldRecord } = payload;
 
@@ -63,31 +63,31 @@ export const DataWorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   }, [supabase]);
 
-  const invalidateCache = (table: string, newRecord: any, oldRecord: any) => {
+  const invalidateCache = (table: string, newRecord: any, _oldRecord: any) => {
     // 1. Invalidate list views
     if (table === 'projects') {
-      queryClient.invalidateQueries(['projects', 'list']);
-      if (newRecord?.id) queryClient.invalidateQueries(CACHE_KEYS.project(newRecord.id));
+      queryClient.invalidateQueries({ queryKey: ['projects', 'list'] });
+      if (newRecord?.id) queryClient.invalidateQueries({ queryKey: CACHE_KEYS.project(newRecord.id) });
     } else if (table === 'employees') {
-      queryClient.invalidateQueries(['employees', 'list']);
+      queryClient.invalidateQueries({ queryKey: ['employees', 'list'] });
       // Cross-entity: update project allocations if employee changes
-      queryClient.invalidateQueries(['projects', 'list']);
+      queryClient.invalidateQueries({ queryKey: ['projects', 'list'] });
     } else if (table === 'contractors') {
-      queryClient.invalidateQueries(['contractors', 'list']);
+      queryClient.invalidateQueries({ queryKey: ['contractors', 'list'] });
     } else if (table === 'expenses') {
-      queryClient.invalidateQueries(['expenses', 'list']);
+      queryClient.invalidateQueries({ queryKey: ['expenses', 'list'] });
     } else if (table === 'project_workflow_status') {
-      if (newRecord?.project_id) queryClient.invalidateQueries(CACHE_KEYS.workflow(newRecord.project_id));
+      if (newRecord?.project_id) queryClient.invalidateQueries({ queryKey: ['workflow', newRecord.project_id] });
     }
 
     // 2. Global KPIs often depend on everything
     if (['projects', 'employees', 'contractors', 'expenses'].includes(table)) {
-      queryClient.invalidateQueries(['dashboard']);
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     }
   };
 
   return (
-    <DataWorkspaceContext.Provider value={{}}>
+    <DataWorkspaceContext.Provider value={{ performEdit }}>
       {children}
     </DataWorkspaceContext.Provider>
   );

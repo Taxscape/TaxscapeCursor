@@ -144,29 +144,27 @@ function VirtualTableInner<T extends { id: string }>({
     const isShift = event.shiftKey;
     const isCtrl = event.ctrlKey || event.metaKey;
 
-    setSelectedIds(prev => {
-      const newSet = new Set(prev);
-      if (isCtrl) {
-        if (newSet.has(rowId)) {
-          newSet.delete(rowId);
-        } else {
-          newSet.add(rowId);
-        }
-      } else if (isShift && prev.size > 0) {
-        // Range select
-        const lastSelected = Array.from(prev).pop()!;
-        const lastIndex = data.findIndex(r => r.id === lastSelected);
-        const currentIndex = data.findIndex(r => r.id === rowId);
-        const [start, end] = lastIndex < currentIndex ? [lastIndex, currentIndex] : [currentIndex, lastIndex];
-        for (let i = start; i <= end; i++) {
-          newSet.add(data[i].id);
-        }
+    const newSet = new Set(selectedIds);
+    if (isCtrl) {
+      if (newSet.has(rowId)) {
+        newSet.delete(rowId);
       } else {
-        return new Set([rowId]);
+        newSet.add(rowId);
       }
-      return newSet;
-    });
-  }, [data, enableMultiSelect, setSelectedIds]);
+    } else if (isShift && selectedIds.size > 0) {
+      // Range select
+      const lastSelected = Array.from(selectedIds).pop()!;
+      const lastIndex = data.findIndex(r => r.id === lastSelected);
+      const currentIndex = data.findIndex(r => r.id === rowId);
+      const [start, end] = lastIndex < currentIndex ? [lastIndex, currentIndex] : [currentIndex, lastIndex];
+      for (let i = start; i <= end; i++) {
+        newSet.add(data[i].id);
+      }
+      setSelectedIds(newSet);
+    } else {
+      setSelectedIds(new Set([rowId]));
+    }
+  }, [data, enableMultiSelect, setSelectedIds, selectedIds]);
 
   const handleSelectAll = useCallback(() => {
     if (selectedIds.size === data.length) {
