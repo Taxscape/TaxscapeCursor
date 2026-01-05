@@ -585,6 +585,7 @@ export default function Portal() {
     const commonItems = [
       { id: "dashboard" as const, label: "Dashboard", icon: Icons.layoutDashboard },
       { id: "projects" as const, label: "Projects", icon: Icons.folderKanban, badge: projects.length > 0 ? projects.length.toString() : undefined },
+      { id: "tasks" as const, label: "Tasks", icon: Icons.checkCircle, badge: tasks.filter(t => t.status === 'pending').length > 0 ? tasks.filter(t => t.status === 'pending').length.toString() : undefined },
     ];
     
     // Executive/Admin gets full access + org management
@@ -622,7 +623,7 @@ export default function Portal() {
     
     // Fallback - basic access
     return commonItems;
-  }, [userRole, isOrgAdmin, projects.length, clientCompanies.length]);
+  }, [userRole, isOrgAdmin, projects.length, clientCompanies.length, tasks]);
 
   const toolsNavItems = useMemo(() => [
     { id: "rd-analysis" as const, label: "R&D Analysis", icon: Icons.beaker },
@@ -736,13 +737,24 @@ export default function Portal() {
     } finally {
       setIsLoadingData(false);
     }
-  }, [user, organization?.id, isOrgAdmin]);
+  }, [user, organization?.id, isOrgAdmin, selectedClient?.id]);
 
   useEffect(() => {
     if (user && !authLoading) {
       fetchData();
     }
   }, [user, authLoading, fetchData]);
+
+  // Refetch all data when selectedClient changes (client workspace switching)
+  const previousClientIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Only refetch if client actually changed (not on initial load)
+    if (selectedClient && previousClientIdRef.current !== null && previousClientIdRef.current !== selectedClient.id) {
+      setIsLoadingData(true);
+      fetchData();
+    }
+    previousClientIdRef.current = selectedClient?.id || null;
+  }, [selectedClient?.id, fetchData]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -873,13 +885,39 @@ export default function Portal() {
 
   // Client Company Handlers
   const handleSelectClient = async (client: ClientCompany) => {
+    // Don't refetch if same client selected
+    if (selectedClient?.id === client.id) {
+      setShowClientSelector(false);
+      return;
+    }
+    
+    // Clear all existing data to show loading state for new client workspace
+    setDashboard(null);
+    setProjects([]);
+    setEmployees([]);
+    setContractors([]);
+    setRdSession(null);
+    setRdSessionId(null);
+    setRdError(null);
+    setTasks([]);
+    setBudgets([]);
+    setExpenses([]);
+    setEngineeringTasks([]);
+    setTimeLogs([]);
+    setWorkflowSummary(null);
+    
+    // Set new client
     setSelectedClientState(client);
     setShowClientSelector(false);
+    
+    // Persist selection to backend
     try {
       await setSelectedClient(client.id);
     } catch (e) {
       console.error("Error persisting client selection:", e);
     }
+    
+    // Data will be refetched via useEffect watching selectedClient
   };
 
   const handleAddClient = async (e: React.FormEvent) => {
