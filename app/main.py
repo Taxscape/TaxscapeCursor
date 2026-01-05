@@ -1199,6 +1199,10 @@ async def update_task(org_id: str, task_id: str, update: UpdateTaskRequest, user
             .eq("id", task_id)\
             .execute()
         
+        # Trigger workflow event if task has an item_id (which might be a project_id)
+        if task.data.get("item_id"):
+            await trigger_workflow_event("task_updated", user, project_id=task.data["item_id"], payload={"task_id": task_id, "status": update.status})
+        
         log_audit(org_id, user["id"], f"task_{update.status or 'updated'}", "task", task_id, update_data)
         return {"task": result.data[0] if result.data else None}
     except HTTPException:
@@ -2291,7 +2295,11 @@ async def create_project(project: ProjectCreate, user: dict = Depends(get_curren
             "technical_uncertainty": project.technical_uncertainty,
             "process_of_experimentation": project.process_of_experimentation,
         }).execute()
-        return {"project": result.data[0]}
+        
+        new_project = result.data[0]
+        await trigger_workflow_event("project_created", user, project_id=new_project["id"])
+        
+        return {"project": new_project}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2450,6 +2458,7 @@ async def upload_payroll(file: UploadFile = File(...), user: dict = Depends(get_
             errors.append(error_msg)
     
     print(f"Upload complete. Inserted {count} employees, {len(errors)} errors")
+    await trigger_workflow_event("payroll_uploaded", user, payload={"count": count, "errors_count": len(errors)})
     return {"message": f"Uploaded {count} employees.", "count": count, "errors": errors[:5] if errors else []}
 
 
@@ -2531,6 +2540,7 @@ async def upload_contractors(file: UploadFile = File(...), user: dict = Depends(
             errors.append(error_msg)
     
     print(f"Upload complete. Inserted {count} contractors, {len(errors)} errors")
+    await trigger_workflow_event("contractors_uploaded", user, payload={"count": count, "errors_count": len(errors)})
     return {"message": f"Uploaded {count} contractors.", "count": count, "errors": errors[:5] if errors else []}
 
 
@@ -2786,6 +2796,8 @@ async def upload_rd_files(
         "created_at": datetime.utcnow().isoformat()
     }
     
+    await trigger_workflow_event("files_uploaded", user, payload={"session_id": session_id, "files_count": len(file_data)})
+    
     return RDUploadResponse(
         session_id=session_id,
         files_received=len(file_data),
@@ -2820,6 +2832,8 @@ async def parse_rd_files(
         session_data["status"] = "analyzed"
         session_data["analysis_result"] = analysis.dict()
         rd_sessions[session_id] = session_data
+        
+        await trigger_workflow_event("files_parsed", user, payload={"session_id": session_id})
         
         return {"session": analysis.dict()}
     except Exception as e:
@@ -2889,6 +2903,8 @@ async def evaluate_single_project(
         analysis_result["projects"][project_idx] = updated_project.dict()
         session_data["analysis_result"] = analysis_result
         rd_sessions[session_id] = session_data
+        
+        await trigger_workflow_event("project_evaluated_ai", user, project_id=project_id)
         
         return {"project": updated_project.dict()}
     except Exception as e:
@@ -2996,6 +3012,8 @@ async def upload_gap_documentation(
     session_data["status"] = "re-analyzed"
     rd_sessions[session_id] = session_data
     
+    await trigger_workflow_event("gap_docs_uploaded", user, project_id=project_id, payload={"gap_id": gap_id})
+    
     return {
         "message": f"Added {len(new_files)} files for gap {gap_id}",
         "files_total": len(session_data["files"]),
@@ -3072,8 +3090,490 @@ async def delete_rd_session(
     return {"message": "Session deleted"}
 
 
+from app.workflow_engine import (
+    recompute_workflow, WorkflowOverallState, CriterionState, WorkflowRiskLevel,
+    CriterionKey, NBAActionType
+)
+
 # Register Routers
 app.include_router(api_router)
 app.include_router(admin_router)
 app.include_router(org_router)
 app.include_router(rd_router)
+
+from app.router_utils import wrap_response, handle_conflict
+from app.schemas import SavedViewBase, BatchUpdateItem, BatchUpdateResponse
+
+# =============================================================================
+# WORKFLOW ENGINE ENDPOINTS
+# =============================================================================
+
+workflow_router = APIRouter(prefix="/api/workflow", tags=["workflow"])
+
+@workflow_router.get("/client/{client_id}")
+async def get_client_workflow_summary(client_id: str, user: dict = Depends(get_current_user)):
+    """Get client-level summary: counts by state, top blockers, etc."""
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Get all projects workflow status for this client
+        res = supabase.table("project_workflow_status").select("*").eq("client_id", client_id).execute()
+        statuses = res.data or []
+        
+        # Aggregate stats
+        summary = {
+            "total_projects": len(statuses),
+            "by_state": {},
+            "top_blockers": [],
+            "needs_follow_up": [],
+            "project_statuses": {s["project_id"]: {
+                "overall_state": s["overall_state"],
+                "readiness_score": s["readiness_score"],
+                "risk_level": s["risk_level"]
+            } for s in statuses}
+        }
+        
+        for s in statuses:
+            state = s["overall_state"]
+            summary["by_state"][state] = summary["by_state"].get(state, 0) + 1
+            
+            if state == WorkflowOverallState.NEEDS_FOLLOW_UP:
+                summary["needs_follow_up"].append(s["project_id"])
+                
+            # Aggregate blockers from computed_summary
+            comp_sum = s.get("computed_summary", {})
+            summary["top_blockers"].extend(comp_sum.get("top_blockers", []))
+            
+        # Deduplicate and limit blockers
+        summary["top_blockers"] = list(set(summary["top_blockers"]))[:5]
+        
+        return summary
+    except Exception as e:
+        logger.error(f"Error fetching client workflow summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@workflow_router.get("/project/{project_id}")
+async def get_project_workflow_details(project_id: str, user: dict = Depends(get_current_user)):
+    """Get full status, criterion breakdown, evidence list, next best actions."""
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Get workflow status
+        status_res = supabase.table("project_workflow_status").select("*").eq("project_id", project_id).single().execute()
+        
+        # Get criterion statuses
+        crit_res = supabase.table("project_criterion_status").select("*").eq("project_id", project_id).execute()
+        
+        # Get evidence
+        ev_res = supabase.table("project_evidence").select("*").eq("project_id", project_id).execute()
+        
+        return {
+            "status": status_res.data,
+            "criteria": crit_res.data,
+            "evidence": ev_res.data
+        }
+    except Exception as e:
+        logger.error(f"Error fetching project workflow details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@workflow_router.post("/project/{project_id}/recompute")
+async def trigger_recompute_endpoint(project_id: str, user: dict = Depends(get_current_user)):
+    """Triggers recompute manually."""
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Get org_id
+        profile = get_user_profile(user["id"])
+        org_id = profile.get("organization_id")
+        if not org_id:
+            raise HTTPException(status_code=400, detail="User has no organization")
+            
+        summary = recompute_workflow(supabase, project_id, org_id)
+        return {"summary": summary.dict()}
+    except Exception as e:
+        logger.error(f"Error during recompute: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class DecisionRequest(BaseModel):
+    decision: WorkflowOverallState # approved or rejected
+    reason_code: str
+    comment: Optional[str] = None
+
+@workflow_router.post("/project/{project_id}/decision")
+async def project_decision_endpoint(project_id: str, req: DecisionRequest, user: dict = Depends(get_current_user)):
+    """Reviewer action: approve/reject with structured reason codes."""
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Verify role (managing_partner or reviewer)
+        # For now, we'll check profiles.role or organization_members.role
+        # Mapping existing roles 'executive' and 'cpa' to these higher level roles
+        profile = get_user_profile(user["id"])
+        org_id = profile.get("organization_id")
+        
+        member = supabase.table("organization_members").select("role").eq("organization_id", org_id).eq("user_id", user["id"]).single().execute()
+        role = member.data.get("role")
+        
+        if role not in ["executive", "cpa"]: # Map to managing_partner/reviewer
+            raise HTTPException(status_code=403, detail="Only reviewers or managing partners can finalize projects")
+            
+        # Update status
+        supabase.table("project_workflow_status").update({
+            "overall_state": req.decision,
+            "computed_summary": {
+                "decision_info": {
+                    "by": user["id"],
+                    "at": datetime.utcnow().isoformat(),
+                    "reason_code": req.reason_code,
+                    "comment": req.comment
+                }
+            }
+        }).eq("project_id", project_id).execute()
+        
+        # Log event
+        supabase.table("workflow_events").insert({
+            "organization_id": org_id,
+            "client_id": profile.get("selected_client_id"),
+            "project_id": project_id,
+            "event_type": f"decision_{req.decision}",
+            "payload": req.dict(),
+            "created_by": user["id"]
+        }).execute()
+        
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during decision: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# WORKSPACE & VIEWS ENDPOINTS
+# =============================================================================
+
+workspace_router = APIRouter(prefix="/api/workspace", tags=["workspace"])
+
+@workspace_router.get("/views/{entity_type}")
+async def get_saved_views(entity_type: str, user: dict = Depends(get_current_user)):
+    """Get saved views for a specific entity type."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    org_id = profile.get("organization_id")
+    
+    res = supabase.table("saved_views")\
+        .select("*")\
+        .eq("organization_id", org_id)\
+        .eq("entity_type", entity_type)\
+        .execute()
+    
+    return wrap_response(res.data)
+
+@workspace_router.post("/views")
+async def create_saved_view(view: SavedViewBase, user: dict = Depends(get_current_user)):
+    """Create a new saved view."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    org_id = profile.get("organization_id")
+    
+    res = supabase.table("saved_views").insert({
+        **view.dict(),
+        "organization_id": org_id,
+        "user_id": user["id"]
+    }).execute()
+    
+    return wrap_response(res.data[0])
+
+@workspace_router.patch("/{table}/{id}/inline-edit")
+async def inline_edit_entity(table: str, id: str, updates: Dict[str, Any], user: dict = Depends(get_current_user)):
+    """Standardized inline edit endpoint with conflict resolution."""
+    supabase = get_supabase()
+    
+    # 1. Fetch current version
+    current = supabase.table(table).select("version").eq("id", id).single().execute()
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    
+    # 2. Check conflict
+    incoming_version = updates.pop("version", None)
+    if incoming_version is not None:
+        handle_conflict(current.data["version"], incoming_version)
+    
+    # 3. Perform update
+    res = supabase.table(table).update({
+        **updates,
+        "last_modified_by": user["id"]
+    }).eq("id", id).execute()
+    
+    # 4. Log Audit
+    supabase.table("audit_logs").insert({
+        "organization_id": (get_user_profile(user["id"])).get("organization_id"),
+        "user_id": user["id"],
+        "action": f"inline_edit_{table}",
+        "item_type": table,
+        "item_id": id,
+        "details": updates
+    }).execute()
+    
+    return wrap_response(res.data[0])
+
+from app.copilot_engine import query_copilot, execute_copilot_action, CopilotResponse
+from app.task_engine import (
+    TaskCreateRequest, TaskUpdateRequest, TaskSubmissionRequest, TaskReviewRequest,
+    create_task, update_task_status, submit_task, review_task, escalate_task,
+    get_my_tasks, get_client_tasks, get_review_queue, get_blockers,
+    check_permission, get_user_permissions, TaskStatus, TaskPriority, TaskType
+)
+
+# =============================================================================
+# COPILOT ENGINE ENDPOINTS
+# =============================================================================
+
+copilot_router = APIRouter(prefix="/api/copilot", tags=["copilot"])
+
+class CopilotQueryRequest(BaseModel):
+    prompt: str
+    client_id: str
+    project_id: Optional[str] = None
+
+@copilot_router.post("/query", response_model=CopilotResponse)
+async def copilot_query_endpoint(req: CopilotQueryRequest, user: dict = Depends(get_current_user)):
+    """Authenticated Copilot query with context."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    org_id = profile.get("organization_id")
+    
+    start_time = datetime.utcnow()
+    
+    response = query_copilot(supabase, req.prompt, org_id, req.client_id, req.project_id)
+    
+    # Log interaction
+    end_time = datetime.utcnow()
+    supabase.table("ai_interaction_logs").insert({
+        "organization_id": org_id,
+        "user_id": user["id"],
+        "interaction_type": "query",
+        "request_payload": req.dict(),
+        "response_payload": response.dict(),
+        "response_time_ms": int((end_time - start_time).total_seconds() * 1000),
+        "citation_count": len(response.citations)
+    }).execute()
+    
+    return response
+
+@copilot_router.get("/suggestions")
+async def get_copilot_suggestions(client_id: str, project_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Retrieve active Copilot suggestions for a project or client."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    org_id = profile.get("organization_id")
+    
+    query = supabase.table("ai_suggestions").select("*").eq("organization_id", org_id).eq("client_id", client_id).eq("status", "active")
+    if project_id:
+        query = query.eq("project_id", project_id)
+        
+    res = query.order("severity", desc=True).execute()
+    return wrap_response(res.data)
+
+class ActionApprovalRequest(BaseModel):
+    action_id: str
+    approve: bool
+
+@copilot_router.post("/action/decision")
+async def copilot_action_decision(req: ActionApprovalRequest, user: dict = Depends(get_current_user)):
+    """Approve or reject an AI-proposed action."""
+    supabase = get_supabase()
+    status = "approved" if req.approve else "rejected"
+    
+    res = supabase.table("ai_proposed_actions").update({
+        "status": status,
+        "approved_by": user["id"],
+        "approved_at": datetime.utcnow().isoformat()
+    }).eq("id", req.action_id).execute()
+    
+    return {"success": True, "status": status}
+
+@copilot_router.post("/action/execute")
+async def copilot_action_execute(action_id: str, user: dict = Depends(get_current_user)):
+    """Execute an approved AI-proposed action."""
+    supabase = get_supabase()
+    result = execute_copilot_action(supabase, action_id, user["id"])
+    return result
+
+app.include_router(copilot_router)
+
+# =============================================================================
+# TASK MANAGEMENT ENDPOINTS (RBAC)
+# =============================================================================
+
+task_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+@task_router.post("/")
+async def create_new_task(req: TaskCreateRequest, user: dict = Depends(get_current_user)):
+    """Create a new structured task with automatic routing."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    org_id = profile.get("organization_id")
+    user_role = profile.get("cpa_role", "associate")
+    
+    if not check_permission(user_role, "task.create"):
+        raise HTTPException(status_code=403, detail="You don't have permission to create tasks")
+    
+    result = create_task(supabase, org_id, user["id"], req)
+    if "error" in result:
+        raise HTTPException(status_code=409, detail=result["error"])
+    
+    return wrap_response(result)
+
+@task_router.get("/my")
+async def get_my_tasks_endpoint(status: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Get tasks assigned to the current user."""
+    supabase = get_supabase()
+    tasks = get_my_tasks(supabase, user["id"], status)
+    return wrap_response(tasks)
+
+@task_router.get("/client/{client_id}")
+async def get_client_tasks_endpoint(client_id: str, status: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Get all tasks for a specific client."""
+    supabase = get_supabase()
+    tasks = get_client_tasks(supabase, client_id, status)
+    return wrap_response(tasks)
+
+@task_router.get("/review-queue")
+async def get_review_queue_endpoint(user: dict = Depends(get_current_user)):
+    """Get tasks awaiting review (reviewer/partner only)."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    org_id = profile.get("organization_id")
+    user_role = profile.get("cpa_role", "associate")
+    
+    if not check_permission(user_role, "task.review"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view the review queue")
+    
+    tasks = get_review_queue(supabase, org_id)
+    return wrap_response(tasks)
+
+@task_router.get("/blockers")
+async def get_blockers_endpoint(user: dict = Depends(get_current_user)):
+    """Get tasks blocking workflow progress."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    org_id = profile.get("organization_id")
+    tasks = get_blockers(supabase, org_id)
+    return wrap_response(tasks)
+
+@task_router.patch("/{task_id}/status")
+async def update_task_status_endpoint(task_id: str, new_status: str, user: dict = Depends(get_current_user)):
+    """Update a task's status."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    user_role = profile.get("cpa_role", "associate")
+    
+    if not check_permission(user_role, "task.change_status"):
+        raise HTTPException(status_code=403, detail="You don't have permission to change task status")
+    
+    try:
+        status_enum = TaskStatus(new_status)
+        result = update_task_status(supabase, task_id, user["id"], status_enum, user_role)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+@task_router.post("/{task_id}/submit")
+async def submit_task_endpoint(task_id: str, submission: TaskSubmissionRequest, user: dict = Depends(get_current_user)):
+    """Submit task deliverables."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    user_role = profile.get("cpa_role", "associate")
+    
+    if not check_permission(user_role, "task.submit"):
+        raise HTTPException(status_code=403, detail="You don't have permission to submit tasks")
+    
+    try:
+        result = submit_task(supabase, task_id, user["id"], submission)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@task_router.post("/{task_id}/review")
+async def review_task_endpoint(task_id: str, review_req: TaskReviewRequest, user: dict = Depends(get_current_user)):
+    """Review a submitted task (reviewer/partner only)."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    user_role = profile.get("cpa_role", "associate")
+    
+    try:
+        result = review_task(supabase, task_id, user["id"], user_role, review_req)
+        return result
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400 if isinstance(e, ValueError) else 403, detail=str(e))
+
+@task_router.post("/{task_id}/escalate")
+async def escalate_task_endpoint(task_id: str, user: dict = Depends(get_current_user)):
+    """Escalate a task to the next level."""
+    supabase = get_supabase()
+    profile = get_user_profile(user["id"])
+    user_role = profile.get("cpa_role", "associate")
+    
+    if not check_permission(user_role, "task.escalate"):
+        raise HTTPException(status_code=403, detail="You don't have permission to escalate tasks")
+    
+    try:
+        result = escalate_task(supabase, task_id, user["id"])
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@task_router.get("/permissions")
+async def get_user_permissions_endpoint(user: dict = Depends(get_current_user)):
+    """Get the current user's permissions."""
+    profile = get_user_profile(user["id"])
+    user_role = profile.get("cpa_role", "associate")
+    permissions = get_user_permissions(user_role)
+    return {"role": user_role, "permissions": permissions}
+
+app.include_router(task_router)
+app.include_router(workspace_router)
+app.include_router(workflow_router)
+
+async def trigger_workflow_event(event_type: str, user: dict, project_id: str = None, payload: dict = None):
+    """Helper to log workflow events and trigger recomputation."""
+    supabase = get_supabase()
+    if not supabase:
+        return
+    
+    try:
+        profile = get_user_profile(user["id"])
+        org_id = profile.get("organization_id")
+        client_id = profile.get("selected_client_id")
+        
+        if not org_id or not client_id:
+            logger.warning(f"Cannot trigger workflow event: missing org_id or client_id for user {user['id']}")
+            return
+
+        # Insert event
+        supabase.table("workflow_events").insert({
+            "organization_id": org_id,
+            "client_id": client_id,
+            "project_id": project_id,
+            "event_type": event_type,
+            "payload": payload or {},
+            "created_by": user["id"]
+        }).execute()
+        
+        # Trigger recompute if project_id is provided
+        if project_id:
+            # Run recompute
+            recompute_workflow(supabase, project_id, org_id)
+            
+    except Exception as e:
+        logger.error(f"Error triggering workflow event: {e}")

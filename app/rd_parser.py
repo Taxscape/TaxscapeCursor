@@ -262,15 +262,42 @@ def extract_company_info(sheets: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
     
     if "Summary_Statistics" in sheets:
         df = sheets["Summary_Statistics"]
-        # Try to find company info in first few rows
-        for idx, row in df.head(10).iterrows():
-            row_text = " ".join(str(v) for v in row.values if pd.notna(v))
-            if "company" in row_text.lower() or "inc" in row_text.lower() or "corp" in row_text.lower():
-                # Extract company name from first non-empty value
+        
+        # Try to find company info by looking for Field/Value pattern
+        columns = list(df.columns)
+        
+        for idx, row in df.iterrows():
+            row_values = list(row.values)
+            if len(row_values) >= 2:
+                field = str(row_values[0]).lower().strip() if pd.notna(row_values[0]) else ""
+                value = row_values[1] if len(row_values) > 1 and pd.notna(row_values[1]) else ""
+                
+                # Match specific fields
+                if "company name" in field or field == "company":
+                    if value and str(value).strip():
+                        info["company_name"] = str(value).strip()
+                elif "industry" in field:
+                    if value and str(value).strip():
+                        info["industry"] = str(value).strip()
+                elif "tax year" in field or "year" in field:
+                    try:
+                        info["tax_year"] = int(float(value))
+                    except (ValueError, TypeError):
+                        pass
+        
+        # Fallback: look for company name patterns in values
+        if not info["company_name"]:
+            for idx, row in df.head(15).iterrows():
                 for val in row.values:
-                    if pd.notna(val) and len(str(val)) > 3:
-                        info["company_name"] = str(val).strip()
-                        break
+                    if pd.notna(val):
+                        val_str = str(val).strip()
+                        # Look for typical company name patterns
+                        if any(pattern in val_str.lower() for pattern in [" inc", " llc", " corp", " ltd", " solutions", " tech"]):
+                            if len(val_str) > 5 and "company name" not in val_str.lower():
+                                info["company_name"] = val_str
+                                break
+                if info["company_name"]:
+                    break
     
     return info
 
@@ -461,7 +488,7 @@ def extract_expenses(sheets: Dict[str, pd.DataFrame], vendors: List[RDVendor]) -
 
 
 def extract_qre_summary(sheets: Dict[str, pd.DataFrame]) -> Dict[str, float]:
-    """Extract QRE summary totals"""
+    """Extract QRE summary totals from dedicated sheet if present"""
     summary = {
         "wage_qre": 0.0,
         "supply_qre": 0.0,
@@ -477,6 +504,71 @@ def extract_qre_summary(sheets: Dict[str, pd.DataFrame]) -> Dict[str, float]:
             summary["supply_qre"] = float(row.get("Supplies_QRE_2024", 0)) if pd.notna(row.get("Supplies_QRE_2024")) else 0.0
             summary["contract_qre"] = float(row.get("Contract_QRE_2024", 0)) if pd.notna(row.get("Contract_QRE_2024")) else 0.0
             summary["total_qre"] = float(row.get("Total_QRE_2024", 0)) if pd.notna(row.get("Total_QRE_2024")) else 0.0
+    
+    return summary
+
+
+def calculate_qre_from_data(
+    employees: List[RDEmployee],
+    expenses: List[RDExpense],
+    vendors: List[RDVendor]
+) -> Dict[str, float]:
+    """
+    Calculate QRE (Qualified Research Expenses) from raw employee and expense data.
+    
+    QRE Categories:
+    1. Wage QRE = Sum of (W2 Wages - Stock Comp - Severance) * R&D Allocation %
+       OR if QRE_Wage_Base is provided, use that instead
+    2. Supply QRE = Sum of qualified supply expenses
+    3. Contract QRE = 65% of qualified contract research expenses (per IRC Sec 41)
+    """
+    summary = {
+        "wage_qre": 0.0,
+        "supply_qre": 0.0,
+        "contract_qre": 0.0,
+        "total_qre": 0.0,
+    }
+    
+    # Calculate Wage QRE
+    for emp in employees:
+        if emp.rd_allocation_percent > 0:
+            # Use QRE Wage Base if provided, otherwise calculate from W2
+            if emp.qre_wage_base > 0:
+                wage_base = emp.qre_wage_base
+            else:
+                # QRE wage base = W2 wages minus excluded compensation
+                wage_base = emp.w2_wages - emp.stock_compensation - emp.severance
+                wage_base = max(0, wage_base)  # Ensure non-negative
+            
+            # Apply R&D allocation percentage
+            emp_qre = wage_base * (emp.rd_allocation_percent / 100)
+            summary["wage_qre"] += emp_qre
+    
+    # Calculate Supply QRE
+    for exp in expenses:
+        if exp.category == "supplies":
+            if exp.qre_amount > 0:
+                # Use pre-calculated QRE amount if provided
+                summary["supply_qre"] += exp.qre_amount
+            elif exp.qualified:
+                # Otherwise use full amount if qualified
+                summary["supply_qre"] += exp.amount
+    
+    # Calculate Contract Research QRE (65% per IRC Sec 41)
+    CONTRACT_QRE_RATE = 0.65
+    for exp in expenses:
+        if exp.category == "contract_research":
+            if exp.qre_amount > 0:
+                # Use pre-calculated QRE amount if provided
+                summary["contract_qre"] += exp.qre_amount
+            elif exp.qualified:
+                # Otherwise apply 65% rate to qualified amount
+                summary["contract_qre"] += exp.amount * CONTRACT_QRE_RATE
+    
+    # Calculate total
+    summary["total_qre"] = summary["wage_qre"] + summary["supply_qre"] + summary["contract_qre"]
+    
+    logger.info(f"Calculated QRE: Wage=${summary['wage_qre']:,.2f}, Supply=${summary['supply_qre']:,.2f}, Contract=${summary['contract_qre']:,.2f}, Total=${summary['total_qre']:,.2f}")
     
     return summary
 
@@ -1069,7 +1161,18 @@ def create_analysis_session(
         session.vendors = extract_vendors(all_sheets)
         session.expenses = extract_expenses(all_sheets, session.vendors)
         
+        # Try to get QRE from summary sheet first
         qre_summary = extract_qre_summary(all_sheets)
+        
+        # If QRE summary is empty/zero, calculate from raw data
+        if qre_summary["total_qre"] == 0:
+            logger.info("No QRE summary found in input - calculating from employee/expense data...")
+            qre_summary = calculate_qre_from_data(
+                session.employees, 
+                session.expenses, 
+                session.vendors
+            )
+        
         session.wage_qre = qre_summary["wage_qre"]
         session.supply_qre = qre_summary["supply_qre"]
         session.contract_qre = qre_summary["contract_qre"]
@@ -1102,3 +1205,7 @@ def create_analysis_session(
     session.analysis_complete = True
     
     return session
+
+
+
+

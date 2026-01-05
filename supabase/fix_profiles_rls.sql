@@ -11,3 +11,7 @@ CREATE POLICY "Users can view org members profiles" ON public.profiles
             SELECT organization_id FROM public.organization_members WHERE user_id = auth.uid()
         )
     );
+
+
+
+

@@ -117,92 +117,357 @@ async function getAuthHeadersForUpload(): Promise<HeadersInit> {
   return headers;
 }
 
+import { 
+  ChatMessage, ChatResult, DashboardData, Project, Employee, Contractor, 
+  Study, ChatSession, UserContext, WorkflowSummary, ProjectWorkflowStatus,
+  WorkflowOverallState
+} from "./types";
+import { SavedView } from "./schemas";
+
 // =============================================================================
-// TYPES
+// TASK MANAGEMENT ENDPOINTS (RBAC)
 // =============================================================================
 
-export type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
+export type TaskType = 
+  | 'request_project_narrative'
+  | 'request_process_of_experimentation_details'
+  | 'request_uncertainty_statement'
+  | 'request_technical_document_upload'
+  | 'request_test_results_upload'
+  | 'resolve_financial_anomaly'
+  | 'verify_employee_allocation'
+  | 'verify_contractor_qualification'
+  | 'confirm_supply_eligibility'
+  | 'review_ai_evaluation'
+  | 'final_review_and_signoff'
+  | 'generic';
 
-export type ChatResult = {
-  response: string;
-  structured?: Record<string, unknown> | null;
-  session_id?: string;
-};
+export type TaskStatus = 
+  | 'draft' | 'assigned' | 'in_progress' | 'submitted'
+  | 'changes_requested' | 'accepted' | 'denied'
+  | 'blocked' | 'escalated' | 'closed';
 
-export type DashboardData = {
-  total_credit: number;
-  total_wages: number;
-  total_qre: number;
-  project_count: number;
-  employee_count: number;
-  contractor_count: number;
-  study_count: number;
-};
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
-export type Project = {
+export interface StructuredTask {
   id: string;
-  name: string;
-  description: string | null;
-  technical_uncertainty: string | null;
-  process_of_experimentation: string | null;
-  qualification_status: string;
-  created_at: string;
-};
-
-export type Employee = {
-  id: string;
-  name: string;
-  title: string | null;
-  state: string | null;
-  total_wages: number;
-  qualified_percent: number;
-  created_at: string;
-};
-
-export type Contractor = {
-  id: string;
-  name: string;
-  cost: number;
-  is_qualified: boolean;
-  location: string;
-  notes: string | null;
-  created_at: string;
-};
-
-export type Study = {
-  id: string;
+  organization_id: string;
+  client_id: string;
+  project_id?: string;
+  criterion_key?: string;
+  task_type: TaskType;
   title: string;
-  file_url: string | null;
-  total_qre: number;
-  total_credit: number;
-  status: string;
-  created_at: string;
-};
-
-export type ChatSession = {
-  id: string;
-  title: string;
-  structured_output: Record<string, unknown> | null;
-  is_active: boolean;
+  description?: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  due_date?: string;
+  assigned_to?: string;
+  created_by: string;
+  related_entities?: any;
+  acceptance_criteria?: any[];
+  required_artifacts?: any[];
+  submission?: any;
+  review?: any;
+  escalation_state?: any;
+  initiated_by_ai?: boolean;
   created_at: string;
   updated_at: string;
-};
+}
 
-export type UserContext = {
-  employees: Employee[];
-  contractors: Contractor[];
-  projects: Project[];
-  summary: {
-    total_employees: number;
-    total_wages: number;
-    total_contractors: number;
-    total_contractor_costs: number;
-    total_projects: number;
-  };
-};
+export interface TaskCreatePayload {
+  client_id: string;
+  project_id?: string;
+  criterion_key?: string;
+  task_type: TaskType;
+  title: string;
+  description?: string;
+  priority?: TaskPriority;
+  due_date?: string;
+  assigned_to?: string;
+  related_entities?: any;
+  acceptance_criteria?: any[];
+  required_artifacts?: any[];
+  initiated_by_ai?: boolean;
+}
+
+export async function createTask(payload: TaskCreatePayload): Promise<StructuredTask> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/tasks/`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.detail || "Failed to create task");
+  }
+  const result = await response.json();
+  return result.data;
+}
+
+export async function getMyTasks(status?: string): Promise<StructuredTask[]> {
+  const headers = await getAuthHeaders();
+  const url = `${API_URL}/api/tasks/my${status ? `?status=${status}` : ''}`;
+  const response = await fetch(url, { headers });
+  if (!response.ok) throw new Error("Failed to fetch tasks");
+  const result = await response.json();
+  return result.data;
+}
+
+export async function getClientTasks(clientId: string, status?: string): Promise<StructuredTask[]> {
+  const headers = await getAuthHeaders();
+  const url = `${API_URL}/api/tasks/client/${clientId}${status ? `?status=${status}` : ''}`;
+  const response = await fetch(url, { headers });
+  if (!response.ok) throw new Error("Failed to fetch client tasks");
+  const result = await response.json();
+  return result.data;
+}
+
+export async function getReviewQueue(): Promise<StructuredTask[]> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/tasks/review-queue`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch review queue");
+  const result = await response.json();
+  return result.data;
+}
+
+export async function getBlockerTasks(): Promise<StructuredTask[]> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/tasks/blockers`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch blockers");
+  const result = await response.json();
+  return result.data;
+}
+
+export async function updateTaskStatus(taskId: string, newStatus: TaskStatus): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/tasks/${taskId}/status?new_status=${newStatus}`, {
+    method: "PATCH",
+    headers,
+  });
+  if (!response.ok) throw new Error("Failed to update task status");
+  return await response.json();
+}
+
+export async function submitTask(taskId: string, artifacts: any[], notes?: string): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/tasks/${taskId}/submit`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ artifacts, notes }),
+  });
+  if (!response.ok) throw new Error("Failed to submit task");
+  return await response.json();
+}
+
+export async function reviewTask(taskId: string, decision: string, reasonCode: string, notes?: string): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/tasks/${taskId}/review`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ decision, reason_code: reasonCode, notes }),
+  });
+  if (!response.ok) throw new Error("Failed to review task");
+  return await response.json();
+}
+
+export async function escalateTask(taskId: string): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/tasks/${taskId}/escalate`, {
+    method: "POST",
+    headers,
+  });
+  if (!response.ok) throw new Error("Failed to escalate task");
+  return await response.json();
+}
+
+export async function getUserPermissions(): Promise<{ role: string; permissions: string[] }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/tasks/permissions`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch permissions");
+  return await response.json();
+}
+
+// =============================================================================
+// COPILOT ENGINE ENDPOINTS
+// =============================================================================
+
+export interface CopilotCitation {
+  evidence_id?: string;
+  file_id?: string;
+  task_id?: string;
+  project_id?: string;
+  criterion_key?: string;
+  snippet?: string;
+  location?: string;
+}
+
+export interface CopilotFinding {
+  severity: 'info' | 'warning' | 'critical';
+  reason_code: string;
+  affected_entities: string[];
+  message: string;
+}
+
+export interface CopilotResponse {
+  summary: string;
+  findings: CopilotFinding[];
+  citations: CopilotCitation[];
+  suggested_actions: any[];
+  questions_for_user: string[];
+  confidence: number;
+  confidence_explanation: string;
+}
+
+export async function queryCopilot(prompt: string, clientId: string, projectId?: string): Promise<CopilotResponse> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/copilot/query`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ prompt, client_id: clientId, project_id: projectId }),
+  });
+  if (!response.ok) throw new Error("Copilot query failed");
+  return await response.json();
+}
+
+export async function getCopilotSuggestions(clientId: string, projectId?: string): Promise<any[]> {
+  const headers = await getAuthHeaders();
+  const url = `${API_URL}/api/copilot/suggestions?client_id=${clientId}${projectId ? `&project_id=${projectId}` : ''}`;
+  const response = await fetch(url, { headers });
+  if (!response.ok) throw new Error("Failed to fetch suggestions");
+  const result = await response.json();
+  return result.data;
+}
+
+export async function decideCopilotAction(actionId: string, approve: boolean): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/copilot/action/decision`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action_id: actionId, approve }),
+  });
+  if (!response.ok) throw new Error("Failed to decide on action");
+  return await response.json();
+}
+
+export async function executeCopilotAction(actionId: string): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/copilot/action/execute?action_id=${actionId}`, {
+    method: "POST",
+    headers,
+  });
+  if (!response.ok) throw new Error("Failed to execute action");
+  return await response.json();
+}
+
+export async function getSavedViews(entityType: string): Promise<SavedView[]> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/workspace/views/${entityType}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch views");
+  const result = await response.json();
+  return result.data;
+}
+
+export async function createSavedView(view: Partial<SavedView>): Promise<SavedView> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/workspace/views`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(view),
+  });
+  if (!response.ok) throw new Error("Failed to create view");
+  const result = await response.json();
+  return result.data;
+}
+
+export async function inlineEditEntity(table: string, id: string, updates: Record<string, any>): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}/api/workspace/${table}/${id}/inline-edit`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(updates),
+  });
+  if (!response.ok) {
+    if (response.status === 409) {
+      throw new Error("CONFLICT");
+    }
+    throw new Error("Failed to edit entity");
+  }
+  const result = await response.json();
+  return result.data;
+}
+
+// =============================================================================
+// WORKFLOW ENGINE ENDPOINTS
+// =============================================================================
+
+export async function getClientWorkflowSummary(clientId: string): Promise<WorkflowSummary> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/workflow/client/${clientId}`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch client workflow summary");
+  }
+
+  return await response.json();
+}
+
+export async function getProjectWorkflowDetails(projectId: string): Promise<{
+  status: ProjectWorkflowStatus;
+  criteria: any[];
+  evidence: any[];
+}> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/workflow/project/${projectId}`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch project workflow details");
+  }
+
+  return await response.json();
+}
+
+export async function triggerWorkflowRecompute(projectId: string): Promise<{ summary: any }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/workflow/project/${projectId}/recompute`, {
+    method: "POST",
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to trigger workflow recompute");
+  }
+
+  return await response.json();
+}
+
+export async function submitProjectDecision(
+  projectId: string, 
+  decision: WorkflowOverallState, 
+  reasonCode: string, 
+  comment?: string
+): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/workflow/project/${projectId}/decision`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ decision, reason_code: reasonCode, comment }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to submit project decision");
+  }
+
+  return await response.json();
+}
 
 // =============================================================================
 // PUBLIC ENDPOINTS (NO AUTH REQUIRED)

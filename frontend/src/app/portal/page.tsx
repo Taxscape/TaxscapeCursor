@@ -65,6 +65,9 @@ import {
   type RDAnalysisSession,
   type RDProject,
 } from "@/lib/api";
+import { CopilotPanel } from "@/components/copilot/CopilotPanel";
+import { InlineAssist } from "@/components/copilot/InlineAssist";
+import { TaskBoard, TaskCreateModal } from "@/components/tasks";
 
 import { FileUploadZone } from "@/components/rd/FileUploadZone";
 import { FourPartTestCard, FourPartTestSummary } from "@/components/rd/FourPartTestCard";
@@ -386,7 +389,7 @@ type ViewMode =
 // Initial chat message
 const initialMessage: ChatMessage = {
   role: "assistant",
-  content: "Hello! I'm your R&D Tax Credit Assistant. I can help you validate projects, review data, or answer questions about qualifying activities. What would you like to work on today?",
+  content: "Hello! I'm your R&D Tax Assistant. I'm here to help you qualify projects for tax credits and navigate the TaxScape Pro portal.\n\nYou can ask me things like:\n• \"How do I add a new client?\"\n• \"What are the four parts of the R&D test?\"\n• \"Where can I see my project summaries?\"\n\nWhat would you like to work on today?",
 };
 
 // ============================================================================
@@ -417,6 +420,10 @@ export default function Portal() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showChat, setShowChat] = useState(false);
+  const [activeStep, setActiveStep] = useState<number | null>(null);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const [showTaskCreateModal, setShowTaskCreateModal] = useState(false);
+  const [taskView, setTaskView] = useState<'my' | 'client' | 'review' | 'blockers'>('my');
 
   // File attachment state
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -503,6 +510,13 @@ export default function Portal() {
     contact_email: '',
   });
   const [isAddingClient, setIsAddingClient] = useState(false);
+  const [showAddProjectModal, setShowAddProjectModal] = useState(false);
+  const [projectForm, setProjectForm] = useState({
+    name: '',
+    description: '',
+    technical_uncertainty: '',
+    process_of_experimentation: ''
+  });
 
   // R&D Analysis state
   const [rdSession, setRdSession] = useState<RDAnalysisSession | null>(null);
@@ -514,6 +528,8 @@ export default function Portal() {
   const [uploadingGapId, setUploadingGapId] = useState<string | null>(null);
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [aiStatus, setAiStatus] = useState<AIStatus | null>(null);
+  const [workflowSummary, setWorkflowSummary] = useState<WorkflowSummary | null>(null);
+  const [projectWorkflowStatuses, setProjectWorkflowStatuses] = useState<Record<string, ProjectWorkflowStatus>>({});
 
   // ============================================================================
   // COMPUTED VALUES
@@ -670,7 +686,7 @@ export default function Portal() {
 
       // Fetch organization-specific data if user has an organization
       if (organization?.id) {
-        const [membersData, tasksData, auditData, overviewData, budgetsData, expensesData, engTasksData, timeLogsData, clientsData] = await Promise.all([
+        const [membersData, tasksData, auditData, overviewData, budgetsData, expensesData, engTasksData, timeLogsData, clientsData, workflowData] = await Promise.all([
           getOrganizationMembers(organization.id).catch((e) => { console.error("Members error:", e); return []; }),
           getVerificationTasks(organization.id).catch((e) => { console.error("Tasks error:", e); return []; }),
           isOrgAdmin ? getAuditLog(organization.id, 50).catch((e) => { console.error("Audit error:", e); return []; }) : Promise.resolve([]),
@@ -680,6 +696,7 @@ export default function Portal() {
           getEngineeringTasks(organization.id).catch((e) => { console.error("Eng tasks error:", e); return []; }),
           getTimeLogs(organization.id).catch((e) => { console.error("Time logs error:", e); return []; }),
           getClientCompanies(organization.id).catch((e) => { console.error("Clients error:", e); return []; }),
+          selectedClient ? getClientWorkflowSummary(selectedClient.id).catch((e) => { console.error("Workflow error:", e); return null; }) : Promise.resolve(null),
         ]);
         setTeamMembers(membersData);
         setTasks(tasksData);
@@ -690,6 +707,7 @@ export default function Portal() {
         setEngineeringTasks(engTasksData);
         setTimeLogs(timeLogsData);
         setClientCompanies(clientsData);
+        if (workflowData) setWorkflowSummary(workflowData);
         
         // Auto-select first client if none selected
         if (clientsData.length > 0 && !selectedClient) {
@@ -872,6 +890,30 @@ export default function Portal() {
       alert("Failed to add client company. Please try again.");
     } finally {
       setIsAddingClient(false);
+    }
+  };
+
+  const handleAddProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!projectForm.name.trim()) return;
+    
+    setIsSubmitting(true);
+    try {
+      const newProject = await createProject({
+        name: projectForm.name.trim(),
+        description: projectForm.description || undefined,
+        technical_uncertainty: projectForm.technical_uncertainty || undefined,
+        process_of_experimentation: projectForm.process_of_experimentation || undefined,
+      });
+      
+      setProjects(prev => [newProject, ...prev]);
+      setShowAddProjectModal(false);
+      setProjectForm({ name: '', description: '', technical_uncertainty: '', process_of_experimentation: '' });
+    } catch (e) {
+      console.error("Error adding project:", e);
+      alert("Failed to add project. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1307,6 +1349,8 @@ export default function Portal() {
 
   const closeModal = () => {
     setModalOpen(null);
+    setShowAddClientModal(false);
+    setShowAddProjectModal(false);
     resetForms();
   };
 
@@ -1466,6 +1510,102 @@ export default function Portal() {
   const rdProgress = rdSession 
     ? Math.round((rdSession.qualified_projects / Math.max(rdSession.projects.length, 1)) * 100)
     : overallProgress;
+
+  const workflowSteps = useMemo(() => {
+    if (!workflowSummary) return onboardingSteps;
+    
+    return [
+      {
+        id: 0,
+        label: "Client Setup",
+        description: "Verify client details and tax year baseline.",
+        actionLabel: "Manage Clients",
+        view: "clients" as ViewMode,
+        icon: Icons.building,
+        isComplete: selectedClient !== null
+      },
+      {
+        id: 1,
+        label: "Project Identification",
+        description: `${workflowSummary.by_state.not_started || 0} projects not started, ${workflowSummary.by_state.in_progress || 0} in progress.`,
+        actionLabel: "Identify Projects",
+        view: "projects" as ViewMode,
+        icon: Icons.folderKanban,
+        isComplete: (workflowSummary.total_projects || 0) > 0
+      },
+      {
+        id: 2,
+        label: "AI Analysis & Evidence",
+        description: `${workflowSummary.needs_follow_up?.length || 0} projects need additional documentation.`,
+        actionLabel: "Start AI Analysis",
+        view: "rd-analysis" as ViewMode,
+        icon: Icons.beaker,
+        isComplete: (workflowSummary.by_state.ready_for_review || 0) > 0
+      },
+      {
+        id: 3,
+        label: "Final Review",
+        description: `${workflowSummary.by_state.ready_for_review || 0} projects ready for approval.`,
+        actionLabel: "Final Review",
+        view: "reports" as ViewMode,
+        icon: Icons.trendingUp,
+        isComplete: (workflowSummary.by_state.approved || 0) > 0
+      }
+    ];
+  }, [workflowSummary, selectedClient, onboardingSteps]);
+
+  const nextActions = useMemo(() => {
+    const actions = [];
+    
+    // If we have real NBAs from the workflow engine, use them
+    if (workflowSummary?.next_best_actions) {
+      return workflowSummary.next_best_actions.map(nba => ({
+        title: nba.reason,
+        description: `Action: ${nba.action_type.replace('_', ' ').toUpperCase()} • Target: ${nba.target}`,
+        action: () => {
+          if (nba.action_type === 'edit_field' || nba.action_type === 'request_evidence') {
+            setCurrentView('projects');
+          } else if (nba.action_type === 'upload_doc' || nba.action_type === 're_evaluate_ai') {
+            setCurrentView('rd-analysis');
+          } else if (nba.action_type === 'review_decision') {
+            setCurrentView('reports');
+          }
+        },
+        label: nba.action_type.replace('_', ' ').toUpperCase(),
+        icon: nba.blocking ? Icons.alertTriangle : Icons.sparkles,
+        effort: nba.estimated_effort
+      }));
+    }
+
+    // Fallback to basic onboarding actions
+    if (clientCompanies.length === 0) {
+      actions.push({
+        title: "Setup your first client",
+        description: "To start an R&D study, you first need to create a client company profile.",
+        action: () => setShowAddClientModal(true),
+        label: "Add Client",
+        icon: Icons.building
+      });
+    } else if (projects.length === 0) {
+      actions.push({
+        title: "Identify R&D Projects",
+        description: "List the technical projects your team worked on this year to evaluate for tax credits.",
+        action: () => setCurrentView("projects"),
+        label: "Go to Projects",
+        icon: Icons.folderKanban
+      });
+    } else if (!rdSession) {
+      actions.push({
+        title: "Upload Documentation",
+        description: "Upload payroll and project data to let our AI identify qualifying expenditures.",
+        action: () => setCurrentView("rd-analysis"),
+        label: "Start Analysis",
+        icon: Icons.upload
+      });
+    }
+
+    return actions;
+  }, [clientCompanies.length, projects, rdSession, workflowSummary]);
 
   const renderDashboard = () => (
     <div className="space-y-6 animate-fade-in">
@@ -1654,46 +1794,151 @@ export default function Portal() {
         {/* Left Column - Progress & Tasks */}
         <div className="lg:col-span-2 space-y-6">
           {/* Progress Card */}
-          <div className="glass-card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-foreground">Data Collection Progress</h3>
-                <p className="text-sm text-muted-foreground mt-1">Complete all steps to finalize your R&D credit claim</p>
-              </div>
-              <span className="text-2xl font-bold text-foreground">{overallProgress}%</span>
-            </div>
-            <div className="progress mb-4">
-              <div className="progress-indicator" style={{ width: `${overallProgress}%` }} />
-            </div>
-            <div className="space-y-3">
-              {[
-                { label: "Project Identification", complete: projects.length > 0 },
-                { label: "Employee Data Collection", complete: employees.length > 0, progress: employees.length > 0 ? 100 : 0 },
-                { label: "Contractor Expenses", complete: contractors.length > 0, progress: contractors.length > 0 ? 100 : 0 },
-                { label: "Final Review & Calculation", complete: kpiData.study_count > 0 },
-              ].map((step, index) => (
-                <div key={index} className="flex items-center gap-3 p-3 rounded-lg bg-secondary/30">
-                  <div className={`status-dot shrink-0 ${step.complete ? 'status-complete' : 'status-pending'}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{step.label}</p>
-                  </div>
-                  {step.complete && <span className="text-xs text-success font-medium">Complete</span>}
+          <div className="glass-card overflow-hidden">
+            <div className="p-6 border-b border-border bg-muted/10">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">Guided Onboarding</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Select a step to see detailed instructions and shortcuts</p>
                 </div>
-              ))}
+                <div className="text-right">
+                  <span className="text-2xl font-bold text-foreground">{overallProgress}%</span>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Overall Completion</p>
+                </div>
+              </div>
+              <div className="progress mb-2">
+                <div className="progress-indicator" style={{ width: `${overallProgress}%` }} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2">
+              {/* Steps List */}
+              <div className="p-4 space-y-2 border-r border-border bg-card/50">
+                {workflowSteps.map((step, index) => (
+                  <button 
+                    key={index} 
+                    onClick={() => setActiveStep(activeStep === index ? null : index)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${
+                      activeStep === index 
+                        ? 'bg-accent text-accent-foreground shadow-md ring-1 ring-accent/20' 
+                        : 'bg-secondary/20 hover:bg-secondary/40 text-foreground'
+                    }`}
+                  >
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+                      step.isComplete 
+                        ? 'bg-success text-success-foreground' 
+                        : activeStep === index ? 'bg-accent-foreground text-accent' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {step.isComplete ? Icons.check : index + 1}
+                    </div>
+                    <div className="flex-1 text-left min-w-0">
+                      <p className="text-sm font-semibold truncate">{step.label}</p>
+                      <p className={`text-[10px] truncate ${activeStep === index ? 'text-accent-foreground/70' : 'text-muted-foreground'}`}>
+                        {step.isComplete ? 'Task Completed' : 'Pending Action'}
+                      </p>
+                    </div>
+                    {activeStep !== index && (
+                      <span className="text-muted-foreground/50">{Icons.chevronRight}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Step Detail */}
+              <div className="p-6 flex flex-col justify-center bg-card">
+                {activeStep !== null ? (
+                  <div className="animate-fade-in space-y-4">
+                    <div className="w-12 h-12 rounded-2xl bg-accent/20 flex items-center justify-center text-accent mb-2">
+                      {workflowSteps[activeStep].icon}
+                    </div>
+                    <h4 className="text-xl font-bold text-foreground">{workflowSteps[activeStep].label}</h4>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      {workflowSteps[activeStep].description}
+                    </p>
+                    <div className="pt-4">
+                      <button 
+                        onClick={() => setCurrentView(workflowSteps[activeStep].view)}
+                        className="btn btn-primary w-full group"
+                      >
+                        <span>{workflowSteps[activeStep].actionLabel}</span>
+                        <span className="group-hover:translate-x-1 transition-transform">{Icons.arrowRight}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 space-y-3">
+                    <div className="w-16 h-16 mx-auto rounded-full bg-muted/30 flex items-center justify-center text-muted-foreground">
+                      {Icons.sparkles}
+                    </div>
+                    <p className="text-sm font-medium text-foreground">Select a workflow step</p>
+                    <p className="text-xs text-muted-foreground px-4">
+                      Follow our TurboTax-style guide to qualify projects and maximize your tax credit.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 space-y-3">
+                    <div className="w-16 h-16 mx-auto rounded-full bg-muted/30 flex items-center justify-center text-muted-foreground">
+                      {Icons.sparkles}
+                    </div>
+                    <p className="text-sm font-medium text-foreground">Select a workflow step</p>
+                    <p className="text-xs text-muted-foreground px-4">
+                      Follow our TurboTax-style guide to qualify projects and maximize your tax credit.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           {/* Tasks Card */}
           <div className="glass-card">
             <div className="flex items-center justify-between p-6 pb-4">
-              <h3 className="text-lg font-semibold text-foreground">Pending Tasks</h3>
-              <button className="btn btn-ghost btn-sm text-muted-foreground">
+              <h3 className="text-lg font-semibold text-foreground">Recommended Actions</h3>
+              {nextActions.length > 0 && (
+                <span className="badge badge-accent animate-pulse">{nextActions.length} pending</span>
+              )}
+            </div>
+            <div className="px-6 pb-6 space-y-3">
+              {nextActions.length > 0 ? (
+                nextActions.map((action, index) => (
+                  <div key={index} className="group p-4 rounded-xl bg-accent/5 border border-accent/10 hover:border-accent/30 transition-all cursor-pointer" onClick={action.action}>
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center text-accent shrink-0">
+                        {action.icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-foreground group-hover:text-accent transition-colors">
+                          {action.title}
+                        </h4>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {action.description}
+                        </p>
+                      </div>
+                      <button className="btn btn-ghost btn-icon-sm self-center">
+                        {Icons.arrowRight}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-6">
+                  <p className="text-sm text-muted-foreground">You're all caught up! ✨</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Legacy Tasks Card (Reduced) */}
+          <div className="glass-card">
+            <div className="flex items-center justify-between p-6 pb-4">
+              <h3 className="text-lg font-semibold text-foreground">Verification Tasks</h3>
+              <button onClick={() => setCurrentView("tasks")} className="btn btn-ghost btn-sm text-muted-foreground">
                 View All
                 {Icons.arrowRight}
               </button>
             </div>
             <div className="px-6 pb-6 space-y-3">
-              {tasks.filter(t => t.status === "pending").slice(0, 4).map((task) => (
+              {tasks.filter(t => t.status === "pending").slice(0, 2).map((task) => (
                 <div key={task.id} className="group p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors cursor-pointer">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -1972,46 +2217,66 @@ export default function Portal() {
     
     return (
       <div className="space-y-6 animate-fade-in">
-        {/* Progress Summary */}
-        <div className="glass-card p-5">
-          <div className="flex items-center justify-between mb-4">
+        {/* Header with Task Views */}
+        <div className="glass-card p-6">
+          <div className="flex items-center justify-between mb-6">
             <div>
-              <h3 className="font-medium text-foreground">Task Overview</h3>
+              <h2 className="text-xl font-semibold text-foreground">Task Management</h2>
               <p className="text-sm text-muted-foreground">
-                {engTasksCompleted + verifiedTasksCount} completed, {engTasksPending + pendingTasksCount} in progress
+                Structured tasks with routing, review, and compliance tracking
               </p>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-success">{Icons.checkCircle}</span>
-                <span className="text-muted-foreground">{engTasksCompleted + verifiedTasksCount} Complete</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-warning">{Icons.clock}</span>
-                <span className="text-muted-foreground">{engTasksPending + pendingTasksCount} Active</span>
-              </div>
-            </div>
+            <button 
+              onClick={() => setShowTaskCreateModal(true)}
+              className="btn btn-primary btn-sm"
+            >
+              {Icons.plus}
+              <span>New Task</span>
+            </button>
           </div>
-          <div className="progress h-2">
-            <div className="progress-indicator" style={{ 
-              width: `${(engineeringTasks.length + tasks.length) > 0 
-                ? ((engTasksCompleted + verifiedTasksCount) / (engineeringTasks.length + tasks.length)) * 100 
-                : 0}%` 
-            }} />
+
+          {/* Task View Tabs */}
+          <div className="flex items-center gap-2 border-b border-border pb-4">
+            {[
+              { id: 'my', label: 'My Tasks', icon: Icons.user },
+              { id: 'client', label: 'Client Tasks', icon: Icons.folder },
+              { id: 'review', label: 'Review Queue', icon: Icons.checkCircle },
+              { id: 'blockers', label: 'Blockers', icon: Icons.alertTriangle },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setTaskView(tab.id as typeof taskView)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+                  taskView === tab.id
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Engineering Tasks */}
+        {/* Task Board */}
+        <TaskBoard 
+          view={taskView} 
+          clientId={selectedClient?.id}
+          onTaskSelect={(task) => console.log('Selected task:', task)}
+        />
+
+        {/* Legacy Engineering Tasks */}
         <div className="glass-card">
           <div className="flex items-center justify-between p-6 pb-4">
             <div>
-              <h3 className="text-lg font-semibold text-foreground">Engineering Tasks</h3>
-              <p className="text-sm text-muted-foreground mt-1">Project tasks and milestones</p>
+              <h3 className="text-lg font-semibold text-foreground">Legacy Engineering Tasks</h3>
+              <p className="text-sm text-muted-foreground mt-1">Project tasks and milestones (legacy view)</p>
             </div>
             {(userRole === 'engineer' || userRole === 'executive' || isOrgAdmin) && (
-              <button className="btn btn-primary btn-sm" onClick={() => setModalOpen('task')}>
+              <button className="btn btn-outline btn-sm" onClick={() => setModalOpen('task')}>
                 {Icons.plus}
-                <span>New Task</span>
+                <span>Legacy Task</span>
               </button>
             )}
           </div>
@@ -3020,7 +3285,13 @@ export default function Portal() {
             <h2 className="text-xl font-semibold">Projects</h2>
             <p className="text-sm text-muted-foreground">R&D Projects for tax credit qualification</p>
           </div>
-          <button className="btn btn-primary">
+          <button 
+            onClick={() => {
+              setProjectForm({ name: '', description: '', technical_uncertainty: '', process_of_experimentation: '' });
+              setShowAddProjectModal(true);
+            }}
+            className="btn btn-primary"
+          >
             {Icons.plus}
             <span>New Project</span>
           </button>
@@ -3031,23 +3302,95 @@ export default function Portal() {
               {Icons.folderKanban}
             </div>
             <p className="text-lg font-medium mb-2">No projects yet</p>
-            <p className="text-sm">Add your first R&D project to get started</p>
+            <p className="text-sm mb-4">Add your first R&D project to get started</p>
+            <button 
+              onClick={() => setShowAddProjectModal(true)}
+              className="btn btn-primary"
+            >
+              {Icons.plus}
+              <span>Add Your First Project</span>
+            </button>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-4">
             {projects.map((project) => (
-              <div key={project.id} className="p-4 rounded-lg bg-muted/20">
+              <div key={project.id} className="p-5 rounded-xl border border-border bg-card hover:border-accent/50 transition-all group">
                 <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-medium">{project.name}</h3>
-                    <p className="text-sm text-muted-foreground mt-1">{project.description}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-bold text-foreground text-lg">{project.name}</h3>
+                      <span className={`badge ${
+                        project.qualification_status === "qualified" ? "badge-success" :
+                        project.qualification_status === "not_qualified" ? "badge-destructive" : "badge-warning"
+                      }`}>
+                        {project.qualification_status}
+                      </span>
+                      {workflowSummary?.project_statuses?.[project.id] && (
+                        <>
+                          <span className={`badge ${
+                            workflowSummary.project_statuses[project.id].readiness_score > 80 ? 'badge-success' :
+                            workflowSummary.project_statuses[project.id].readiness_score > 50 ? 'badge-warning' : 'badge-destructive'
+                          }`}>
+                            {workflowSummary.project_statuses[project.id].readiness_score}% Ready
+                          </span>
+                          <span className={`badge ${
+                            workflowSummary.project_statuses[project.id].risk_level === 'low' ? 'bg-success/20 text-success' :
+                            workflowSummary.project_statuses[project.id].risk_level === 'medium' ? 'bg-warning/20 text-warning' : 'bg-destructive/20 text-destructive'
+                          }`}>
+                            {workflowSummary.project_statuses[project.id].risk_level.toUpperCase()} RISK
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{project.description}</p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                      <div className="p-3 rounded-lg bg-secondary/20 border border-border/50">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Technical Uncertainty</p>
+                          <InlineAssist 
+                            label="Technical Uncertainty" 
+                            context={project.description || ''} 
+                            onDraftGenerate={(draft) => console.log('Draft generated:', draft)} 
+                          />
+                        </div>
+                        <p className="text-xs text-foreground italic">
+                          {project.technical_uncertainty || "Not specified yet. This is required for the 4-part test."}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-secondary/20 border border-border/50">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Process of Experimentation</p>
+                          <InlineAssist 
+                            label="Process of Experimentation" 
+                            context={project.description || ''} 
+                            onDraftGenerate={(draft) => console.log('Draft generated:', draft)} 
+                          />
+                        </div>
+                        <p className="text-xs text-foreground italic">
+                          {project.process_of_experimentation || "Not specified yet. This is required for the 4-part test."}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <span className={`badge ${
-                    project.qualification_status === "qualified" ? "badge-success" :
-                    project.qualification_status === "not_qualified" ? "badge-destructive" : "badge-warning"
-                  }`}>
-                    {project.qualification_status}
-                  </span>
+                  <div className="flex flex-col gap-2 ml-4">
+                    <button className="btn btn-ghost btn-icon-sm" title="Edit project">
+                      {Icons.edit}
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setShowChat(true);
+                        setMessages(prev => [...prev, {
+                          role: "user",
+                          content: `Can you help me evaluate the R&D qualification for project "${project.name}"? It's currently marked as "${project.qualification_status}".`
+                        }]);
+                      }}
+                      className="btn btn-ghost btn-icon-sm text-accent" 
+                      title="Analyze with AI"
+                    >
+                      {Icons.sparkles}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -3213,10 +3556,19 @@ export default function Portal() {
 
             {/* Right - Actions */}
             <div className="flex items-center gap-3">
+              {/* Copilot Button */}
+              <button 
+                onClick={() => setIsCopilotOpen(!isCopilotOpen)} 
+                className={`btn btn-sm hidden lg:flex gap-2 transition-all ${isCopilotOpen ? 'btn-primary' : 'btn-glass'}`}
+              >
+                {Icons.sparkles}
+                <span>Copilot</span>
+              </button>
+
               {/* AI Assistant Button */}
               <button onClick={() => setShowChat(true)} className="btn btn-glass btn-sm hidden lg:flex gap-2">
-                {Icons.sparkles}
-                <span>AI Assistant</span>
+                {Icons.messageSquare}
+                <span>Support</span>
               </button>
 
               {/* Client Selector */}
@@ -4005,6 +4357,101 @@ export default function Portal() {
         </div>
       )}
 
+      {/* Add Project Modal */}
+      {showAddProjectModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowAddProjectModal(false)}
+        >
+          <div 
+            className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold">New R&D Project</h2>
+              <button
+                onClick={() => setShowAddProjectModal(false)}
+                className="btn btn-ghost btn-icon-sm"
+              >
+                {Icons.x}
+              </button>
+            </div>
+            <form onSubmit={handleAddProject} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  Project Name *
+                </label>
+                <input
+                  type="text"
+                  value={projectForm.name}
+                  onChange={(e) => setProjectForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="input"
+                  placeholder="e.g. Next-Gen AI Engine"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={projectForm.description}
+                  onChange={(e) => setProjectForm(prev => ({ ...prev, description: e.target.value }))}
+                  className="input min-h-[80px]"
+                  placeholder="Briefly describe the project goals..."
+                />
+              </div>
+              
+              <div className="p-4 rounded-xl bg-accent/5 border border-accent/20 space-y-4">
+                <p className="text-xs font-bold text-accent uppercase tracking-wider flex items-center gap-2">
+                  {Icons.sparkles}
+                  Four-Part Test Preparation
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Technical Uncertainty
+                  </label>
+                  <textarea
+                    value={projectForm.technical_uncertainty}
+                    onChange={(e) => setProjectForm(prev => ({ ...prev, technical_uncertainty: e.target.value }))}
+                    className="input text-sm min-h-[60px]"
+                    placeholder="What was technically unknown at the start? (Capability, methodology, or design?)"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Process of Experimentation
+                  </label>
+                  <textarea
+                    value={projectForm.process_of_experimentation}
+                    onChange={(e) => setProjectForm(prev => ({ ...prev, process_of_experimentation: e.target.value }))}
+                    className="input text-sm min-h-[60px]"
+                    placeholder="How did you test alternatives? (Modeling, simulation, trial & error?)"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button 
+                  type="button" 
+                  onClick={() => setShowAddProjectModal(false)} 
+                  className="btn btn-outline btn-md"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting || !projectForm.name.trim()}
+                  className="btn btn-primary btn-md"
+                >
+                  {isSubmitting ? "Creating..." : "Create Project"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Click outside to close client selector */}
       {showClientSelector && (
         <div 
@@ -4012,6 +4459,22 @@ export default function Portal() {
           onClick={() => setShowClientSelector(false)}
         />
       )}
+
+      {/* Copilot Panel */}
+      <CopilotPanel 
+        isOpen={isCopilotOpen} 
+        onClose={() => setIsCopilotOpen(false)} 
+        clientId={selectedClient?.id || ''}
+        projectId={currentView === 'projects' ? projects[0]?.id : undefined}
+      />
+
+      {/* Task Create Modal */}
+      <TaskCreateModal
+        isOpen={showTaskCreateModal}
+        onClose={() => setShowTaskCreateModal(false)}
+        clientId={selectedClient?.id || ''}
+        projectId={currentView === 'projects' ? projects[0]?.id : undefined}
+      />
     </div>
   );
 }

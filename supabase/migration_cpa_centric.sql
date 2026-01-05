@@ -254,3 +254,7 @@ CREATE POLICY "Executives can delete client companies" ON public.client_companie
 -- $$ LANGUAGE plpgsql;
 -- 
 -- SELECT migrate_to_cpa_centric();
+
+
+
+

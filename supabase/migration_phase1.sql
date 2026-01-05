@@ -386,3 +386,7 @@ BEGIN
     RAISE NOTICE 'New tables: budgets, expenses, engineering_tasks, time_logs';
     RAISE NOTICE 'Updated roles: executive, cpa, engineer';
 END $$;
+
+
+
+
