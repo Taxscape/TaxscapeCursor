@@ -3,15 +3,61 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useWorkspace } from '@/context/workspace-context';
 import { useAuth } from '@/context/auth-context';
-import { useClients } from '@/lib/queries';
+import { useClients, useCreateClient } from '@/lib/queries';
+import { useQueryClient } from '@tanstack/react-query';
+import { CACHE_KEYS } from '@/lib/query-client';
 
 export function Header() {
   const { state, setClient, toggleAIPanel, toggleCommandPalette, activeClient } = useWorkspace();
   const { user, organization, profile } = useAuth();
   const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [newClientForm, setNewClientForm] = useState({
+    name: '',
+    industry: '',
+    tax_year: new Date().getFullYear().toString(),
+    contact_name: '',
+    contact_email: '',
+  });
+  const [isAddingClient, setIsAddingClient] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
   
   const { data: clients = [], isLoading: clientsLoading } = useClients(state.organizationId);
+  const createClientMutation = useCreateClient(state.organizationId || '');
+  
+  // Handle adding a new client
+  const handleAddClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!state.organizationId || !newClientForm.name.trim()) return;
+    
+    setIsAddingClient(true);
+    try {
+      const newClient = await createClientMutation.mutateAsync({
+        name: newClientForm.name.trim(),
+        industry: newClientForm.industry || undefined,
+        tax_year: newClientForm.tax_year || undefined,
+        contact_name: newClientForm.contact_name || undefined,
+        contact_email: newClientForm.contact_email || undefined,
+      });
+      
+      // Invalidate clients query to refresh list
+      queryClient.invalidateQueries({ queryKey: CACHE_KEYS.clients(state.organizationId!) });
+      
+      // Select the newly created client
+      if (newClient?.id) {
+        setClient(newClient.id, newClient.tax_year || new Date().getFullYear().toString());
+      }
+      
+      // Reset form and close modal
+      setShowAddClientModal(false);
+      setNewClientForm({ name: '', industry: '', tax_year: new Date().getFullYear().toString(), contact_name: '', contact_email: '' });
+    } catch (error) {
+      console.error('Failed to create client:', error);
+    } finally {
+      setIsAddingClient(false);
+    }
+  };
   
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -74,10 +120,19 @@ export function Header() {
           
           {showClientDropdown && (
             <div className="absolute right-0 top-full mt-2 w-72 bg-card rounded-xl border border-border shadow-lg z-50 overflow-hidden">
-              <div className="p-3 border-b border-border">
+              <div className="p-3 border-b border-border flex items-center justify-between">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Client Companies
                 </p>
+                <button
+                  onClick={() => {
+                    setShowClientDropdown(false);
+                    setShowAddClientModal(true);
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/10 rounded-md transition-colors"
+                >
+                  <PlusIcon /> Add
+                </button>
               </div>
               <div className="max-h-64 overflow-y-auto">
                 {clientsLoading ? (
@@ -85,8 +140,20 @@ export function Header() {
                     Loading...
                   </div>
                 ) : clients.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-muted-foreground">
-                    No client companies yet
+                  <div className="p-6 text-center">
+                    <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-muted/50 flex items-center justify-center">
+                      <BuildingIcon />
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-3">No client companies yet</p>
+                    <button
+                      onClick={() => {
+                        setShowClientDropdown(false);
+                        setShowAddClientModal(true);
+                      }}
+                      className="px-4 py-2 text-sm font-medium bg-accent text-accent-foreground rounded-lg hover:opacity-90 transition-opacity"
+                    >
+                      Add Your First Client
+                    </button>
                   </div>
                 ) : (
                   clients.map((client) => (
@@ -135,6 +202,131 @@ export function Header() {
           </div>
         </div>
       </div>
+      
+      {/* Add Client Modal */}
+      {showAddClientModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]"
+          onClick={() => setShowAddClientModal(false)}
+        >
+          <div 
+            className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <h3 className="text-lg font-semibold text-foreground">Add New Client</h3>
+              <button
+                onClick={() => setShowAddClientModal(false)}
+                className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            <form onSubmit={handleAddClient} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Client Name <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newClientForm.name}
+                  onChange={(e) => setNewClientForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                  placeholder="e.g., Acme Corporation"
+                  required
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Industry
+                  </label>
+                  <select
+                    value={newClientForm.industry}
+                    onChange={(e) => setNewClientForm(prev => ({ ...prev, industry: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Technology">Technology</option>
+                    <option value="Manufacturing">Manufacturing</option>
+                    <option value="Healthcare">Healthcare</option>
+                    <option value="Finance">Finance</option>
+                    <option value="Aerospace">Aerospace</option>
+                    <option value="Automotive">Automotive</option>
+                    <option value="Biotechnology">Biotechnology</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Tax Year
+                  </label>
+                  <select
+                    value={newClientForm.tax_year}
+                    onChange={(e) => setNewClientForm(prev => ({ ...prev, tax_year: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                  >
+                    {[2024, 2023, 2022, 2021].map(year => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Contact Name
+                </label>
+                <input
+                  type="text"
+                  value={newClientForm.contact_name}
+                  onChange={(e) => setNewClientForm(prev => ({ ...prev, contact_name: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                  placeholder="Primary contact person"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Contact Email
+                </label>
+                <input
+                  type="email"
+                  value={newClientForm.contact_email}
+                  onChange={(e) => setNewClientForm(prev => ({ ...prev, contact_email: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                  placeholder="contact@example.com"
+                />
+              </div>
+              
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddClientModal(false)} 
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-border text-foreground font-medium hover:bg-muted transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingClient || !newClientForm.name.trim()}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-accent text-accent-foreground font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isAddingClient ? (
+                    <>
+                      <LoadingSpinner />
+                      Adding...
+                    </>
+                  ) : (
+                    'Add Client'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </header>
   );
 }
@@ -190,6 +382,30 @@ function SparklesIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function LoadingSpinner() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
     </svg>
   );
 }
