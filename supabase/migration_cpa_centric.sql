@@ -258,3 +258,5 @@ CREATE POLICY "Executives can delete client companies" ON public.client_companie
 
 
 
+
+

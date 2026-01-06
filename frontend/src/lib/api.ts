@@ -1,4 +1,14 @@
 import { getSupabaseClient } from "./supabase";
+import type {
+  ProjectAIEvaluation,
+  ProjectEvidenceItem,
+  ProjectGap,
+  EvaluateProjectResponse,
+  EvaluateClientResponse,
+  EvidenceUploadResponse,
+  DraftNarrativeResponse,
+  NextBestActionsResponse,
+} from "./types";
 
 // =============================================================================
 // API URL CONFIGURATION
@@ -2095,4 +2105,839 @@ export async function deleteRDSession(sessionId: string): Promise<{ message: str
   }
 
   return await response.json();
+}
+
+// =============================================================================
+// WORKSPACE DATA ENDPOINTS (Blueprint Aligned)
+// =============================================================================
+
+import type {
+  Timesheet, Vendor, Contract, APTransaction, Supply,
+  EmployeeExtended, ProjectExtended, QuestionnaireItem, Section174Entry,
+  AutomatedReviewItem, QRESummary, ImportPreview, RecomputeResult, StalenessCheck
+} from "./types";
+
+const WORKSPACE_API = `${API_URL}/api/workspace-data`;
+
+// --- TIMESHEETS ---
+
+export async function getTimesheets(
+  clientId: string,
+  taxYear: number = 2024,
+  filters?: { employeeId?: string; projectId?: string; approvalStatus?: string },
+  pagination?: { limit?: number; offset?: number }
+): Promise<{ data: Timesheet[]; pagination: { total: number; limit: number; offset: number } }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    tax_year: String(taxYear),
+    limit: String(pagination?.limit ?? 50),
+    offset: String(pagination?.offset ?? 0),
+  });
+  
+  if (filters?.employeeId) params.set("employee_id", filters.employeeId);
+  if (filters?.projectId) params.set("project_id", filters.projectId);
+  if (filters?.approvalStatus) params.set("approval_status", filters.approvalStatus);
+  
+  const response = await fetch(`${WORKSPACE_API}/timesheets?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch timesheets");
+  return response.json();
+}
+
+export async function createTimesheet(clientId: string, data: Partial<Timesheet>): Promise<{ data: Timesheet }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/timesheets?client_id=${clientId}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error("Failed to create timesheet");
+  return response.json();
+}
+
+export async function updateTimesheet(timesheetId: string, data: Partial<Timesheet>): Promise<{ data: Timesheet }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/timesheets/${timesheetId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error("Failed to update timesheet");
+  return response.json();
+}
+
+export async function deleteTimesheet(timesheetId: string): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/timesheets/${timesheetId}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!response.ok) throw new Error("Failed to delete timesheet");
+  return response.json();
+}
+
+// --- VENDORS ---
+
+export async function getVendors(
+  clientId: string,
+  qualifiedOnly: boolean = false,
+  pagination?: { limit?: number; offset?: number }
+): Promise<{ data: Vendor[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    qualified_only: String(qualifiedOnly),
+    limit: String(pagination?.limit ?? 50),
+    offset: String(pagination?.offset ?? 0),
+  });
+  
+  const response = await fetch(`${WORKSPACE_API}/vendors?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch vendors");
+  return response.json();
+}
+
+export async function createVendor(clientId: string, data: Partial<Vendor>): Promise<{ data: Vendor }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/vendors?client_id=${clientId}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error("Failed to create vendor");
+  return response.json();
+}
+
+export async function updateVendor(vendorId: string, data: Partial<Vendor>): Promise<{ data: Vendor }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/vendors/${vendorId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error("Failed to update vendor");
+  return response.json();
+}
+
+export async function deleteVendor(vendorId: string): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/vendors/${vendorId}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!response.ok) throw new Error("Failed to delete vendor");
+  return response.json();
+}
+
+// --- CONTRACTS ---
+
+export async function getContracts(
+  clientId: string,
+  vendorId?: string,
+  pagination?: { limit?: number; offset?: number }
+): Promise<{ data: Contract[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    limit: String(pagination?.limit ?? 50),
+    offset: String(pagination?.offset ?? 0),
+  });
+  
+  if (vendorId) params.set("vendor_id", vendorId);
+  
+  const response = await fetch(`${WORKSPACE_API}/contracts?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch contracts");
+  return response.json();
+}
+
+export async function createContract(clientId: string, data: Partial<Contract>): Promise<{ data: Contract }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/contracts?client_id=${clientId}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error("Failed to create contract");
+  return response.json();
+}
+
+// --- AP TRANSACTIONS ---
+
+export async function getAPTransactions(
+  clientId: string,
+  taxYear: number = 2024,
+  filters?: { vendorId?: string; projectId?: string },
+  pagination?: { limit?: number; offset?: number }
+): Promise<{ data: APTransaction[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    tax_year: String(taxYear),
+    limit: String(pagination?.limit ?? 100),
+    offset: String(pagination?.offset ?? 0),
+  });
+  
+  if (filters?.vendorId) params.set("vendor_id", filters.vendorId);
+  if (filters?.projectId) params.set("project_id", filters.projectId);
+  
+  const response = await fetch(`${WORKSPACE_API}/ap-transactions?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch AP transactions");
+  return response.json();
+}
+
+export async function createAPTransaction(clientId: string, data: Partial<APTransaction>): Promise<{ data: APTransaction }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/ap-transactions?client_id=${clientId}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error("Failed to create AP transaction");
+  return response.json();
+}
+
+// --- SUPPLIES ---
+
+export async function getSupplies(
+  clientId: string,
+  taxYear: number = 2024,
+  filters?: { projectId?: string; qreEligibleOnly?: boolean },
+  pagination?: { limit?: number; offset?: number }
+): Promise<{ data: Supply[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    tax_year: String(taxYear),
+    limit: String(pagination?.limit ?? 100),
+    offset: String(pagination?.offset ?? 0),
+  });
+  
+  if (filters?.projectId) params.set("project_id", filters.projectId);
+  if (filters?.qreEligibleOnly) params.set("qre_eligible_only", "true");
+  
+  const response = await fetch(`${WORKSPACE_API}/supplies?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch supplies");
+  return response.json();
+}
+
+export async function createSupply(clientId: string, data: Partial<Supply>): Promise<{ data: Supply }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/supplies?client_id=${clientId}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error("Failed to create supply");
+  return response.json();
+}
+
+// --- EXTENDED EMPLOYEES/PROJECTS ---
+
+export async function getEmployeesExtended(
+  clientId: string,
+  taxYear: number = 2024,
+  rdEligibility?: string,
+  pagination?: { limit?: number; offset?: number }
+): Promise<{ data: EmployeeExtended[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    tax_year: String(taxYear),
+    limit: String(pagination?.limit ?? 100),
+    offset: String(pagination?.offset ?? 0),
+  });
+  
+  if (rdEligibility) params.set("rd_eligibility", rdEligibility);
+  
+  const response = await fetch(`${WORKSPACE_API}/employees-extended?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch employees");
+  return response.json();
+}
+
+export async function createEmployeeExtended(clientId: string, data: Partial<EmployeeExtended>): Promise<{ data: EmployeeExtended }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/employees-extended?client_id=${clientId}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error("Failed to create employee");
+  return response.json();
+}
+
+export async function getProjectsExtended(
+  clientId: string,
+  taxYear: number = 2024,
+  qualificationStatus?: string,
+  pagination?: { limit?: number; offset?: number }
+): Promise<{ data: ProjectExtended[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    tax_year: String(taxYear),
+    limit: String(pagination?.limit ?? 100),
+    offset: String(pagination?.offset ?? 0),
+  });
+  
+  if (qualificationStatus) params.set("qualification_status", qualificationStatus);
+  
+  const response = await fetch(`${WORKSPACE_API}/projects-extended?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch projects");
+  return response.json();
+}
+
+export async function createProjectExtended(clientId: string, data: Partial<ProjectExtended>): Promise<{ data: ProjectExtended }> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${WORKSPACE_API}/projects-extended?client_id=${clientId}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error("Failed to create project");
+  return response.json();
+}
+
+// --- QUESTIONNAIRE ITEMS ---
+
+export async function getQuestionnaireItems(
+  clientId: string,
+  taxYear: number = 2024,
+  projectId?: string,
+  responseStatus?: string
+): Promise<{ data: QuestionnaireItem[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    tax_year: String(taxYear),
+  });
+  
+  if (projectId) params.set("project_id", projectId);
+  if (responseStatus) params.set("response_status", responseStatus);
+  
+  const response = await fetch(`${WORKSPACE_API}/questionnaire-items?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch questionnaire items");
+  return response.json();
+}
+
+export async function updateQuestionnaireItem(
+  itemId: string,
+  responseText?: string,
+  responseStatus?: string
+): Promise<{ data: QuestionnaireItem }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (responseText !== undefined) params.set("response_text", responseText);
+  if (responseStatus) params.set("response_status", responseStatus);
+  
+  const response = await fetch(`${WORKSPACE_API}/questionnaire-items/${itemId}?${params}`, {
+    method: "PATCH",
+    headers,
+  });
+  if (!response.ok) throw new Error("Failed to update questionnaire item");
+  return response.json();
+}
+
+// --- SECTION 174 ---
+
+export async function getSection174Entries(
+  clientId: string,
+  taxYear: number = 2024,
+  projectId?: string
+): Promise<{ data: Section174Entry[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    tax_year: String(taxYear),
+  });
+  
+  if (projectId) params.set("project_id", projectId);
+  
+  const response = await fetch(`${WORKSPACE_API}/section-174?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch §174 entries");
+  return response.json();
+}
+
+// --- AUTOMATED REVIEW ---
+
+export async function getReviewItems(
+  clientId: string,
+  taxYear: number = 2024,
+  filters?: { category?: string; severity?: string; status?: string }
+): Promise<{ data: AutomatedReviewItem[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    tax_year: String(taxYear),
+  });
+  
+  if (filters?.category) params.set("category", filters.category);
+  if (filters?.severity) params.set("severity", filters.severity);
+  if (filters?.status) params.set("status", filters.status);
+  
+  const response = await fetch(`${WORKSPACE_API}/review-items?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch review items");
+  return response.json();
+}
+
+export async function updateReviewItem(
+  itemId: string,
+  status: string,
+  resolutionNotes?: string
+): Promise<{ data: AutomatedReviewItem }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({ status });
+  if (resolutionNotes) params.set("resolution_notes", resolutionNotes);
+  
+  const response = await fetch(`${WORKSPACE_API}/review-items/${itemId}?${params}`, {
+    method: "PATCH",
+    headers,
+  });
+  if (!response.ok) throw new Error("Failed to update review item");
+  return response.json();
+}
+
+// --- QRE SUMMARY ---
+
+export async function getQRESummary(
+  clientId: string,
+  taxYear: number = 2024
+): Promise<{ data: QRESummary | null; message?: string }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    tax_year: String(taxYear),
+  });
+  
+  const response = await fetch(`${WORKSPACE_API}/qre-summary?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch QRE summary");
+  return response.json();
+}
+
+// --- IMPORT ---
+
+export async function previewImport(
+  file: File,
+  clientId: string,
+  taxYear: number = 2024
+): Promise<ImportPreview> {
+  const headers = await getAuthHeadersForUpload();
+  
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("client_id", clientId);
+  formData.append("tax_year", String(taxYear));
+  
+  const response = await fetch(`${WORKSPACE_API}/import/preview`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "Failed to preview import");
+  }
+  
+  return response.json();
+}
+
+export async function commitImport(importFileId: string): Promise<{
+  success: boolean;
+  commit_summary: Record<string, unknown>;
+  message: string;
+}> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${WORKSPACE_API}/import/commit?import_file_id=${importFileId}`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "Failed to commit import");
+  }
+  
+  return response.json();
+}
+
+// --- RECOMPUTE ---
+
+export async function recomputeDerivedData(options: {
+  clientCompanyId: string;
+  taxYear: number;
+  regenerateQuestionnaire?: boolean;
+  recompute174?: boolean;
+  recomputeReview?: boolean;
+  recomputeQre?: boolean;
+}): Promise<RecomputeResult> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${WORKSPACE_API}/recompute`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      client_company_id: options.clientCompanyId,
+      tax_year: options.taxYear,
+      regenerate_questionnaire: options.regenerateQuestionnaire ?? true,
+      recompute_174: options.recompute174 ?? true,
+      recompute_review: options.recomputeReview ?? true,
+      recompute_qre: options.recomputeQre ?? true,
+    }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "Failed to recompute data");
+  }
+  
+  return response.json();
+}
+
+// --- STALENESS CHECK ---
+
+export async function checkStaleness(
+  clientId: string,
+  taxYear: number = 2024
+): Promise<StalenessCheck> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_id: clientId,
+    tax_year: String(taxYear),
+  });
+  
+  const response = await fetch(`${WORKSPACE_API}/staleness?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to check staleness");
+  return response.json();
+}
+
+// =============================================================================
+// AI EVALUATION API
+// =============================================================================
+
+const AI_API = `${API_URL}/api/workspace/ai`;
+
+// --- PROJECT EVALUATION ---
+
+export async function evaluateProject(options: {
+  projectId: string;
+  taxYear?: number;
+  useEvidence?: boolean;
+  force?: boolean;
+}): Promise<EvaluateProjectResponse> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${AI_API}/evaluate-project`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      project_id: options.projectId,
+      tax_year: options.taxYear ?? 2024,
+      use_evidence: options.useEvidence ?? true,
+      force: options.force ?? false,
+    }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "Failed to evaluate project");
+  }
+  
+  return response.json();
+}
+
+export async function evaluateClient(options: {
+  clientCompanyId: string;
+  taxYear?: number;
+  useEvidence?: boolean;
+  concurrency?: number;
+}): Promise<EvaluateClientResponse> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${AI_API}/evaluate-client`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      client_company_id: options.clientCompanyId,
+      tax_year: options.taxYear ?? 2024,
+      use_evidence: options.useEvidence ?? true,
+      concurrency: options.concurrency ?? 3,
+    }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "Failed to evaluate client projects");
+  }
+  
+  return response.json();
+}
+
+export async function getLatestEvaluation(
+  projectId: string,
+  taxYear: number = 2024
+): Promise<{ data: ProjectAIEvaluation | null; message?: string }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    project_id: projectId,
+    tax_year: String(taxYear),
+  });
+  
+  const response = await fetch(`${AI_API}/evaluations/latest?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to get evaluation");
+  return response.json();
+}
+
+export async function getEvaluationHistory(
+  projectId: string,
+  taxYear: number = 2024,
+  limit: number = 10
+): Promise<{ data: ProjectAIEvaluation[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    project_id: projectId,
+    tax_year: String(taxYear),
+    limit: String(limit),
+  });
+  
+  const response = await fetch(`${AI_API}/evaluations?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to get evaluation history");
+  return response.json();
+}
+
+// --- EVIDENCE ---
+
+export async function uploadEvidence(options: {
+  file: File;
+  projectId: string;
+  evidenceType?: string;
+  description?: string;
+  tags?: string[];
+}): Promise<EvidenceUploadResponse> {
+  const headers = await getAuthHeadersForUpload();
+  
+  const formData = new FormData();
+  formData.append("file", options.file);
+  formData.append("project_id", options.projectId);
+  formData.append("evidence_type", options.evidenceType ?? "other");
+  if (options.description) formData.append("description", options.description);
+  if (options.tags?.length) formData.append("tags", options.tags.join(","));
+  
+  const response = await fetch(`${AI_API}/evidence/upload`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "Failed to upload evidence");
+  }
+  
+  return response.json();
+}
+
+export async function getProjectEvidence(
+  projectId: string,
+  evidenceType?: string
+): Promise<{ data: ProjectEvidenceItem[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({ project_id: projectId });
+  if (evidenceType) params.append("evidence_type", evidenceType);
+  
+  const response = await fetch(`${AI_API}/evidence?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to get evidence");
+  return response.json();
+}
+
+export async function extractEvidenceText(
+  evidenceId: string
+): Promise<{ evidence_id: string; extraction_status: string; extracted_text_length: number; message: string }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${AI_API}/evidence/${evidenceId}/extract`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to extract text");
+  return response.json();
+}
+
+// --- GAPS ---
+
+export async function getProjectGaps(options: {
+  projectId?: string;
+  clientCompanyId?: string;
+  status?: string;
+  severity?: string;
+  taxYear?: number;
+}): Promise<{ data: ProjectGap[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (options.projectId) params.append("project_id", options.projectId);
+  if (options.clientCompanyId) params.append("client_company_id", options.clientCompanyId);
+  if (options.status) params.append("status", options.status);
+  if (options.severity) params.append("severity", options.severity);
+  params.append("tax_year", String(options.taxYear ?? 2024));
+  
+  const response = await fetch(`${AI_API}/gaps?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to get gaps");
+  return response.json();
+}
+
+export async function createGap(data: {
+  projectId: string;
+  gapType: string;
+  severity?: string;
+  title: string;
+  description?: string;
+  requiredInfo?: string[];
+  linkedCriterionKey?: string;
+}): Promise<{ data: ProjectGap }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${AI_API}/gaps`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      project_id: data.projectId,
+      gap_type: data.gapType,
+      severity: data.severity ?? "medium",
+      title: data.title,
+      description: data.description,
+      required_info: data.requiredInfo ?? [],
+      linked_criterion_key: data.linkedCriterionKey,
+    }),
+  });
+  
+  if (!response.ok) throw new Error("Failed to create gap");
+  return response.json();
+}
+
+export async function updateGap(
+  gapId: string,
+  updates: {
+    status?: string;
+    resolutionNotes?: string;
+    waivedReason?: string;
+  }
+): Promise<{ data: ProjectGap }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${AI_API}/gaps/${gapId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({
+      status: updates.status,
+      resolution_notes: updates.resolutionNotes,
+      waived_reason: updates.waivedReason,
+    }),
+  });
+  
+  if (!response.ok) throw new Error("Failed to update gap");
+  return response.json();
+}
+
+export async function createTaskFromGap(options: {
+  gapId: string;
+  title?: string;
+  assignedTo?: string;
+  dueDate?: string;
+}): Promise<{ task: any; gap_id: string; message: string }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${AI_API}/gaps/${options.gapId}/create-task`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      gap_id: options.gapId,
+      title: options.title,
+      assigned_to: options.assignedTo,
+      due_date: options.dueDate,
+    }),
+  });
+  
+  if (!response.ok) throw new Error("Failed to create task from gap");
+  return response.json();
+}
+
+// --- NARRATIVE DRAFTS ---
+
+export async function draftNarrative(options: {
+  projectId: string;
+  narrativeType?: string;
+  includeEvidenceCitations?: boolean;
+}): Promise<DraftNarrativeResponse> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${AI_API}/draft-narrative`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      project_id: options.projectId,
+      narrative_type: options.narrativeType ?? "full_narrative",
+      include_evidence_citations: options.includeEvidenceCitations ?? true,
+    }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "Failed to draft narrative");
+  }
+  
+  return response.json();
+}
+
+export async function acceptNarrativeDraft(
+  draftId: string,
+  targetField: string = "description"
+): Promise<{ message: string; draft_id: string; project_id: string }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({ target_field: targetField });
+  
+  const response = await fetch(`${AI_API}/narratives/${draftId}/accept?${params}`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to accept narrative draft");
+  return response.json();
+}
+
+// --- NEXT BEST ACTIONS ---
+
+export async function getNextBestActions(options?: {
+  projectId?: string;
+  clientCompanyId?: string;
+  taxYear?: number;
+}): Promise<NextBestActionsResponse> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (options?.projectId) params.append("project_id", options.projectId);
+  if (options?.clientCompanyId) params.append("client_company_id", options.clientCompanyId);
+  params.append("tax_year", String(options?.taxYear ?? 2024));
+  
+  const response = await fetch(`${AI_API}/next-best-actions?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to get next best actions");
+  return response.json();
 }

@@ -188,3 +188,5 @@ def execute_copilot_action(supabase, action_id: str, user_id: str) -> Dict[str, 
         }).eq("id", action_id).execute()
         raise e
 
+
+

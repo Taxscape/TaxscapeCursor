@@ -83,3 +83,5 @@ CREATE POLICY "Users can manage proposed actions" ON public.ai_proposed_actions
 CREATE POLICY "Users can view their org interaction logs" ON public.ai_interaction_logs
     FOR SELECT USING (organization_id = public.get_user_org_id());
 
+
+

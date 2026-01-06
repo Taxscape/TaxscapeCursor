@@ -19,3 +19,13 @@ export {
 // Grid View (from previous implementation)
 export { GridView } from './GridView';
 
+// AI Qualification Components
+export { ProjectQualificationTab } from './ProjectQualificationTab';
+export { GapResolutionPanel } from './GapResolutionPanel';
+export { StalenessBanner } from './StalenessBanner';
+
+// Import Wizard
+export { ImportWizard } from './ImportWizard';
+
+
+

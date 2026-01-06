@@ -498,3 +498,5 @@ def get_blockers(supabase, org_id: str) -> List[Dict[str, Any]]:
     res = supabase.table("structured_tasks").select("*").eq("organization_id", org_id).in_("status", ["blocked", "escalated"]).order("priority", desc=True).execute()
     return res.data
 
+
+

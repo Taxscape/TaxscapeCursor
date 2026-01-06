@@ -12,6 +12,8 @@ from datetime import datetime
 
 from app import chatbot_agent, excel_engine
 from app.supabase_client import get_supabase, verify_supabase_token, get_user_profile
+from app.workspace_routes import router as workspace_data_router
+from app.ai_evaluation_routes import ai_evaluation_router
 
 # Configure logging
 logging.basicConfig(
@@ -3544,6 +3546,8 @@ async def get_user_permissions_endpoint(user: dict = Depends(get_current_user)):
 app.include_router(task_router)
 app.include_router(workspace_router)
 app.include_router(workflow_router)
+app.include_router(workspace_data_router)  # Workspace CRUD + Import + Recompute
+app.include_router(ai_evaluation_router)  # AI Evaluation + Evidence + Gaps + Narratives
 
 async def trigger_workflow_event(event_type: str, user: dict, project_id: str = None, payload: dict = None):
     """Helper to log workflow events and trigger recomputation."""

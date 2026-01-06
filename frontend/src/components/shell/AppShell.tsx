@@ -7,6 +7,7 @@ import { AIPanel } from './AIPanel';
 import { CommandPalette } from './CommandPalette';
 import { DesktopRequired } from './DesktopRequired';
 import { useWorkspace } from '@/context/workspace-context';
+import { StalenessBanner } from '@/components/workspace/StalenessBanner';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -32,6 +33,9 @@ export function AppShell({ children }: AppShellProps) {
           {/* Top Header */}
           <Header />
           
+          {/* Staleness Banner (shows when derived data is out of sync) */}
+          <StalenessBanner />
+          
           {/* Content + AI Panel */}
           <div className="flex-1 flex overflow-hidden">
             {/* Main Content */}
@@ -47,4 +51,6 @@ export function AppShell({ children }: AppShellProps) {
     </>
   );
 }
+
+
 

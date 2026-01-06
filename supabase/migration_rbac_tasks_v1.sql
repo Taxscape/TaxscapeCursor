@@ -260,3 +260,5 @@ CREATE POLICY "Users can view their org task events" ON public.task_events
 CREATE POLICY "Users can view global and org task configs" ON public.task_type_config
     FOR SELECT USING (organization_id IS NULL OR organization_id = public.get_user_org_id());
 
+
+

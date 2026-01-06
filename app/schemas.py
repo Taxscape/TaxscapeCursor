@@ -98,3 +98,5 @@ class BatchUpdateResponse(BaseModel):
     success_ids: List[uuid.UUID]
     failed_items: List[Dict[str, Any]] # {id, error}
 
+
+

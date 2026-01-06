@@ -57,3 +57,5 @@ export const RecordView: React.FC<RecordViewProps> = ({ entity, type, onEdit }) 
   );
 };
 
+
+
