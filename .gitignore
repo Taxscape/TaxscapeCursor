@@ -35,7 +35,8 @@ npm-debug.log*
 
 # Generated files
 *.xlsx
-studies/
+/studies/
+!/frontend/src/app/workspace/studies/
 
 # OS
 Thumbs.db

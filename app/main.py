@@ -3637,6 +3637,10 @@ app.include_router(workflow_router)
 app.include_router(workspace_data_router)  # Workspace CRUD + Import + Recompute
 app.include_router(ai_evaluation_router)  # AI Evaluation + Evidence + Gaps + Narratives
 
+# Study Generation Router
+from app.study_routes import router as study_router
+app.include_router(study_router)  # Study Generation + Audit Package + Approval
+
 async def trigger_workflow_event(event_type: str, user: dict, project_id: str = None, payload: dict = None):
     """Helper to log workflow events and trigger recomputation."""
     supabase = get_supabase()

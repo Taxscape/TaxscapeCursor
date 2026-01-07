@@ -20,6 +20,7 @@ const mainNavItems: { id: WorkspaceModule; label: string; icon: React.ReactNode;
 
 const toolsNavItems: { id: WorkspaceModule; label: string; icon: React.ReactNode; href: Route }[] = [
   { id: 'rd-analysis', label: 'R&D Analysis', href: '/workspace/rd-analysis' as Route, icon: <RDAnalysisIcon /> },
+  { id: 'studies', label: 'Studies / Export', href: '/workspace/studies' as Route, icon: <StudiesIcon /> },
   { id: 'workflow', label: 'Workflow', href: '/workspace/workflow' as Route, icon: <WorkflowIcon /> },
   { id: 'tasks', label: 'Tasks', href: '/workspace/tasks' as Route, icon: <TasksIcon /> },
   { id: 'copilot', label: 'AI Copilot', href: '/workspace/copilot' as Route, icon: <CopilotIcon /> },
@@ -256,6 +257,16 @@ function CopilotIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+    </svg>
+  );
+}
+
+function StudiesIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+      <path d="M8 7h6" />
+      <path d="M8 11h8" />
     </svg>
   );
 }

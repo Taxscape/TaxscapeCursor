@@ -2996,3 +2996,216 @@ export async function getNextBestActions(options?: {
   if (!response.ok) throw new Error("Failed to get next best actions");
   return response.json();
 }
+
+// =============================================================================
+// STUDY GENERATION API
+// =============================================================================
+
+const STUDIES_API = `${API_URL}/api/studies`;
+
+export interface StudyGenerateOptions {
+  include_unqualified?: boolean;
+  include_only_approved?: boolean;
+  project_filter_ids?: string[];
+  regenerate_if_same_inputs?: boolean;
+  credit_method?: "regular" | "asc" | "both";
+}
+
+export interface StudySummary {
+  study_id: string;
+  version: number;
+  status: string;
+  total_qre: number;
+  total_credit: number;
+  qualified_projects: number;
+  risk_flags_count: number;
+  generated_at: string;
+  artifact_download_url?: string;
+}
+
+export interface StudyDetail {
+  id: string;
+  organization_id: string;
+  client_company_id: string;
+  tax_year: number;
+  study_type: string;
+  status: string;
+  version: number;
+  total_qre: number;
+  total_credit: number;
+  qualified_projects_count: number;
+  risk_flags_count: number;
+  credit_method: string;
+  recommended_method?: string;
+  notes?: string;
+  generated_by?: string;
+  generated_at: string;
+  inputs_snapshot_hash: string;
+  locked: boolean;
+  approved_by?: string;
+  approved_at?: string;
+  approval_notes?: string;
+  evaluation_ids: string[];
+  evidence_ids: string[];
+  artifacts: Array<{
+    artifact_type: string;
+    filename: string;
+    storage_path: string;
+  }>;
+  decisions: Array<{
+    project_id: string;
+    decision: string;
+    reason_code?: string;
+    review_notes?: string;
+    locked: boolean;
+  }>;
+}
+
+export interface StudyTraceability {
+  study_id: string;
+  version: number;
+  inputs_snapshot_hash: string;
+  generated_at: string;
+  recompute_timestamp?: string;
+  evaluations: Array<{
+    id: string;
+    project_id: string;
+    evaluation_version: number;
+    model_name: string;
+    prompt_version: string;
+    confidence_score: number;
+    created_at: string;
+  }>;
+  evidence: Array<{
+    id: string;
+    evidence_type: string;
+    metadata: Record<string, any>;
+    extraction_status: string;
+    created_at: string;
+  }>;
+  audit_log: Array<{
+    action: string;
+    performed_by: string;
+    performed_at: string;
+    details: Record<string, any>;
+  }>;
+}
+
+export async function generateWorkspaceStudy(
+  clientCompanyId: string,
+  taxYear: number,
+  options?: StudyGenerateOptions
+): Promise<StudySummary> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${STUDIES_API}/workspace/generate`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      client_company_id: clientCompanyId,
+      tax_year: taxYear,
+      options: options || {}
+    }),
+  });
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to generate study");
+  }
+  return response.json();
+}
+
+export async function getStudyDetail(studyId: string): Promise<StudyDetail> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${STUDIES_API}/${studyId}`, { headers });
+  if (!response.ok) throw new Error("Failed to get study details");
+  return response.json();
+}
+
+export function getStudyDownloadUrl(studyId: string, artifact: string = "excel"): string {
+  return `${STUDIES_API}/${studyId}/download?artifact=${artifact}`;
+}
+
+export async function generateAuditPackage(studyId: string): Promise<{
+  success: boolean;
+  download_url: string;
+  filename: string;
+  size_bytes: number;
+  checksum: string;
+}> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${STUDIES_API}/${studyId}/audit-package`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to generate audit package");
+  return response.json();
+}
+
+export async function submitStudyForReview(studyId: string): Promise<{ success: boolean; status: string }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${STUDIES_API}/${studyId}/submit-review`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to submit study for review");
+  return response.json();
+}
+
+export async function approveStudy(studyId: string, approvalNotes?: string): Promise<{ success: boolean; status: string; locked: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (approvalNotes) params.append("approval_notes", approvalNotes);
+  
+  const response = await fetch(`${STUDIES_API}/${studyId}/approve?${params}`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to approve study");
+  return response.json();
+}
+
+export async function rejectStudy(studyId: string, rejectionReason: string): Promise<{ success: boolean; status: string }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({ rejection_reason: rejectionReason });
+  
+  const response = await fetch(`${STUDIES_API}/${studyId}/reject?${params}`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to reject study");
+  return response.json();
+}
+
+export async function listClientStudies(
+  clientCompanyId: string,
+  taxYear?: number,
+  status?: string
+): Promise<{ studies: StudyDetail[] }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams();
+  if (taxYear) params.append("tax_year", String(taxYear));
+  if (status) params.append("status", status);
+  
+  const response = await fetch(`${STUDIES_API}/client/${clientCompanyId}?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to list studies");
+  return response.json();
+}
+
+export async function getStudyTraceability(studyId: string): Promise<StudyTraceability> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${STUDIES_API}/${studyId}/traceability`, { headers });
+  if (!response.ok) throw new Error("Failed to get study traceability");
+  return response.json();
+}

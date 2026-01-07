@@ -18,6 +18,7 @@ export type WorkspaceModule =
   | 'supplies'
   | 'timesheets'
   | 'rd-analysis'
+  | 'studies'
   | 'workflow'
   | 'tasks'
   | 'copilot'
