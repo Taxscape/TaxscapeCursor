@@ -1699,8 +1699,23 @@ export async function createClientCompany(orgId: string, data: {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || "Failed to create client company");
+    let errorMessage = "Failed to create client company";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      const errorText = await response.text();
+      errorMessage = errorText || errorMessage;
+    }
+    
+    // Provide user-friendly messages for common errors
+    if (response.status === 403) {
+      errorMessage = "You don't have permission to create clients. CPA or Admin role required.";
+    } else if (response.status === 401) {
+      errorMessage = "Your session has expired. Please log in again.";
+    }
+    
+    throw new Error(errorMessage);
   }
 
   const result = await response.json();

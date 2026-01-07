@@ -549,7 +549,10 @@ def check_org_admin(user: dict, org_id: str) -> bool:
             .eq("user_id", user["id"])\
             .single()\
             .execute()
-        return member.data and member.data.get("role") == "executive" and member.data.get("status") == "active"
+        # Accept both "executive" and "admin" roles for admin access
+        role = member.data.get("role") if member.data else None
+        status = member.data.get("status") if member.data else None
+        return member.data and role in ("executive", "admin") and status == "active"
     except Exception as e:
         logger.error(f"Error checking org admin: {e}")
     return False
