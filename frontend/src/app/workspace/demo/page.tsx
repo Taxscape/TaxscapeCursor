@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/auth-context";
 import { useWorkspace } from "@/context/workspace-context";
+import { getSupabaseClient } from "@/lib/supabase";
 import toast from "react-hot-toast";
 import type { Route } from "next";
 
@@ -48,10 +49,14 @@ interface SeededData {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://taxscape-api.onrender.com";
 
-async function getAuthHeaders() {
-  const token = localStorage.getItem("supabase.auth.token");
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const supabase = getSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("Not authenticated. Please log in again.");
+  }
   return {
-    Authorization: token ? `Bearer ${JSON.parse(token).access_token}` : "",
+    Authorization: `Bearer ${session.access_token}`,
   };
 }
 

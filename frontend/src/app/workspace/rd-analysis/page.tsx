@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useActiveContext } from "@/context/workspace-context";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
+import { getSupabaseClient } from "@/lib/supabase";
 import toast from "react-hot-toast";
 
 // =============================================================================
@@ -41,23 +42,34 @@ type ImportStep = "upload" | "preview" | "importing" | "complete";
 // API FUNCTIONS
 // =============================================================================
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://taxscape-api.onrender.com";
+
+async function getAuthToken(): Promise<string> {
+  const supabase = getSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("Not authenticated. Please log in again.");
+  }
+  return session.access_token;
+}
+
 async function previewImport(
   file: File,
   clientId: string,
   taxYear: number
 ): Promise<{ import_file_id: string; preview: ImportPreview; sheet_mapping: Record<string, string> }> {
-  const token = localStorage.getItem("supabase.auth.token");
+  const token = await getAuthToken();
   const formData = new FormData();
   formData.append("file", file);
   formData.append("client_id", clientId);
   formData.append("tax_year", String(taxYear));
 
   const response = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL || "https://taxscape-api.onrender.com"}/api/workspace-data/import/preview`,
+    `${API_URL}/api/workspace-data/import/preview`,
     {
       method: "POST",
       headers: {
-        Authorization: token ? `Bearer ${JSON.parse(token).access_token}` : "",
+        Authorization: `Bearer ${token}`,
       },
       body: formData,
     }
@@ -71,13 +83,13 @@ async function previewImport(
 }
 
 async function commitImport(importFileId: string): Promise<{ success: boolean; commit_summary: CommitSummary; message: string }> {
-  const token = localStorage.getItem("supabase.auth.token");
+  const token = await getAuthToken();
   const response = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL || "https://taxscape-api.onrender.com"}/api/workspace-data/import/commit?import_file_id=${importFileId}`,
+    `${API_URL}/api/workspace-data/import/commit?import_file_id=${importFileId}`,
     {
       method: "POST",
       headers: {
-        Authorization: token ? `Bearer ${JSON.parse(token).access_token}` : "",
+        Authorization: `Bearer ${token}`,
       },
     }
   );
@@ -90,13 +102,13 @@ async function commitImport(importFileId: string): Promise<{ success: boolean; c
 }
 
 async function triggerRecompute(clientId: string, taxYear: number): Promise<void> {
-  const token = localStorage.getItem("supabase.auth.token");
+  const token = await getAuthToken();
   const response = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL || "https://taxscape-api.onrender.com"}/api/workspace-data/recompute`,
+    `${API_URL}/api/workspace-data/recompute`,
     {
       method: "POST",
       headers: {
-        Authorization: token ? `Bearer ${JSON.parse(token).access_token}` : "",
+        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
