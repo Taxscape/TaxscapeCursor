@@ -23,7 +23,8 @@ export type WorkspaceModule =
   | 'tasks'
   | 'copilot'
   | 'reports'
-  | 'settings';
+  | 'settings'
+  | 'demo';
 
 export interface ClientCompany {
   id: string;

@@ -19,12 +19,13 @@ const mainNavItems: { id: WorkspaceModule; label: string; icon: React.ReactNode;
 ];
 
 const toolsNavItems: { id: WorkspaceModule; label: string; icon: React.ReactNode; href: Route }[] = [
-  { id: 'rd-analysis', label: 'R&D Analysis', href: '/workspace/rd-analysis' as Route, icon: <RDAnalysisIcon /> },
+  { id: 'rd-analysis', label: 'Import Data', href: '/workspace/rd-analysis' as Route, icon: <RDAnalysisIcon /> },
   { id: 'studies', label: 'Studies / Export', href: '/workspace/studies' as Route, icon: <StudiesIcon /> },
   { id: 'workflow', label: 'Workflow', href: '/workspace/workflow' as Route, icon: <WorkflowIcon /> },
   { id: 'tasks', label: 'Tasks', href: '/workspace/tasks' as Route, icon: <TasksIcon /> },
   { id: 'copilot', label: 'AI Copilot', href: '/workspace/copilot' as Route, icon: <CopilotIcon /> },
   { id: 'reports', label: 'Reports', href: '/workspace/reports' as Route, icon: <ReportsIcon /> },
+  { id: 'demo' as WorkspaceModule, label: 'Guided Demo', href: '/workspace/demo' as Route, icon: <DemoIcon /> },
 ];
 
 export function Sidebar() {
@@ -279,6 +280,14 @@ function ReportsIcon() {
       <line x1="16" x2="8" y1="13" y2="13" />
       <line x1="16" x2="8" y1="17" y2="17" />
       <line x1="10" x2="8" y1="9" y2="9" />
+    </svg>
+  );
+}
+
+function DemoIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="5 3 19 12 5 21 5 3" />
     </svg>
   );
 }
