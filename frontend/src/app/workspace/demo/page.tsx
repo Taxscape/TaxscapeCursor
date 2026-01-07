@@ -77,11 +77,55 @@ async function seedDemoData(clientName: string, taxYear: number): Promise<{
   return response.json();
 }
 
+// Fallback tour steps if API fails
+const FALLBACK_TOUR_STEPS: DemoTourStep[] = [
+  {
+    id: "welcome",
+    title: "Welcome to TaxScape Pro",
+    description: "This guided tour will walk you through the complete R&D tax credit workflow.",
+    target_route: "/workspace",
+    action_type: "observe",
+    hints: ["The dashboard shows your pipeline progress and readiness score"]
+  },
+  {
+    id: "view_projects",
+    title: "Review Your Projects",
+    description: "View the R&D projects imported for this client.",
+    target_route: "/workspace/projects",
+    action_type: "navigate",
+    hints: ["Projects are the foundation of your R&D study"]
+  },
+  {
+    id: "import_data",
+    title: "Import Data",
+    description: "Upload Excel files to import employees, projects, and expenses.",
+    target_route: "/workspace/rd-analysis",
+    action_type: "navigate",
+    hints: ["Support for multiple sheet types", "Auto-detects column names"]
+  },
+  {
+    id: "generate_study",
+    title: "Generate Study",
+    description: "Create your R&D tax credit study document.",
+    target_route: "/workspace/studies",
+    action_type: "navigate",
+    hints: ["AI generates comprehensive narratives", "Download as PDF or Word"]
+  }
+];
+
 async function getDemoTourSteps(): Promise<DemoTourStep[]> {
-  const headers = await getAuthHeaders();
-  const response = await fetch(`${API_URL}/api/demo/tour/steps`, { headers });
-  if (!response.ok) throw new Error("Failed to fetch tour steps");
-  return response.json();
+  try {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/demo/tour/steps`, { headers });
+    if (!response.ok) {
+      console.warn("Failed to fetch tour steps, using fallback");
+      return FALLBACK_TOUR_STEPS;
+    }
+    return response.json();
+  } catch (err) {
+    console.warn("Error fetching tour steps:", err);
+    return FALLBACK_TOUR_STEPS;
+  }
 }
 
 async function getDemoSession(): Promise<DemoSession | null> {
@@ -173,23 +217,35 @@ export default function GuidedDemoPage() {
   const [demoClientId, setDemoClientId] = useState<string | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   // Load tour steps and session on mount
   useEffect(() => {
     async function loadData() {
       setIsLoading(true);
+      setLoadError(null);
       try {
-        const [steps, existingSession] = await Promise.all([
-          getDemoTourSteps(),
-          getDemoSession(),
-        ]);
+        // Always get tour steps (will use fallback if API fails)
+        const steps = await getDemoTourSteps();
         setTourSteps(steps);
-        if (existingSession) {
-          setSession(existingSession);
-          setDemoClientId(existingSession.client_company_id || null);
-          setCurrentStepIndex(existingSession.current_step);
+        
+        // Try to get existing session (optional)
+        try {
+          const existingSession = await getDemoSession();
+          if (existingSession) {
+            setSession(existingSession);
+            setDemoClientId(existingSession.client_company_id || null);
+            setCurrentStepIndex(existingSession.current_step);
+          }
+        } catch (sessionErr) {
+          // Session fetch failed - that's OK, user just needs to start fresh
+          console.log("No existing demo session");
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to load demo data:", err);
+        setLoadError(err.message || "Failed to initialize demo");
+        // Still set fallback steps
+        setTourSteps(FALLBACK_TOUR_STEPS);
       } finally {
         setIsLoading(false);
       }
@@ -271,6 +327,14 @@ export default function GuidedDemoPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
+      {/* Error Banner */}
+      {loadError && (
+        <div className="p-4 bg-yellow-500/10 border border-yellow-500/50 rounded-xl mb-4">
+          <p className="text-yellow-400 text-sm">
+            ⚠️ Note: {loadError}. Using offline demo mode.
+          </p>
+        </div>
+      )}
       {/* Header */}
       <div className="text-center">
         <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-[#0a84ff] to-[#5856d6] flex items-center justify-center text-white">
