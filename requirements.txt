@@ -10,8 +10,7 @@ openpyxl
 passlib[bcrypt]
 python-jose[cryptography]
 requests
-google-generativeai
-google-genai
+google-generativeai>=0.8.0
 supabase
 psycopg2-binary
 httpx

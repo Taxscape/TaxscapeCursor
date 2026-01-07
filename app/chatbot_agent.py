@@ -2,9 +2,10 @@ import os
 import json
 import logging
 from typing import List, Dict, Optional, Tuple
-from google import genai
-from google.genai import types
 from dotenv import load_dotenv
+
+# Use google-generativeai SDK
+import google.generativeai as genai
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,8 +20,8 @@ API_KEY = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_K
 MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
 TEMPERATURE = float(os.environ.get("GEMINI_TEMPERATURE", "0.2"))
 
-# Initialize client with error handling
-client = None
+# Initialize model with error handling
+model = None
 client_error = None
 
 try:
@@ -28,11 +29,12 @@ try:
         client_error = "Missing API key. Please set GOOGLE_CLOUD_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY in your environment."
         logger.error(client_error)
     else:
-        logger.info(f"Initializing Gemini client with model: {MODEL_NAME}")
-        client = genai.Client(api_key=API_KEY)
-        logger.info("Gemini client initialized successfully")
+        logger.info(f"Initializing Gemini model: {MODEL_NAME}")
+        genai.configure(api_key=API_KEY)
+        model = genai.GenerativeModel(MODEL_NAME)
+        logger.info("Gemini model initialized successfully")
 except Exception as e:
-    client_error = f"Failed to initialize Gemini client: {str(e)}"
+    client_error = f"Failed to initialize Gemini model: {str(e)}"
     logger.error(client_error, exc_info=True)
 
 SYSTEM_PROMPT = """You are an expert R&D Tax Credit Auditor and a Portal Guide for the TaxScape Pro platform. 
@@ -161,9 +163,9 @@ def get_chat_response(messages: List[Dict[str, str]], user_context: Optional[str
     Returns:
         Response text from Gemini or error message
     """
-    # Check if client is available
-    if client is None:
-        error_msg = client_error or "Gemini client not initialized"
+    # Check if model is available
+    if model is None:
+        error_msg = client_error or "Gemini model not initialized"
         logger.error(f"Cannot get chat response: {error_msg}")
         return f"I'm currently unable to connect to the AI service. Error: {error_msg}\n\nPlease ensure the GOOGLE_CLOUD_API_KEY environment variable is set correctly."
     
@@ -187,24 +189,34 @@ def get_chat_response(messages: List[Dict[str, str]], user_context: Optional[str
 
         logger.info(f"Calling Gemini model: {MODEL_NAME} with temperature: {TEMPERATURE}")
         
-        # Call Gemini API
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=contents,
-            config=types.GenerateContentConfig(
+        # Build prompt from contents
+        prompt_parts = []
+        prompt_parts.append(system_instruction_text + "\n\n")
+        for content in contents:
+            if isinstance(content, dict):
+                role = content.get("role", "user")
+                parts = content.get("parts", [])
+                for part in parts:
+                    if isinstance(part, dict) and "text" in part:
+                        prompt_parts.append(f"{role}: {part['text']}\n")
+                    elif isinstance(part, str):
+                        prompt_parts.append(f"{role}: {part}\n")
+        
+        response = model.generate_content(
+            "".join(prompt_parts),
+            generation_config=genai.types.GenerationConfig(
                 temperature=TEMPERATURE,
                 max_output_tokens=8192,
-                system_instruction=system_instruction_text,
-            ),
+            )
         )
 
         # Extract text from response
-        if response.text:
+        if hasattr(response, 'text') and response.text:
             logger.info(f"Received response of length: {len(response.text)}")
             return response.text
         
         # Fallback: try to extract from candidates
-        if response.candidates and response.candidates[0].content.parts:
+        if hasattr(response, 'candidates') and response.candidates and response.candidates[0].content.parts:
             text_parts = [
                 part.text for part in response.candidates[0].content.parts 
                 if getattr(part, "text", None)

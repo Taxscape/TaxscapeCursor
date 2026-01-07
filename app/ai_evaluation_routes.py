@@ -27,13 +27,11 @@ from pydantic import BaseModel, Field
 from app.rd_parser import (
     GEMINI_AVAILABLE, _get_gemini_client, RD_MODEL_NAME, 
     FOUR_PART_TEST_DEFINITIONS, TestStatus, FourPartTestResult,
-    parse_pdf_file, parse_docx_file, PDF_AVAILABLE, DOCX_AVAILABLE
+    parse_pdf_file, parse_docx_file, PDF_AVAILABLE, DOCX_AVAILABLE,
+    generate_ai_content
 )
 from app.supabase_client import get_supabase, verify_supabase_token
 from app.task_engine import TaskCreateRequest, TaskType, TaskPriority, create_task
-
-if GEMINI_AVAILABLE:
-    from google.genai import types
 
 logger = logging.getLogger(__name__)
 
@@ -449,20 +447,8 @@ async def evaluate_project(
     
     # Call Gemini
     try:
-        client = _get_gemini_client()
-        response = client.models.generate_content(
-            model=RD_MODEL_NAME,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.2,
-                max_output_tokens=4096,
-            ),
-        )
-        
-        if not response or not response.text:
-            raise ValueError("AI returned empty response")
-        
-        result = parse_ai_response(response.text)
+        response_text = generate_ai_content(prompt, temperature=0.2, max_output_tokens=4096)
+        result = parse_ai_response(response_text)
         
     except Exception as e:
         logger.error(f"AI evaluation failed for project {request.project_id}: {e}")
@@ -1063,20 +1049,8 @@ Output the narrative text only, no JSON or additional formatting.
 """
 
     try:
-        client = _get_gemini_client()
-        response = client.models.generate_content(
-            model=RD_MODEL_NAME,
-            contents=narrative_prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                max_output_tokens=2048,
-            ),
-        )
-        
-        if not response or not response.text:
-            raise ValueError("AI returned empty response")
-        
-        narrative_text = response.text.strip()
+        response_text = generate_ai_content(narrative_prompt, temperature=0.3, max_output_tokens=2048)
+        narrative_text = response_text.strip()
         
     except Exception as e:
         logger.error(f"Narrative generation failed: {e}")

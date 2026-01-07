@@ -6,9 +6,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 
-# For Gemini integration (using existing client pattern)
-from google import genai
-from google.genai import types
+# For Gemini integration (using legacy SDK)
+import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
@@ -119,25 +118,31 @@ You MUST respond in valid JSON matching the following schema:
 """
 
 def query_copilot(supabase, user_prompt: str, org_id: str, client_id: str, project_id: Optional[str] = None) -> CopilotResponse:
-    """Orchestrate the Copilot response using Gemini 1.5 Pro."""
+    """Orchestrate the Copilot response using Gemini."""
     
     context = package_copilot_context(supabase, org_id, client_id, project_id)
     
-    api_key = os.environ.get("GEMINI_API_KEY")
-    client = genai.Client(api_key=api_key)
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_CLOUD_API_KEY")
+    if not api_key:
+        logger.error("No Gemini API key found")
+        return CopilotResponse(
+            summary="AI service not configured.",
+            findings=[CopilotFinding(severity="critical", reason_code="NO_API_KEY", affected_entities=[], message="Missing GEMINI_API_KEY")],
+            confidence=0.0
+        )
     
+    genai.configure(api_key=api_key)
     model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro")
+    model = genai.GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT)
     
-    full_prompt = f"USER PROMPT: {user_prompt}\n\nCONTEXT:\n{json.dumps(context, indent=2)}"
+    full_prompt = f"USER PROMPT: {user_prompt}\n\nCONTEXT:\n{json.dumps(context, indent=2)}\n\nRespond with valid JSON only."
     
     try:
-        response = client.models.generate_content(
-            model=model_name,
-            contents=full_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
+        response = model.generate_content(
+            full_prompt,
+            generation_config=genai.types.GenerationConfig(
                 temperature=0.1,
-                response_mime_type="application/json",
+                max_output_tokens=8192,
             ),
         )
         
