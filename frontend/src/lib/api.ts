@@ -3209,3 +3209,253 @@ export async function getStudyTraceability(studyId: string): Promise<StudyTracea
   if (!response.ok) throw new Error("Failed to get study traceability");
   return response.json();
 }
+
+// =============================================================================
+// PAGINATED DATA API
+// =============================================================================
+
+export interface PaginationMeta {
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  meta: PaginationMeta;
+}
+
+export interface PaginatedQueryParams {
+  page?: number;
+  page_size?: number;
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
+  [key: string]: string | number | undefined;
+}
+
+const PAGINATED_API = `${API_URL}/api/data`;
+
+export async function getTimesheetsPaginated(
+  clientCompanyId: string,
+  taxYear: number,
+  params: PaginatedQueryParams = {}
+): Promise<PaginatedResponse<any>> {
+  const headers = await getAuthHeaders();
+  
+  const queryParams = new URLSearchParams({
+    client_company_id: clientCompanyId,
+    tax_year: String(taxYear),
+    page: String(params.page || 1),
+    page_size: String(params.page_size || 50),
+    sort_by: params.sort_by || "work_date",
+    sort_dir: params.sort_dir || "desc",
+  });
+  
+  if (params.employee_id) queryParams.set("employee_id", String(params.employee_id));
+  if (params.project_id) queryParams.set("project_id", String(params.project_id));
+  if (params.date_from) queryParams.set("date_from", String(params.date_from));
+  if (params.date_to) queryParams.set("date_to", String(params.date_to));
+  
+  const response = await fetch(`${PAGINATED_API}/timesheets?${queryParams}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch timesheets");
+  return response.json();
+}
+
+export async function getAPTransactionsPaginated(
+  clientCompanyId: string,
+  taxYear: number,
+  params: PaginatedQueryParams = {}
+): Promise<PaginatedResponse<any>> {
+  const headers = await getAuthHeaders();
+  
+  const queryParams = new URLSearchParams({
+    client_company_id: clientCompanyId,
+    tax_year: String(taxYear),
+    page: String(params.page || 1),
+    page_size: String(params.page_size || 50),
+    sort_by: params.sort_by || "transaction_date",
+    sort_dir: params.sort_dir || "desc",
+  });
+  
+  if (params.vendor_id) queryParams.set("vendor_id", String(params.vendor_id));
+  if (params.category) queryParams.set("category", String(params.category));
+  if (params.date_from) queryParams.set("date_from", String(params.date_from));
+  if (params.date_to) queryParams.set("date_to", String(params.date_to));
+  if (params.min_amount) queryParams.set("min_amount", String(params.min_amount));
+  if (params.max_amount) queryParams.set("max_amount", String(params.max_amount));
+  
+  const response = await fetch(`${PAGINATED_API}/ap-transactions?${queryParams}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch AP transactions");
+  return response.json();
+}
+
+export async function bulkUpdateTimesheets(
+  clientCompanyId: string,
+  ids: string[],
+  field: string,
+  value: any
+): Promise<{ success: boolean; updated_count: number; failed_ids: string[] }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${PAGINATED_API}/timesheets/bulk-update?client_company_id=${clientCompanyId}`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, field, value }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Failed to update timesheets");
+  }
+  return response.json();
+}
+
+export async function bulkUpdateAPTransactions(
+  clientCompanyId: string,
+  ids: string[],
+  field: string,
+  value: any
+): Promise<{ success: boolean; updated_count: number; failed_ids: string[] }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${PAGINATED_API}/ap-transactions/bulk-update?client_company_id=${clientCompanyId}`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, field, value }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Failed to update AP transactions");
+  }
+  return response.json();
+}
+
+// =============================================================================
+// CAPABILITIES & SYSTEM API
+// =============================================================================
+
+export interface UserCapabilities {
+  user_id: string;
+  org_id: string | null;
+  role: string | null;
+  display_role: string;
+  capabilities: Record<string, boolean>;
+}
+
+export async function getUserCapabilities(): Promise<UserCapabilities> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/system/capabilities`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch capabilities");
+  return response.json();
+}
+
+export interface SystemHealth {
+  status: string;
+  timestamp: string;
+  version: string;
+  environment: string;
+  services: Record<string, string>;
+}
+
+export async function getSystemHealth(): Promise<SystemHealth> {
+  const response = await fetch(`${API_URL}/api/system/health`);
+  if (!response.ok) throw new Error("System health check failed");
+  return response.json();
+}
+
+// =============================================================================
+// SUGGESTIONS API
+// =============================================================================
+
+export interface Suggestion {
+  id: string;
+  type: string;
+  priority: "critical" | "high" | "medium" | "low";
+  title: string;
+  description: string;
+  reason: string;
+  action_label: string;
+  action_route?: string;
+  action_params?: Record<string, any>;
+  target_type?: string;
+  target_id?: string;
+  estimated_effort: string;
+  blocking: boolean;
+}
+
+export interface SuggestionsResponse {
+  suggestions: Suggestion[];
+  total_count: number;
+  critical_count: number;
+  dismissed_count: number;
+  client_company_id: string;
+  tax_year: number;
+}
+
+export async function getSuggestions(
+  clientCompanyId: string,
+  taxYear: number,
+  limit?: number
+): Promise<SuggestionsResponse> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_company_id: clientCompanyId,
+    tax_year: String(taxYear),
+  });
+  if (limit) params.set("limit", String(limit));
+  
+  const response = await fetch(`${API_URL}/api/copilot/suggestions?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch suggestions");
+  return response.json();
+}
+
+export async function dismissSuggestion(
+  clientCompanyId: string,
+  taxYear: number,
+  suggestionKey: string,
+  snoozeHours?: number
+): Promise<{ success: boolean; dismissed_key: string }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_company_id: clientCompanyId,
+    tax_year: String(taxYear),
+  });
+  
+  const response = await fetch(`${API_URL}/api/copilot/suggestions/dismiss?${params}`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ suggestion_key: suggestionKey, snooze_hours: snoozeHours }),
+  });
+  
+  if (!response.ok) throw new Error("Failed to dismiss suggestion");
+  return response.json();
+}
+
+export async function restoreSuggestion(
+  clientCompanyId: string,
+  taxYear: number,
+  suggestionKey: string
+): Promise<{ success: boolean; restored_key: string }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    suggestion_key: suggestionKey,
+    client_company_id: clientCompanyId,
+    tax_year: String(taxYear),
+  });
+  
+  const response = await fetch(`${API_URL}/api/copilot/suggestions/restore?${params}`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to restore suggestion");
+  return response.json();
+}

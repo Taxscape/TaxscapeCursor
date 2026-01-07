@@ -1,13 +1,16 @@
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, APIRouter, Header, status, Form
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, APIRouter, Header, status, Form, Request, Response
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import pandas as pd
 import io
 import os
 import uuid
+import time
 import logging
+import json
 from datetime import datetime
 
 from app import chatbot_agent, excel_engine
@@ -15,11 +18,44 @@ from app.supabase_client import get_supabase, verify_supabase_token, get_user_pr
 from app.workspace_routes import router as workspace_data_router
 from app.ai_evaluation_routes import ai_evaluation_router
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure structured logging
+class StructuredLogFormatter(logging.Formatter):
+    """JSON structured log formatter for production"""
+    def format(self, record):
+        log_record = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if hasattr(record, "request_id"):
+            log_record["request_id"] = record.request_id
+        if hasattr(record, "user_id"):
+            log_record["user_id"] = record.user_id
+        if hasattr(record, "org_id"):
+            log_record["org_id"] = record.org_id
+        if hasattr(record, "duration_ms"):
+            log_record["duration_ms"] = record.duration_ms
+        if hasattr(record, "status_code"):
+            log_record["status_code"] = record.status_code
+        if record.exc_info:
+            log_record["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_record)
+
+# Configure logging based on environment
+IS_PRODUCTION = os.environ.get("ENVIRONMENT", "development").lower() == "production"
+
+if IS_PRODUCTION:
+    handler = logging.StreamHandler()
+    handler.setFormatter(StructuredLogFormatter())
+    logging.root.handlers = [handler]
+    logging.root.setLevel(logging.INFO)
+else:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -28,27 +64,148 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS configuration - allow all origins for flexibility
-# The frontend URL can be on Vercel, localhost, or any other domain
-allowed_origins = [
+# CORS configuration
+# Production origins - restrict in production, allow all in development
+IS_PRODUCTION = os.environ.get("ENVIRONMENT", "development").lower() == "production"
+
+# Production allowed origins
+production_origins = [
+    "https://taxscape.ai",
+    "https://www.taxscape.ai",
+    "https://app.taxscape.ai",
+    "https://taxscape-frontend.vercel.app",
+]
+
+# Development allowed origins
+development_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://0.0.0.0:3000",
-    "https://*.vercel.app",
 ]
 
 # Get additional allowed origins from environment
 extra_origins = os.environ.get("CORS_ORIGINS", "")
 if extra_origins:
-    allowed_origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
+    production_origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
+
+# Use strict origins in production, allow all in development for flexibility
+allowed_origins = production_origins if IS_PRODUCTION else ["*"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for Railway deployment
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
+
+
+# =============================================================================
+# REQUEST ID & LOGGING MIDDLEWARE
+# =============================================================================
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware for request ID tracking and structured logging"""
+    
+    async def dispatch(self, request: Request, call_next):
+        # Generate or extract request ID
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:8]
+        
+        # Store in request state
+        request.state.request_id = request_id
+        
+        # Start timer
+        start_time = time.time()
+        
+        # Process request
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            # Log unhandled exceptions
+            duration_ms = (time.time() - start_time) * 1000
+            logger.error(
+                f"Unhandled exception in {request.method} {request.url.path}",
+                extra={
+                    "request_id": request_id,
+                    "duration_ms": round(duration_ms, 2),
+                    "status_code": 500,
+                },
+                exc_info=True
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error", "request_id": request_id}
+            )
+        
+        # Calculate duration
+        duration_ms = (time.time() - start_time) * 1000
+        
+        # Add request ID to response headers
+        response.headers["X-Request-ID"] = request_id
+        
+        # Log request (skip health checks and static files)
+        if not request.url.path.startswith("/api/system/health"):
+            log_level = logging.WARNING if response.status_code >= 400 else logging.INFO
+            logger.log(
+                log_level,
+                f"{request.method} {request.url.path} -> {response.status_code}",
+                extra={
+                    "request_id": request_id,
+                    "duration_ms": round(duration_ms, 2),
+                    "status_code": response.status_code,
+                }
+            )
+        
+        return response
+
+app.add_middleware(RequestLoggingMiddleware)
+
+
+# =============================================================================
+# GLOBAL EXCEPTION HANDLER
+# =============================================================================
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions with structured response"""
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4())[:8])
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "status_code": exc.status_code,
+            "request_id": request_id,
+        },
+        headers={"X-Request-ID": request_id}
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle all other exceptions"""
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4())[:8])
+    
+    logger.error(
+        f"Unhandled exception: {str(exc)}",
+        extra={"request_id": request_id},
+        exc_info=True
+    )
+    
+    # Don't expose internal errors in production
+    detail = "Internal server error" if IS_PRODUCTION else str(exc)
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": detail,
+            "status_code": 500,
+            "request_id": request_id,
+        },
+        headers={"X-Request-ID": request_id}
+    )
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -3640,6 +3797,18 @@ app.include_router(ai_evaluation_router)  # AI Evaluation + Evidence + Gaps + Na
 # Study Generation Router
 from app.study_routes import router as study_router
 app.include_router(study_router)  # Study Generation + Audit Package + Approval
+
+# Suggestions & Action Center Router
+from app.suggestions_routes import router as suggestions_router
+app.include_router(suggestions_router)  # Copilot suggestions + dismiss/snooze
+
+# System & Observability Router
+from app.system_routes import router as system_router
+app.include_router(system_router)  # Health check + metrics + debug
+
+# Paginated Data Router
+from app.paginated_routes import router as paginated_router
+app.include_router(paginated_router)  # Paginated timesheets/AP/employees
 
 async def trigger_workflow_event(event_type: str, user: dict, project_id: str = None, payload: dict = None):
     """Helper to log workflow events and trigger recomputation."""
