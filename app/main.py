@@ -1059,6 +1059,91 @@ async def delete_client_company(org_id: str, client_id: str, user: dict = Depend
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# --- Simple Client Creation (auto-creates org if needed) ---
+@api_router.post("/clients/create")
+async def create_client_simple(client: ClientCompanyCreate, user: dict = Depends(get_current_user)):
+    """
+    Create a new client company. Auto-creates an organization if the user doesn't have one.
+    This is the simplified endpoint for CPAs who just want to add clients without worrying about orgs.
+    """
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # Get user's profile to find their org
+        profile = supabase.table("profiles").select("*").eq("id", user["id"]).single().execute()
+        org_id = profile.data.get("organization_id") if profile.data else None
+        
+        # If no org, auto-create one for this user
+        if not org_id:
+            # Create a default organization for this user
+            user_email = user.get("email", "user")
+            default_org_name = f"{user_email.split('@')[0]}'s Practice"
+            
+            org_result = supabase.table("organizations").insert({
+                "name": default_org_name,
+                "industry": "Accounting",
+                "tax_year": "2024",
+            }).execute()
+            
+            if not org_result.data:
+                raise HTTPException(status_code=500, detail="Failed to create organization")
+            
+            org_id = org_result.data[0]["id"]
+            
+            # Update user's profile with new org
+            supabase.table("profiles").update({
+                "organization_id": org_id,
+                "company_name": default_org_name,
+            }).eq("id", user["id"]).execute()
+            
+            # Add user as admin member of the new org
+            supabase.table("organization_members").insert({
+                "organization_id": org_id,
+                "user_id": user["id"],
+                "role": "admin",
+                "status": "active",
+                "accepted_at": datetime.utcnow().isoformat(),
+            }).execute()
+            
+            logger.info(f"Auto-created organization {org_id} for user {user['id']}")
+        
+        # Now create the client company
+        slug = client.name.lower().replace(" ", "-")
+        slug = "".join(c for c in slug if c.isalnum() or c == "-")
+        
+        result = supabase.table("client_companies").insert({
+            "organization_id": org_id,
+            "name": client.name,
+            "slug": slug,
+            "industry": client.industry,
+            "tax_year": client.tax_year or "2024",
+            "ein": client.ein,
+            "address": client.address,
+            "city": client.city,
+            "state": client.state,
+            "zip_code": client.zip_code,
+            "contact_name": client.contact_name,
+            "contact_email": client.contact_email,
+            "contact_phone": client.contact_phone,
+            "created_by": user["id"],
+            "status": "active",
+        }).execute()
+        
+        log_audit(org_id, user["id"], "client_company_created", "client_company", result.data[0]["id"], {"name": client.name})
+        
+        return {
+            "client": result.data[0],
+            "organization_id": org_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating client: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # --- Profile Selected Client ---
 @api_router.post("/profile/selected-client")
 async def set_selected_client(req: SelectedClientRequest, user: dict = Depends(get_current_user)):

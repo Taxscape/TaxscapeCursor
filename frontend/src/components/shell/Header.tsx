@@ -3,9 +3,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useWorkspace } from '@/context/workspace-context';
 import { useAuth } from '@/context/auth-context';
-import { useClients, useCreateClient } from '@/lib/queries';
+import { useClients } from '@/lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { CACHE_KEYS } from '@/lib/query-client';
+import { createClientSimple } from '@/lib/api';
 
 export function Header() {
   const { state, setClient, setOrganization, toggleAIPanel, toggleCommandPalette, activeClient } = useWorkspace();
@@ -35,17 +36,11 @@ export function Header() {
   }, [organization?.id, state.organizationId, setOrganization]);
   
   const { data: clients = [], isLoading: clientsLoading } = useClients(orgId);
-  const createClientMutation = useCreateClient(orgId || '');
   
-  // Handle adding a new client
+  // Handle adding a new client - uses simple API that auto-creates org if needed
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddClientError(null);
-    
-    if (!orgId) {
-      setAddClientError('No organization found. Please refresh the page.');
-      return;
-    }
     
     if (!newClientForm.name.trim()) {
       setAddClientError('Client name is required.');
@@ -54,7 +49,8 @@ export function Header() {
     
     setIsAddingClient(true);
     try {
-      const newClient = await createClientMutation.mutateAsync({
+      // Use the simple client creation API - it auto-creates an org if needed
+      const result = await createClientSimple({
         name: newClientForm.name.trim(),
         industry: newClientForm.industry || undefined,
         tax_year: newClientForm.tax_year || undefined,
@@ -62,8 +58,17 @@ export function Header() {
         contact_email: newClientForm.contact_email || undefined,
       });
       
+      const newClient = result.client;
+      const newOrgId = result.organization_id;
+      
+      // Update organization in workspace state if it was auto-created
+      if (newOrgId && newOrgId !== orgId) {
+        setOrganization(newOrgId);
+      }
+      
       // Invalidate clients query to refresh list
-      queryClient.invalidateQueries({ queryKey: CACHE_KEYS.clients(orgId) });
+      queryClient.invalidateQueries({ queryKey: CACHE_KEYS.clients(newOrgId) });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
       
       // Select the newly created client
       if (newClient?.id) {

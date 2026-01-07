@@ -1722,6 +1722,46 @@ export async function createClientCompany(orgId: string, data: {
   return result.client;
 }
 
+/**
+ * Simple client creation - auto-creates organization if user doesn't have one.
+ * This is the recommended way to create clients for CPAs.
+ */
+export async function createClientSimple(data: {
+  name: string;
+  industry?: string;
+  tax_year?: string;
+  ein?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+}): Promise<{ client: ClientCompany; organization_id: string }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/clients/create`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    let errorMessage = "Failed to create client";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      const errorText = await response.text();
+      errorMessage = errorText || errorMessage;
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
 export async function updateClientCompany(orgId: string, clientId: string, data: {
   name?: string;
   industry?: string;
