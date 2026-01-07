@@ -3,7 +3,8 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useActiveContext } from "@/context/workspace-context";
+import type { Route } from "next";
+import { useWorkspace } from "@/context/workspace-context";
 import { useAuth } from "@/context/auth-context";
 import toast from "react-hot-toast";
 
@@ -244,7 +245,9 @@ const priorityColors = {
 export default function CPAHomeDashboard() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { clientId, taxYear, setClientId } = useActiveContext();
+  const { state, setClient } = useWorkspace();
+  const clientId = state.clientId;
+  const taxYear = state.taxYear;
   const { organization } = useAuth();
   const [showDemoModal, setShowDemoModal] = useState(false);
 
@@ -262,7 +265,7 @@ export default function CPAHomeDashboard() {
     mutationFn: (name: string) => seedDemoData(name, Number(taxYear) || 2024),
     onSuccess: (data) => {
       toast.success("Demo data created successfully!");
-      setClientId(data.client_company_id);
+      setClient(data.client_company_id);
       setShowDemoModal(false);
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -295,7 +298,7 @@ export default function CPAHomeDashboard() {
                 <PlayIcon /> Start Guided Demo
               </button>
               <button
-                onClick={() => router.push("/workspace/projects")}
+                onClick={() => router.push("/workspace/projects" as Route)}
                 className="px-6 py-3 border border-[#3a3a3c] text-white rounded-xl font-medium hover:bg-[#2c2c2e]"
               >
                 Browse Clients
@@ -494,7 +497,7 @@ export default function CPAHomeDashboard() {
                 step={step}
                 index={index}
                 isActive={index === dashboard.current_step}
-                onClick={() => step.next_action_route && router.push(step.next_action_route)}
+                onClick={() => step.next_action_route && router.push(step.next_action_route as Route)}
               />
             ))}
           </div>
@@ -516,7 +519,7 @@ export default function CPAHomeDashboard() {
                   <NextActionCard
                     key={action.id}
                     action={action}
-                    onClick={() => action.action_route && router.push(action.action_route)}
+                    onClick={() => action.action_route && router.push(action.action_route as Route)}
                   />
                 ))
               )}
@@ -528,8 +531,8 @@ export default function CPAHomeDashboard() {
             <h2 className="text-lg font-semibold text-white mb-4">Study Status</h2>
             <StudyStatusPanel
               status={dashboard.study_status}
-              onGenerate={() => router.push("/workspace/studies")}
-              onDownload={() => router.push("/workspace/studies")}
+              onGenerate={() => router.push("/workspace/studies" as Route)}
+              onDownload={() => router.push("/workspace/studies" as Route)}
             />
           </div>
         </div>
@@ -550,7 +553,7 @@ export default function CPAHomeDashboard() {
                   <BlockerCard
                     key={blocker.id}
                     blocker={blocker}
-                    onClick={() => blocker.action_route && router.push(blocker.action_route)}
+                    onClick={() => blocker.action_route && router.push(blocker.action_route as Route)}
                   />
                 ))
               )}
@@ -568,7 +571,7 @@ export default function CPAHomeDashboard() {
                   <RiskFlagCard
                     key={flag.id}
                     flag={flag}
-                    onClick={() => flag.entity_route && router.push(flag.entity_route)}
+                    onClick={() => flag.entity_route && router.push(flag.entity_route as Route)}
                   />
                 ))
               )}

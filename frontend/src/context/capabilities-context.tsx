@@ -223,7 +223,7 @@ export function PermissionGate({
     if (showMessage) {
       return (
         <div className="p-4 bg-[#2c2c2e] rounded-xl border border-[#3a3a3c] text-center">
-          <p className="text-[#8e8e93]">You don't have permission to access this feature.</p>
+          <p className="text-[#8e8e93]">You don&apos;t have permission to access this feature.</p>
         </div>
       );
     }

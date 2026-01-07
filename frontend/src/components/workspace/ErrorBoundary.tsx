@@ -130,7 +130,7 @@ export class ErrorBoundary extends Component<Props, State> {
             {/* Title */}
             <h2 className="text-2xl font-bold text-white mb-2">Something went wrong</h2>
             <p className="text-[#8e8e93] mb-6">
-              We encountered an error while rendering this page. This has been logged and we're working on it.
+              We encountered an error while rendering this page. This has been logged and we&apos;re working on it.
             </p>
 
             {/* Actions */}

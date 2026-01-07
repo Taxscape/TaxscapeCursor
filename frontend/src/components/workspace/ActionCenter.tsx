@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import { useActiveContext } from "@/context/workspace-context";
 
 // Types
@@ -189,7 +190,7 @@ export function ActionCenter() {
       const url = params.toString()
         ? `${suggestion.action_route}?${params}`
         : suggestion.action_route;
-      router.push(url);
+      router.push(url as Route);
       setIsOpen(false);
     }
   };
@@ -340,7 +341,7 @@ export function ActionCenter() {
             <div className="p-3 border-t border-[#3a3a3c] bg-[#2c2c2e]/50">
               <button
                 onClick={() => {
-                  router.push("/workspace/tasks");
+                  router.push("/workspace/tasks" as Route);
                   setIsOpen(false);
                 }}
                 className="w-full text-center text-sm text-[#0a84ff] hover:underline"
