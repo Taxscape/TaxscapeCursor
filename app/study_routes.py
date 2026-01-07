@@ -25,7 +25,7 @@ from app.rd_parser import (
     RDAnalysisSession, RDProject, RDEmployee, RDVendor, RDExpense, 
     FourPartTestResult, TestStatus, GapItem
 )
-from app.rd_excel_generator import generate_rd_report
+from app.rd_excel_generator import generate_rd_workbook
 
 logger = logging.getLogger(__name__)
 
@@ -599,7 +599,7 @@ async def generate_workspace_study(
         credit_info = calculate_credit(session.total_qre, options.credit_method)
         
         # Generate Excel report
-        excel_buffer = generate_rd_report(session)
+        excel_buffer = generate_rd_workbook(session)
         excel_bytes = excel_buffer.getvalue()
         
         # Compute file checksum

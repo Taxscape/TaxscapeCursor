@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from dotenv import load_dotenv
 
 # Use google-generativeai SDK
@@ -116,9 +116,9 @@ When generating a study, you MUST output valid JSON in exactly this format. Incl
 ```"""
 
 
-def _build_contents(messages: List[Dict[str, str]]) -> Tuple[List[types.Content], Optional[str]]:
+def _build_contents(messages: List[Dict[str, str]]) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """Convert chat history into content payload for the API."""
-    contents: List[types.Content] = []
+    contents: List[Dict[str, Any]] = []
     system_context = None
     
     try:
@@ -138,12 +138,10 @@ def _build_contents(messages: List[Dict[str, str]]) -> Tuple[List[types.Content]
             content_text = message.get("content", "")
             
             if content_text:  # Only add if there's actual content
-                contents.append(
-                    types.Content(
-                        role=api_role,
-                        parts=[types.Part.from_text(text=content_text)]
-                    )
-                )
+                contents.append({
+                    "role": api_role,
+                    "parts": [{"text": content_text}]
+                })
         
         logger.info(f"Built {len(contents)} content items from {len(messages)} messages")
         return contents, system_context
