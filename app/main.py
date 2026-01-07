@@ -3810,6 +3810,18 @@ app.include_router(system_router)  # Health check + metrics + debug
 from app.paginated_routes import router as paginated_router
 app.include_router(paginated_router)  # Paginated timesheets/AP/employees
 
+# CPA Dashboard Router
+from app.dashboard_routes import router as dashboard_router
+app.include_router(dashboard_router)  # Client summary + readiness
+
+# Missing Info Router
+from app.missing_info_routes import router as missing_info_router
+app.include_router(missing_info_router)  # Auto-detection + capture
+
+# Demo Mode Router
+from app.demo_routes import router as demo_router
+app.include_router(demo_router)  # Demo seeding + guided tour
+
 async def trigger_workflow_event(event_type: str, user: dict, project_id: str = None, payload: dict = None):
     """Helper to log workflow events and trigger recomputation."""
     supabase = get_supabase()

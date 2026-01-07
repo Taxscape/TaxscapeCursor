@@ -3459,3 +3459,328 @@ export async function restoreSuggestion(
   if (!response.ok) throw new Error("Failed to restore suggestion");
   return response.json();
 }
+
+// =============================================================================
+// DASHBOARD API
+// =============================================================================
+
+export interface ClientDashboardSummary {
+  client_company_id: string;
+  client_name: string;
+  tax_year: number;
+  organization_id: string;
+  last_input_update: string | null;
+  last_recompute: string | null;
+  last_ai_evaluation: string | null;
+  last_study_generation: string | null;
+  pipeline_steps: PipelineStep[];
+  current_step: number;
+  readiness_score: number;
+  readiness_breakdown: ReadinessBreakdown;
+  top_blockers: Blocker[];
+  next_actions: NextAction[];
+  risk_flags: RiskFlag[];
+  high_wage_flags_count: number;
+  foreign_vendor_flags_count: number;
+  low_confidence_projects_count: number;
+  missing_documentation_count: number;
+  study_status: StudyStatusInfo;
+  projects_count: number;
+  qualified_projects_count: number;
+  employees_count: number;
+  total_qre: number;
+  estimated_credit: number;
+}
+
+export interface PipelineStep {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+  completion_percent: number;
+  blockers_count: number;
+  next_action: string | null;
+  next_action_route: string | null;
+  last_updated: string | null;
+}
+
+export interface ReadinessBreakdown {
+  data_completeness: number;
+  questionnaire_completeness: number;
+  gaps_resolved: number;
+  evidence_coverage: number;
+  ai_evaluation_freshness: number;
+  automated_review_resolved: number;
+  study_decisions_locked: number;
+}
+
+export interface Blocker {
+  id: string;
+  type: string;
+  severity: string;
+  title: string;
+  description: string;
+  action_route?: string;
+  action_label?: string;
+}
+
+export interface RiskFlag {
+  id: string;
+  type: string;
+  severity: string;
+  title: string;
+  description: string;
+  entity_route?: string;
+}
+
+export interface NextAction {
+  id: string;
+  priority: string;
+  title: string;
+  reason: string;
+  effort: string;
+  blocking: boolean;
+  action_label: string;
+  action_route?: string;
+}
+
+export interface StudyStatusInfo {
+  has_draft: boolean;
+  has_approved: boolean;
+  latest_draft_id?: string;
+  latest_draft_version?: number;
+  latest_approved_id?: string;
+  latest_approved_version?: number;
+  can_generate: boolean;
+  can_submit_review: boolean;
+  can_download_audit_package: boolean;
+}
+
+export async function getClientDashboardSummary(
+  clientCompanyId: string,
+  taxYear: number
+): Promise<ClientDashboardSummary> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(
+    `${API_URL}/api/dashboard/client-summary?client_company_id=${clientCompanyId}&tax_year=${taxYear}`,
+    { headers }
+  );
+  
+  if (!response.ok) throw new Error("Failed to fetch dashboard summary");
+  return response.json();
+}
+
+export async function recomputeReadiness(
+  clientCompanyId: string,
+  taxYear: number
+): Promise<{ success: boolean; score: number }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(
+    `${API_URL}/api/dashboard/readiness/recompute?client_company_id=${clientCompanyId}&tax_year=${taxYear}`,
+    { method: "POST", headers }
+  );
+  
+  if (!response.ok) throw new Error("Failed to recompute readiness");
+  return response.json();
+}
+
+// =============================================================================
+// MISSING INFO API
+// =============================================================================
+
+export interface MissingFieldRequest {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  entity_name?: string;
+  field_key: string;
+  prompt_text: string;
+  prompt_detail?: string;
+  severity: string;
+  category?: string;
+  status: string;
+  assigned_to?: string;
+  created_at: string;
+}
+
+export interface MissingFieldsResponse {
+  requests: MissingFieldRequest[];
+  total_count: number;
+  critical_count: number;
+  by_entity_type: Record<string, number>;
+  by_severity: Record<string, number>;
+}
+
+export async function detectMissingFields(
+  clientCompanyId: string,
+  taxYear: number,
+  entityTypes?: string[]
+): Promise<{ detected_count: number; created_count: number; resolved_count: number }> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_company_id: clientCompanyId,
+    tax_year: String(taxYear),
+  });
+  if (entityTypes) params.set("entity_types", entityTypes.join(","));
+  
+  const response = await fetch(`${API_URL}/api/missing-info/detect?${params}`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to detect missing fields");
+  return response.json();
+}
+
+export async function getMissingFields(
+  clientCompanyId: string,
+  taxYear: number,
+  options?: {
+    entity_type?: string;
+    severity?: string;
+    status?: string;
+    limit?: number;
+  }
+): Promise<MissingFieldsResponse> {
+  const headers = await getAuthHeaders();
+  
+  const params = new URLSearchParams({
+    client_company_id: clientCompanyId,
+    tax_year: String(taxYear),
+  });
+  if (options?.entity_type) params.set("entity_type", options.entity_type);
+  if (options?.severity) params.set("severity", options.severity);
+  if (options?.status) params.set("status", options.status);
+  if (options?.limit) params.set("limit", String(options.limit));
+  
+  const response = await fetch(`${API_URL}/api/missing-info/list?${params}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch missing fields");
+  return response.json();
+}
+
+export async function resolveMissingField(requestId: string): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/missing-info/${requestId}/resolve`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to resolve missing field");
+  return response.json();
+}
+
+export async function waiveMissingField(
+  requestId: string,
+  reason: string
+): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/missing-info/${requestId}/waive?reason=${encodeURIComponent(reason)}`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to waive missing field");
+  return response.json();
+}
+
+// =============================================================================
+// DEMO MODE API
+// =============================================================================
+
+export interface DemoTourStep {
+  id: string;
+  title: string;
+  description: string;
+  target_route: string;
+  target_element?: string;
+  action_type: string;
+  hints: string[];
+}
+
+export interface DemoSession {
+  id: string;
+  user_id: string;
+  organization_id?: string;
+  client_company_id?: string;
+  demo_type: string;
+  current_step: number;
+  completed_steps: string[];
+  started_at: string;
+  completed_at?: string;
+}
+
+export async function seedDemoData(
+  clientName: string,
+  taxYear: number
+): Promise<{ success: boolean; client_company_id: string; seeded_data: Record<string, number> }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(
+    `${API_URL}/api/demo/seed?client_name=${encodeURIComponent(clientName)}&tax_year=${taxYear}`,
+    { method: "POST", headers }
+  );
+  
+  if (!response.ok) throw new Error("Failed to seed demo data");
+  return response.json();
+}
+
+export async function getDemoTourSteps(): Promise<DemoTourStep[]> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/demo/tour/steps`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch tour steps");
+  return response.json();
+}
+
+export async function getDemoSession(): Promise<DemoSession | null> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/demo/session`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch demo session");
+  return response.json();
+}
+
+export async function startDemoSession(
+  clientCompanyId: string
+): Promise<{ success: boolean; session_id: string }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(
+    `${API_URL}/api/demo/session/start?client_company_id=${clientCompanyId}`,
+    { method: "POST", headers }
+  );
+  
+  if (!response.ok) throw new Error("Failed to start demo session");
+  return response.json();
+}
+
+export async function advanceDemoStep(
+  stepId: string
+): Promise<{ success: boolean; current_step: number; is_complete: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/demo/session/advance?step_id=${stepId}`, {
+    method: "POST",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to advance demo step");
+  return response.json();
+}
+
+export async function deleteDemoData(clientCompanyId: string): Promise<{ success: boolean }> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}/api/demo/data?client_company_id=${clientCompanyId}`, {
+    method: "DELETE",
+    headers,
+  });
+  
+  if (!response.ok) throw new Error("Failed to delete demo data");
+  return response.json();
+}
