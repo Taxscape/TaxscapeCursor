@@ -8,10 +8,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { CACHE_KEYS } from '@/lib/query-client';
 
 export function Header() {
-  const { state, setClient, toggleAIPanel, toggleCommandPalette, activeClient } = useWorkspace();
+  const { state, setClient, setOrganization, toggleAIPanel, toggleCommandPalette, activeClient } = useWorkspace();
   const { user, organization, profile } = useAuth();
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [addClientError, setAddClientError] = useState<string | null>(null);
   const [newClientForm, setNewClientForm] = useState({
     name: '',
     industry: '',
@@ -23,13 +24,33 @@ export function Header() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   
-  const { data: clients = [], isLoading: clientsLoading } = useClients(state.organizationId);
-  const createClientMutation = useCreateClient(state.organizationId || '');
+  // Use organization ID from auth context (more reliable) or workspace state
+  const orgId = organization?.id || state.organizationId;
+  
+  // Sync organization ID to workspace state if not set
+  useEffect(() => {
+    if (organization?.id && !state.organizationId) {
+      setOrganization(organization.id);
+    }
+  }, [organization?.id, state.organizationId, setOrganization]);
+  
+  const { data: clients = [], isLoading: clientsLoading } = useClients(orgId);
+  const createClientMutation = useCreateClient(orgId || '');
   
   // Handle adding a new client
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!state.organizationId || !newClientForm.name.trim()) return;
+    setAddClientError(null);
+    
+    if (!orgId) {
+      setAddClientError('No organization found. Please refresh the page.');
+      return;
+    }
+    
+    if (!newClientForm.name.trim()) {
+      setAddClientError('Client name is required.');
+      return;
+    }
     
     setIsAddingClient(true);
     try {
@@ -42,7 +63,7 @@ export function Header() {
       });
       
       // Invalidate clients query to refresh list
-      queryClient.invalidateQueries({ queryKey: CACHE_KEYS.clients(state.organizationId!) });
+      queryClient.invalidateQueries({ queryKey: CACHE_KEYS.clients(orgId) });
       
       // Select the newly created client
       if (newClient?.id) {
@@ -54,6 +75,7 @@ export function Header() {
       setNewClientForm({ name: '', industry: '', tax_year: new Date().getFullYear().toString(), contact_name: '', contact_email: '' });
     } catch (error) {
       console.error('Failed to create client:', error);
+      setAddClientError(error instanceof Error ? error.message : 'Failed to create client. Please try again.');
     } finally {
       setIsAddingClient(false);
     }
@@ -128,6 +150,7 @@ export function Header() {
                   onClick={() => {
                     setShowClientDropdown(false);
                     setShowAddClientModal(true);
+                    setAddClientError(null);
                   }}
                   className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/10 rounded-md transition-colors"
                 >
@@ -223,6 +246,13 @@ export function Header() {
               </button>
             </div>
             <form onSubmit={handleAddClient} className="p-6 space-y-4">
+              {/* Error message */}
+              {addClientError && (
+                <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+                  {addClientError}
+                </div>
+              )}
+              
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">
                   Client Name <span className="text-destructive">*</span>
@@ -230,7 +260,10 @@ export function Header() {
                 <input
                   type="text"
                   value={newClientForm.name}
-                  onChange={(e) => setNewClientForm(prev => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => {
+                    setNewClientForm(prev => ({ ...prev, name: e.target.value }));
+                    setAddClientError(null); // Clear error on input change
+                  }}
                   className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
                   placeholder="e.g., Acme Corporation"
                   required

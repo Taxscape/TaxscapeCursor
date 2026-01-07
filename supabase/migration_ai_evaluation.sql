@@ -601,3 +601,4 @@ COMMENT ON TABLE public.project_evidence_items IS 'Evidence artifacts uploaded t
 COMMENT ON TABLE public.project_gaps IS 'Missing requirements identified by AI or manually. Resolution workflow with task linking.';
 COMMENT ON TABLE public.project_narrative_drafts IS 'AI-drafted narratives for CPA review before acceptance.';
 
+

@@ -595,3 +595,4 @@ export function GapResolutionPanel({ gaps, projectId, onGapUpdated, userRole = '
 
 export default GapResolutionPanel;
 
+
