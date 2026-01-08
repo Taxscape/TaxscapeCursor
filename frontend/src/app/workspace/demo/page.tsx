@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/auth-context";
 import { useWorkspace } from "@/context/workspace-context";
 import { getSupabaseClient } from "@/lib/supabase";
+import { getApiUrl } from "@/lib/api";
 import toast from "react-hot-toast";
 import type { Route } from "next";
 
@@ -47,7 +48,7 @@ interface SeededData {
 // API FUNCTIONS
 // =============================================================================
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://taxscape-api.onrender.com";
+const API_URL = getApiUrl();
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const supabase = getSupabaseClient();

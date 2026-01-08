@@ -6,6 +6,7 @@ import { useActiveContext } from "@/context/workspace-context";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { getSupabaseClient } from "@/lib/supabase";
+import { getApiUrl } from "@/lib/api";
 import toast from "react-hot-toast";
 
 // =============================================================================
@@ -42,7 +43,7 @@ type ImportStep = "upload" | "preview" | "importing" | "complete";
 // API FUNCTIONS
 // =============================================================================
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://taxscape-api.onrender.com";
+const API_URL = getApiUrl();
 
 async function getAuthToken(): Promise<string> {
   const supabase = getSupabaseClient();
