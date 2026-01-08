@@ -355,17 +355,26 @@ async def get_demo_session(
     if not supabase:
         raise HTTPException(status_code=503, detail="Database unavailable")
     
-    result = supabase.table("demo_sessions")\
-        .select("*")\
-        .eq("user_id", auth.user_id)\
-        .eq("organization_id", auth.org_id)\
-        .single()\
-        .execute()
-    
-    if not result.data:
+    try:
+        query = supabase.table("demo_sessions")\
+            .select("*")\
+            .eq("user_id", auth.user_id)
+        
+        # Handle null organization_id
+        if auth.org_id:
+            query = query.eq("organization_id", auth.org_id)
+        else:
+            query = query.is_("organization_id", "null")
+        
+        result = query.order("started_at", desc=True).limit(1).execute()
+        
+        if not result.data:
+            return None
+        
+        return DemoSession(**result.data[0])
+    except Exception as e:
+        logger.warning(f"Failed to get demo session: {e}")
         return None
-    
-    return DemoSession(**result.data)
 
 
 @router.post("/session/start")
@@ -378,18 +387,33 @@ async def start_demo_session(
     if not supabase:
         raise HTTPException(status_code=503, detail="Database unavailable")
     
-    result = supabase.table("demo_sessions").upsert({
-        "user_id": auth.user_id,
-        "organization_id": auth.org_id,
-        "client_company_id": client_company_id,
-        "demo_type": "guided",
-        "current_step": 0,
-        "completed_steps": [],
-        "started_at": datetime.utcnow().isoformat(),
-        "completed_at": None
-    }, on_conflict="user_id,organization_id").execute()
-    
-    return {"success": True, "session_id": result.data[0]["id"]}
+    try:
+        # Delete existing session first (handles null org_id gracefully)
+        delete_query = supabase.table("demo_sessions")\
+            .delete()\
+            .eq("user_id", auth.user_id)
+        if auth.org_id:
+            delete_query = delete_query.eq("organization_id", auth.org_id)
+        else:
+            delete_query = delete_query.is_("organization_id", "null")
+        delete_query.execute()
+        
+        # Insert new session
+        result = supabase.table("demo_sessions").insert({
+            "user_id": auth.user_id,
+            "organization_id": auth.org_id,
+            "client_company_id": client_company_id,
+            "demo_type": "guided",
+            "current_step": 0,
+            "completed_steps": [],
+            "started_at": datetime.utcnow().isoformat(),
+            "completed_at": None
+        }).execute()
+        
+        return {"success": True, "session_id": result.data[0]["id"]}
+    except Exception as e:
+        logger.error(f"Failed to start demo session: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start demo session: {str(e)}")
 
 
 @router.post("/session/advance")
@@ -402,43 +426,54 @@ async def advance_demo_step(
     if not supabase:
         raise HTTPException(status_code=503, detail="Database unavailable")
     
-    # Get current session
-    session = supabase.table("demo_sessions")\
-        .select("*")\
-        .eq("user_id", auth.user_id)\
-        .eq("organization_id", auth.org_id)\
-        .single()\
-        .execute()
-    
-    if not session.data:
-        raise HTTPException(status_code=404, detail="No active demo session")
-    
-    completed = session.data.get("completed_steps", [])
-    if step_id not in completed:
-        completed.append(step_id)
-    
-    # Find next step
-    current_idx = session.data.get("current_step", 0)
-    next_idx = min(current_idx + 1, len(DEMO_TOUR_STEPS) - 1)
-    
-    is_complete = next_idx >= len(DEMO_TOUR_STEPS) - 1
-    
-    supabase.table("demo_sessions")\
-        .update({
+    try:
+        # Get current session with null-safe org_id handling
+        query = supabase.table("demo_sessions")\
+            .select("*")\
+            .eq("user_id", auth.user_id)
+        
+        if auth.org_id:
+            query = query.eq("organization_id", auth.org_id)
+        else:
+            query = query.is_("organization_id", "null")
+        
+        result = query.order("started_at", desc=True).limit(1).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="No active demo session")
+        
+        session = result.data[0]
+        completed = session.get("completed_steps", [])
+        if step_id not in completed:
+            completed.append(step_id)
+        
+        # Find next step
+        current_idx = session.get("current_step", 0)
+        next_idx = min(current_idx + 1, len(DEMO_TOUR_STEPS) - 1)
+        
+        is_complete = next_idx >= len(DEMO_TOUR_STEPS) - 1
+        
+        supabase.table("demo_sessions")\
+            .update({
+                "current_step": next_idx,
+                "completed_steps": completed,
+                "completed_at": datetime.utcnow().isoformat() if is_complete else None
+            })\
+            .eq("id", session["id"])\
+            .execute()
+        
+        return {
+            "success": True,
             "current_step": next_idx,
             "completed_steps": completed,
-            "completed_at": datetime.utcnow().isoformat() if is_complete else None
-        })\
-        .eq("id", session.data["id"])\
-        .execute()
-    
-    return {
-        "success": True,
-        "current_step": next_idx,
-        "completed_steps": completed,
-        "is_complete": is_complete,
-        "next_step": DEMO_TOUR_STEPS[next_idx] if next_idx < len(DEMO_TOUR_STEPS) else None
-    }
+            "is_complete": is_complete,
+            "next_step": DEMO_TOUR_STEPS[next_idx] if next_idx < len(DEMO_TOUR_STEPS) else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to advance demo step: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to advance demo step: {str(e)}")
 
 
 @router.delete("/session")
@@ -450,13 +485,21 @@ async def end_demo_session(
     if not supabase:
         raise HTTPException(status_code=503, detail="Database unavailable")
     
-    supabase.table("demo_sessions")\
-        .delete()\
-        .eq("user_id", auth.user_id)\
-        .eq("organization_id", auth.org_id)\
-        .execute()
-    
-    return {"success": True}
+    try:
+        query = supabase.table("demo_sessions")\
+            .delete()\
+            .eq("user_id", auth.user_id)
+        
+        if auth.org_id:
+            query = query.eq("organization_id", auth.org_id)
+        else:
+            query = query.is_("organization_id", "null")
+        
+        query.execute()
+        return {"success": True}
+    except Exception as e:
+        logger.warning(f"Failed to end demo session: {e}")
+        return {"success": True}  # Return success anyway to not block UI
 
 
 @router.delete("/data")
