@@ -261,10 +261,26 @@ export default function GuidedDemoPage() {
       setSeededData(result.seeded_data);
       setDemoClientId(result.client_company_id);
       
-      // Start demo session
-      await startDemoSession(result.client_company_id);
-      const newSession = await getDemoSession();
-      setSession(newSession);
+      // Try to start demo session (optional - continue if fails)
+      try {
+        await startDemoSession(result.client_company_id);
+        const newSession = await getDemoSession();
+        setSession(newSession);
+      } catch (sessionErr) {
+        console.log("Session tracking unavailable, using local state");
+        // Create a local session for UI purposes
+        setSession({
+          id: "local",
+          user_id: "local",
+          organization_id: undefined,
+          client_company_id: result.client_company_id,
+          demo_type: "guided",
+          current_step: 0,
+          completed_steps: [],
+          started_at: new Date().toISOString(),
+          completed_at: undefined,
+        });
+      }
       setCurrentStepIndex(0);
       
       // Set as active client
@@ -275,6 +291,7 @@ export default function GuidedDemoPage() {
       
       toast.success("Demo data created successfully!");
     } catch (err: any) {
+      console.error("Demo seed error:", err);
       toast.error(err.message || "Failed to create demo data");
     } finally {
       setIsSeeding(false);
@@ -285,16 +302,32 @@ export default function GuidedDemoPage() {
   const handleNextStep = useCallback(async () => {
     if (!tourSteps[currentStepIndex]) return;
     
+    const nextIndex = currentStepIndex + 1;
+    const isComplete = nextIndex >= tourSteps.length;
+    
+    // Try to sync with backend (optional)
     try {
       const result = await advanceDemoStep(tourSteps[currentStepIndex].id);
       setCurrentStepIndex(result.current_step);
       
       if (result.is_complete) {
-        toast.success("🎉 Congratulations! You've completed the demo tour!");
+        toast.success("🎉 Congratulations! You have completed the demo tour!");
         setSession((prev) => prev ? { ...prev, completed_at: new Date().toISOString() } : null);
       }
     } catch (err) {
-      console.error("Failed to advance step:", err);
+      // Backend unavailable - use local state
+      console.log("Using local step tracking");
+      setCurrentStepIndex(nextIndex);
+      setSession((prev) => prev ? {
+        ...prev,
+        current_step: nextIndex,
+        completed_steps: [...(prev.completed_steps || []), tourSteps[currentStepIndex].id],
+      } : null);
+      
+      if (isComplete) {
+        toast.success("🎉 Congratulations! You have completed the demo tour!");
+        setSession((prev) => prev ? { ...prev, completed_at: new Date().toISOString() } : null);
+      }
     }
   }, [currentStepIndex, tourSteps]);
 

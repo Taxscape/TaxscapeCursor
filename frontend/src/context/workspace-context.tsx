@@ -4,6 +4,7 @@ import React, { createContext, useContext, useReducer, useEffect, useCallback, u
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useAuth } from './auth-context';
 import { queryClient, CACHE_KEYS } from '@/lib/query-client';
+import { setSelectedClient } from '@/lib/api';
 
 // ============================================================================
 // TYPES
@@ -248,10 +249,16 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (organization?.id) {
         dispatch({ type: 'SET_ORG', payload: organization.id });
       }
+      // Restore previously selected client from profile (if not already set by URL)
+      if (profile?.selected_client_id && !state.clientId) {
+        dispatch({ type: 'SET_CLIENT', payload: { 
+          clientId: profile.selected_client_id 
+        }});
+      }
       dispatch({ type: 'SET_INITIALIZED', payload: true });
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [authLoading, organization?.id]);
+  }, [authLoading, organization?.id, profile?.selected_client_id, state.clientId]);
   
   // -------------------------------------------------------------------------
   // URL Synchronization - Read from URL on mount
@@ -293,6 +300,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   
   const setClient = useCallback((clientId: string | null, taxYear?: string) => {
     dispatch({ type: 'SET_CLIENT', payload: { clientId, taxYear } });
+    
+    // Persist selection to backend so it survives page refreshes
+    if (clientId) {
+      setSelectedClient(clientId).catch(err => 
+        console.error('Failed to persist client selection:', err)
+      );
+    }
     
     // Invalidate client-specific caches
     queryClient.invalidateQueries({ queryKey: ['projects'] });

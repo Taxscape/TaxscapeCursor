@@ -168,6 +168,7 @@ export type Profile = {
   full_name: string | null;
   company_name: string | null;
   organization_id: string | null;
+  selected_client_id: string | null;
   is_admin: boolean;
   created_at: string;
   updated_at: string;
