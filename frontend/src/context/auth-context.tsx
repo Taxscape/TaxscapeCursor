@@ -40,14 +40,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = getSupabaseClient();
 
   const fetchProfile = useCallback(async (userId: string) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'auth-context.tsx:fetchProfile',message:'fetchProfile called',data:{userId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'K'})}).catch(()=>{});
+    // #endregion
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", userId)
       .single();
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'auth-context.tsx:fetchProfile',message:'fetchProfile result',data:{hasData:!!data,hasError:!!error,errorMsg:error?.message,dataKeys:data?Object.keys(data):[]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'K'})}).catch(()=>{});
+    // #endregion
     if (error) {
       console.error("Error fetching profile:", error);
+      // If RLS recursion error, return minimal profile to keep app working
+      if (error.message?.includes("infinite recursion")) {
+        console.warn("RLS recursion detected - using minimal profile. Run FIX_PROFILES_RLS_V2.sql in Supabase to fix.");
+        return { id: userId, email: "", full_name: null, company_name: null, organization_id: null, selected_client_id: null, is_admin: false, created_at: "", updated_at: "", last_active_at: "" } as Profile;
+      }
       return null;
     }
     return data as Profile;

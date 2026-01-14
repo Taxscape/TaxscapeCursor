@@ -642,6 +642,30 @@ export default function Portal() {
     }
   }, [authLoading, user, router]);
 
+  // Check if user needs onboarding (new CPA users)
+  useEffect(() => {
+    if (!authLoading && user && profile) {
+      // Check if user qualifies for onboarding redirect:
+      // - CPA role
+      // - Has not seen onboarding OR has incomplete onboarding session
+      const isCpaUser = profile.role === "cpa";
+      const hasNotSeenOnboarding = profile.has_seen_onboarding === false;
+      const hasIncompleteOnboarding = profile.onboarding_session_id && !profile.has_seen_onboarding;
+      
+      if (isCpaUser && hasNotSeenOnboarding) {
+        router.push("/onboarding");
+      }
+    }
+  }, [authLoading, user, profile, router]);
+
+  // Check if user has incomplete onboarding (for "Continue onboarding" button)
+  const hasIncompleteOnboarding = useMemo(() => {
+    if (!profile) return false;
+    return profile.role === "cpa" && 
+           profile.onboarding_session_id && 
+           profile.has_seen_onboarding === false;
+  }, [profile]);
+
   // Verify R&D session when navigating to R&D Analysis
   useEffect(() => {
     const verifyRDSession = async () => {
@@ -3650,6 +3674,23 @@ export default function Portal() {
 
             {/* Right - Actions */}
             <div className="flex items-center gap-3">
+              {/* Continue Onboarding Button - shown if user has incomplete onboarding */}
+              {hasIncompleteOnboarding && (
+                <button 
+                  onClick={() => router.push("/onboarding")} 
+                  className="btn btn-primary btn-sm hidden lg:flex gap-2 animate-pulse"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <line x1="10" y1="9" x2="8" y2="9" />
+                  </svg>
+                  <span>Continue Onboarding</span>
+                </button>
+              )}
+
               {/* Copilot Button */}
               <button 
                 onClick={() => setIsCopilotOpen(!isCopilotOpen)} 

@@ -1,15 +1,15 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useWorkspace } from '@/context/workspace-context';
 import { useAuth } from '@/context/auth-context';
-import { useClients } from '@/lib/queries';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CACHE_KEYS } from '@/lib/query-client';
-import { createClientSimple } from '@/lib/api';
+import { createClientSimple, getMyClients, getClientCompanies } from '@/lib/api';
+import type { ClientCompany } from '@/lib/api';
 
 export function Header() {
-  const { state, setClient, setOrganization, toggleAIPanel, toggleCommandPalette, activeClient } = useWorkspace();
+  const { state, setClient, setOrganization, toggleAIPanel, toggleCommandPalette } = useWorkspace();
   const { user, organization, profile } = useAuth();
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -35,7 +35,30 @@ export function Header() {
     }
   }, [organization?.id, state.organizationId, setOrganization]);
   
-  const { data: clients = [], isLoading: clientsLoading } = useClients(orgId);
+  // Fetch clients - use org-specific endpoint if orgId available, otherwise use fallback
+  const { data: clientsData, isLoading: clientsLoading } = useQuery({
+    queryKey: orgId ? CACHE_KEYS.clients(orgId) : ['my-clients'],
+    queryFn: async (): Promise<ClientCompany[]> => {
+      if (orgId) {
+        return getClientCompanies(orgId);
+      }
+      // Fallback: use the auto-detect endpoint
+      const result = await getMyClients();
+      // If we got an org ID from the response, sync it to workspace state
+      if (result.organization_id && !state.organizationId) {
+        setOrganization(result.organization_id);
+      }
+      return result.clients;
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+  
+  const clients = clientsData || [];
+  
+  // Derive activeClient from fetched clients data and current clientId
+  const activeClient = useMemo(() => {
+    return clients.find(c => c.id === state.clientId) || null;
+  }, [clients, state.clientId]);
   
   // Handle adding a new client - uses simple API that auto-creates org if needed
   const handleAddClient = async (e: React.FormEvent) => {
@@ -118,20 +141,20 @@ export function Header() {
         </button>
       </div>
       
-      {/* Center: Status Strip */}
-      <div className="flex items-center gap-4">
-        {activeClient && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent/10 text-accent text-sm">
-            <BuildingIcon />
-            <span className="font-medium">{activeClient.name}</span>
-            <span className="text-muted-foreground">•</span>
-            <span>FY{activeClient.tax_year}</span>
-          </div>
-        )}
-      </div>
-      
       {/* Right: Actions */}
       <div className="flex items-center gap-3">
+        {/* Selected Client Badge - Prominent Display */}
+        {activeClient && (
+          <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-gradient-to-r from-accent/15 to-accent/5 border border-accent/20 text-sm mr-2">
+            <div className="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+              <BuildingIcon />
+            </div>
+            <div className="flex flex-col">
+              <span className="font-semibold text-foreground leading-tight">{activeClient.name}</span>
+              <span className="text-xs text-muted-foreground">Tax Year {activeClient.tax_year}</span>
+            </div>
+          </div>
+        )}
         {/* Client Switcher */}
         <div className="relative" ref={dropdownRef}>
           <button

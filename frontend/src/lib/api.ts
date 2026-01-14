@@ -13,20 +13,38 @@ import type {
 // =============================================================================
 // API URL CONFIGURATION
 // =============================================================================
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://taxscapecursor-production.up.railway.app";
+// Prioritize localhost detection for local development, then fall back to env var
+const ENV_API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+function getApiUrlInternal(): string {
+  // PRIORITY 1: Always use localhost backend when running on localhost
+  // This ensures local development works even if env var points to production
+  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+    return "http://localhost:8001";
+  }
+  
+  // PRIORITY 2: Use env var for production/preview deployments
+  if (ENV_API_URL) return ENV_API_URL;
+  
+  // PRIORITY 3: Fallback for server-side rendering or missing env var
+  return "https://taxscapecursor-production.up.railway.app";
+}
+
+// For module-level constant (server-side safe)
+const API_URL = ENV_API_URL || "https://taxscapecursor-production.up.railway.app";
 
 // Log API URL for debugging
 if (typeof window !== "undefined") {
-  console.log(`[TaxScape API] Connected to: ${API_URL}`);
+  console.log(`[TaxScape API] Connected to: ${getApiUrlInternal()}`);
 }
 
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
 
-// Export for debugging
+// Export for runtime URL (detects localhost)
 export function getApiUrl(): string {
-  return API_URL;
+  return getApiUrlInternal();
 }
 
 // Check API connectivity
@@ -582,16 +600,27 @@ export async function getUserContext(): Promise<UserContext> {
 
 export async function getProjects(): Promise<Project[]> {
   const headers = await getAuthHeaders();
+  const apiUrl = getApiUrl();
   
-  const response = await fetch(`${API_URL}/api/projects`, {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getProjects',message:'Fetching projects',data:{apiUrl},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'P1'})}).catch(()=>{});
+  // #endregion
+  
+  const response = await fetch(`${apiUrl}/api/projects`, {
     headers,
   });
 
   if (!response.ok) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getProjects',message:'Projects fetch failed',data:{status:response.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'P1'})}).catch(()=>{});
+    // #endregion
     throw new Error("Failed to fetch projects");
   }
 
   const data = await response.json();
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getProjects',message:'Projects fetched',data:{count:data.projects?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'P1'})}).catch(()=>{});
+  // #endregion
   return data.projects;
 }
 
@@ -614,16 +643,27 @@ export async function createProject(project: Partial<Project>): Promise<Project>
 
 export async function getEmployees(): Promise<Employee[]> {
   const headers = await getAuthHeaders();
+  const apiUrl = getApiUrl();
   
-  const response = await fetch(`${API_URL}/api/employees`, {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getEmployees',message:'Fetching employees',data:{apiUrl},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E1'})}).catch(()=>{});
+  // #endregion
+  
+  const response = await fetch(`${apiUrl}/api/employees`, {
     headers,
   });
 
   if (!response.ok) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getEmployees',message:'Employees fetch failed',data:{status:response.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E1'})}).catch(()=>{});
+    // #endregion
     throw new Error("Failed to fetch employees");
   }
 
   const data = await response.json();
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getEmployees',message:'Employees fetched',data:{count:data.employees?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E1'})}).catch(()=>{});
+  // #endregion
   return data.employees;
 }
 
@@ -1661,6 +1701,25 @@ export async function getClientCompanies(orgId: string): Promise<ClientCompany[]
   return data.clients;
 }
 
+/**
+ * Get all clients for the current user (auto-detects organization).
+ * This endpoint works even when RLS on profiles table has issues.
+ */
+export async function getMyClients(): Promise<{ clients: ClientCompany[]; organization_id: string | null }> {
+  const headers = await getAuthHeaders();
+  const apiUrl = getApiUrl(); // Use runtime URL detection for localhost
+  
+  const response = await fetch(`${apiUrl}/api/clients`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch clients");
+  }
+
+  return response.json();
+}
+
 export async function getClientCompany(orgId: string, clientId: string): Promise<ClientCompany | null> {
   const headers = await getAuthHeaders();
   
@@ -1810,7 +1869,7 @@ export async function deleteClientCompany(orgId: string, clientId: string): Prom
 export async function setSelectedClient(clientId: string | null): Promise<{ success: boolean }> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/profile/selected-client`, {
+  const response = await fetch(`${API_URL}/api/profile/selected-client`, {
     method: "POST",
     headers,
     body: JSON.stringify({ client_id: clientId }),

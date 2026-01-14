@@ -1,592 +1,494 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/context/auth-context";
-import { useWorkspace } from "@/context/workspace-context";
-import { getSupabaseClient } from "@/lib/supabase";
-import { getApiUrl } from "@/lib/api";
-import toast from "react-hot-toast";
 import type { Route } from "next";
 
 // =============================================================================
-// TYPES
+// STATIC DEMO DATA - Pre-populated showcase
 // =============================================================================
 
-interface DemoTourStep {
-  id: string;
-  title: string;
-  description: string;
-  target_route: string;
-  target_element?: string;
-  action_type: string;
-  hints: string[];
-}
-
-interface DemoSession {
-  id: string;
-  user_id: string;
-  organization_id?: string;
-  client_company_id?: string;
-  demo_type: string;
-  current_step: number;
-  completed_steps: string[];
-  started_at: string;
-  completed_at?: string;
-}
-
-interface SeededData {
-  projects: number;
-  employees: number;
-  vendors: number;
-  timesheets: number;
-  ap_transactions: number;
-}
-
-// =============================================================================
-// API FUNCTIONS
-// =============================================================================
-
-const API_URL = getApiUrl();
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const supabase = getSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error("Not authenticated. Please log in again.");
-  }
-  return {
-    Authorization: `Bearer ${session.access_token}`,
-  };
-}
-
-async function seedDemoData(clientName: string, taxYear: number): Promise<{
-  success: boolean;
-  client_company_id: string;
-  seeded_data: SeededData;
-}> {
-  const headers = await getAuthHeaders();
-  const response = await fetch(
-    `${API_URL}/api/demo/seed?client_name=${encodeURIComponent(clientName)}&tax_year=${taxYear}`,
-    { method: "POST", headers }
-  );
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || "Failed to seed demo data");
-  }
-  return response.json();
-}
-
-// Fallback tour steps if API fails
-const FALLBACK_TOUR_STEPS: DemoTourStep[] = [
-  {
-    id: "welcome",
-    title: "Welcome to TaxScape Pro",
-    description: "This guided tour will walk you through the complete R&D tax credit workflow.",
-    target_route: "/workspace",
-    action_type: "observe",
-    hints: ["The dashboard shows your pipeline progress and readiness score"]
+const DEMO_DASHBOARD = {
+  client_name: "TechInnovate Solutions Inc.",
+  tax_year: 2024,
+  readiness_score: 78,
+  total_qre: 847500,
+  estimated_credit: 55087,
+  projects_count: 12,
+  qualified_projects_count: 9,
+  employees_count: 45,
+  
+  pipeline_steps: [
+    { id: "import", name: "Import Data", status: "completed", percent: 100 },
+    { id: "verify", name: "Verify & Clean", status: "completed", percent: 100 },
+    { id: "recompute", name: "Recompute QREs", status: "completed", percent: 100 },
+    { id: "evaluate", name: "AI Evaluation", status: "in_progress", percent: 75 },
+    { id: "review", name: "CPA Review", status: "not_started", percent: 0 },
+    { id: "finalize", name: "Finalize Study", status: "not_started", percent: 0 },
+    { id: "deliver", name: "Deliver", status: "not_started", percent: 0 },
+  ],
+  
+  readiness_breakdown: {
+    data_completeness: 95,
+    questionnaire_completeness: 72,
+    gaps_resolved: 85,
+    evidence_coverage: 60,
+    ai_evaluation_freshness: 90,
+    automated_review_resolved: 70,
+    study_decisions_locked: 45,
   },
-  {
-    id: "view_projects",
-    title: "Review Your Projects",
-    description: "View the R&D projects imported for this client.",
-    target_route: "/workspace/projects",
-    action_type: "navigate",
-    hints: ["Projects are the foundation of your R&D study"]
-  },
-  {
-    id: "import_data",
-    title: "Import Data",
-    description: "Upload Excel files to import employees, projects, and expenses.",
-    target_route: "/workspace/rd-analysis",
-    action_type: "navigate",
-    hints: ["Support for multiple sheet types", "Auto-detects column names"]
-  },
-  {
-    id: "generate_study",
-    title: "Generate Study",
-    description: "Create your R&D tax credit study document.",
-    target_route: "/workspace/studies",
-    action_type: "navigate",
-    hints: ["AI generates comprehensive narratives", "Download as PDF or Word"]
-  }
+  
+  top_blockers: [
+    { id: "1", type: "missing_data", severity: "high", title: "3 employees missing R&D percentage", description: "Update employee records with R&D time allocation" },
+    { id: "2", type: "questionnaire", severity: "medium", title: "5 projects need questionnaire completion", description: "Complete technical uncertainty documentation" },
+    { id: "3", type: "evidence", severity: "low", title: "Missing contractor invoices", description: "Upload supporting documentation for 2 contractors" },
+  ],
+  
+  next_actions: [
+    { id: "1", priority: "critical", title: "Complete employee R&D allocations", reason: "Required for QRE calculation", effort: "15 min", blocking: true },
+    { id: "2", priority: "high", title: "Run AI evaluation on new projects", reason: "3 projects added since last evaluation", effort: "5 min", blocking: false },
+    { id: "3", priority: "medium", title: "Review flagged expenses", reason: "12 expenses need categorization", effort: "20 min", blocking: false },
+  ],
+  
+  risk_flags: [
+    { id: "1", type: "high_wage", severity: "medium", title: "Above-average wage rates", description: "2 employees have wages 40% above industry average" },
+    { id: "2", type: "foreign", severity: "low", title: "Foreign contractor activity", description: "1 contractor based outside US - verify qualified research" },
+  ],
+};
+
+const DEMO_PROJECTS = [
+  { id: "1", name: "AI-Powered Inventory Optimization", status: "qualified", confidence: 92, qre: 125000, uncertainty: "Novel ML algorithms for demand forecasting" },
+  { id: "2", name: "Cloud Migration Platform", status: "qualified", confidence: 88, qre: 98500, uncertainty: "Automated legacy system translation" },
+  { id: "3", name: "Real-time Analytics Engine", status: "qualified", confidence: 95, qre: 156000, uncertainty: "Sub-millisecond query optimization" },
+  { id: "4", name: "Mobile Payment SDK", status: "qualified", confidence: 85, qre: 87000, uncertainty: "Cross-platform biometric authentication" },
+  { id: "5", name: "IoT Sensor Network", status: "under_review", confidence: 72, qre: 45000, uncertainty: "Low-power mesh networking protocols" },
+  { id: "6", name: "Blockchain Integration", status: "not_qualified", confidence: 35, qre: 0, uncertainty: "Standard implementation - no uncertainty" },
 ];
 
-async function getDemoTourSteps(): Promise<DemoTourStep[]> {
-  try {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_URL}/api/demo/tour/steps`, { headers });
-    if (!response.ok) {
-      console.warn("Failed to fetch tour steps, using fallback");
-      return FALLBACK_TOUR_STEPS;
-    }
-    return response.json();
-  } catch (err) {
-    console.warn("Error fetching tour steps:", err);
-    return FALLBACK_TOUR_STEPS;
-  }
-}
-
-async function getDemoSession(): Promise<DemoSession | null> {
-  const headers = await getAuthHeaders();
-  const response = await fetch(`${API_URL}/api/demo/session`, { headers });
-  if (!response.ok) return null;
-  return response.json();
-}
-
-async function startDemoSession(clientCompanyId: string): Promise<{ success: boolean }> {
-  const headers = await getAuthHeaders();
-  const response = await fetch(
-    `${API_URL}/api/demo/session/start?client_company_id=${clientCompanyId}`,
-    { method: "POST", headers }
-  );
-  if (!response.ok) throw new Error("Failed to start demo session");
-  return response.json();
-}
-
-async function advanceDemoStep(stepId: string): Promise<{
-  success: boolean;
-  current_step: number;
-  is_complete: boolean;
-  next_step?: DemoTourStep;
-}> {
-  const headers = await getAuthHeaders();
-  const response = await fetch(`${API_URL}/api/demo/session/advance?step_id=${stepId}`, {
-    method: "POST",
-    headers,
-  });
-  if (!response.ok) throw new Error("Failed to advance demo step");
-  return response.json();
-}
+const DEMO_EMPLOYEES = [
+  { id: "1", name: "Sarah Chen", title: "Lead Engineer", department: "R&D", rd_percent: 85, wages: 165000, qre_contribution: 140250 },
+  { id: "2", name: "Marcus Johnson", title: "Senior Developer", department: "Engineering", rd_percent: 75, wages: 145000, qre_contribution: 108750 },
+  { id: "3", name: "Emily Rodriguez", title: "Data Scientist", department: "AI/ML", rd_percent: 90, wages: 155000, qre_contribution: 139500 },
+  { id: "4", name: "David Kim", title: "Software Architect", department: "Platform", rd_percent: 80, wages: 175000, qre_contribution: 140000 },
+  { id: "5", name: "Lisa Wang", title: "QA Engineer", department: "Quality", rd_percent: 40, wages: 95000, qre_contribution: 38000 },
+];
 
 // =============================================================================
 // ICONS
 // =============================================================================
 
-const SparklesIcon = () => (
-  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-  </svg>
-);
-
-const PlayIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <polygon points="5 3 19 12 5 21 5 3" />
-  </svg>
-);
-
-const CheckIcon = () => (
+const CheckCircleIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <polyline points="20 6 9 17 4 12" />
+    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+    <polyline points="22 4 12 14.01 9 11.01"/>
+  </svg>
+);
+
+const AlertCircleIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="12" cy="12" r="10"/>
+    <line x1="12" x2="12" y1="8" y2="12"/>
+    <line x1="12" x2="12.01" y1="16" y2="16"/>
   </svg>
 );
 
 const ArrowRightIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <line x1="5" y1="12" x2="19" y2="12" />
-    <polyline points="12 5 19 12 12 19" />
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
   </svg>
 );
 
-const RotateCwIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M21 2v6h-6" />
-    <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-    <path d="M3 22v-6h6" />
-    <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+const SparklesIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
   </svg>
 );
+
+const UsersIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+    <path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+  </svg>
+);
+
+const FolderIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+  </svg>
+);
+
+const DollarIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+  </svg>
+);
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+const statusColors: Record<string, string> = {
+  completed: "bg-green-500/20 text-green-400 border-green-500/50",
+  in_progress: "bg-yellow-500/20 text-yellow-400 border-yellow-500/50",
+  not_started: "bg-[#3a3a3c] text-[#8e8e93] border-[#3a3a3c]",
+  qualified: "bg-green-500/20 text-green-400",
+  under_review: "bg-yellow-500/20 text-yellow-400",
+  not_qualified: "bg-red-500/20 text-red-400",
+};
+
+const priorityColors: Record<string, string> = {
+  critical: "bg-red-500",
+  high: "bg-orange-500",
+  medium: "bg-yellow-500",
+  low: "bg-blue-500",
+};
 
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
 
-export default function GuidedDemoPage() {
+export default function DemoShowcasePage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
-  const { organization } = useAuth();
-  const { state, setClient } = useWorkspace();
-  const clientId = state.clientId;
-
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSeeding, setIsSeeding] = useState(false);
-  const [tourSteps, setTourSteps] = useState<DemoTourStep[]>([]);
-  const [session, setSession] = useState<DemoSession | null>(null);
-  const [seededData, setSeededData] = useState<SeededData | null>(null);
-  const [demoClientId, setDemoClientId] = useState<string | null>(null);
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  // Load tour steps and session on mount
-  useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-      setLoadError(null);
-      try {
-        // Always get tour steps (will use fallback if API fails)
-        const steps = await getDemoTourSteps();
-        setTourSteps(steps);
-        
-        // Try to get existing session (optional)
-        try {
-          const existingSession = await getDemoSession();
-          if (existingSession) {
-            setSession(existingSession);
-            setDemoClientId(existingSession.client_company_id || null);
-            setCurrentStepIndex(existingSession.current_step);
-          }
-        } catch (sessionErr) {
-          // Session fetch failed - that's OK, user just needs to start fresh
-          console.log("No existing demo session");
-        }
-      } catch (err: any) {
-        console.error("Failed to load demo data:", err);
-        setLoadError(err.message || "Failed to initialize demo");
-        // Still set fallback steps
-        setTourSteps(FALLBACK_TOUR_STEPS);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    loadData();
-  }, []);
-
-  // Seed demo data
-  const handleSeedDemo = useCallback(async () => {
-    setIsSeeding(true);
-    try {
-      const result = await seedDemoData("Demo Tech Company", 2024);
-      setSeededData(result.seeded_data);
-      setDemoClientId(result.client_company_id);
-      
-      // Try to start demo session (optional - continue if fails)
-      try {
-        await startDemoSession(result.client_company_id);
-        const newSession = await getDemoSession();
-        setSession(newSession);
-      } catch (sessionErr) {
-        console.log("Session tracking unavailable, using local state");
-        // Create a local session for UI purposes
-        setSession({
-          id: "local",
-          user_id: "local",
-          organization_id: undefined,
-          client_company_id: result.client_company_id,
-          demo_type: "guided",
-          current_step: 0,
-          completed_steps: [],
-          started_at: new Date().toISOString(),
-          completed_at: undefined,
-        });
-      }
-      setCurrentStepIndex(0);
-      
-      // Set as active client
-      setClient(result.client_company_id);
-      
-      // Invalidate queries
-      queryClient.invalidateQueries({ queryKey: ["clients"] });
-      
-      toast.success("Demo data created successfully!");
-    } catch (err: any) {
-      console.error("Demo seed error:", err);
-      toast.error(err.message || "Failed to create demo data");
-    } finally {
-      setIsSeeding(false);
-    }
-  }, [queryClient, setClient]);
-
-  // Advance to next step
-  const handleNextStep = useCallback(async () => {
-    if (!tourSteps[currentStepIndex]) return;
-    
-    const nextIndex = currentStepIndex + 1;
-    const isComplete = nextIndex >= tourSteps.length;
-    
-    // Try to sync with backend (optional)
-    try {
-      const result = await advanceDemoStep(tourSteps[currentStepIndex].id);
-      setCurrentStepIndex(result.current_step);
-      
-      if (result.is_complete) {
-        toast.success("🎉 Congratulations! You have completed the demo tour!");
-        setSession((prev) => prev ? { ...prev, completed_at: new Date().toISOString() } : null);
-      }
-    } catch (err) {
-      // Backend unavailable - use local state
-      console.log("Using local step tracking");
-      setCurrentStepIndex(nextIndex);
-      setSession((prev) => prev ? {
-        ...prev,
-        current_step: nextIndex,
-        completed_steps: [...(prev.completed_steps || []), tourSteps[currentStepIndex].id],
-      } : null);
-      
-      if (isComplete) {
-        toast.success("🎉 Congratulations! You have completed the demo tour!");
-        setSession((prev) => prev ? { ...prev, completed_at: new Date().toISOString() } : null);
-      }
-    }
-  }, [currentStepIndex, tourSteps]);
-
-  // Navigate to current step's target
-  const handleGoToStep = useCallback(() => {
-    const step = tourSteps[currentStepIndex];
-    if (step?.target_route) {
-      router.push(step.target_route as Route);
-    }
-  }, [currentStepIndex, tourSteps, router]);
-
-  // Reset demo
-  const handleResetDemo = useCallback(() => {
-    setSession(null);
-    setSeededData(null);
-    setDemoClientId(null);
-    setCurrentStepIndex(0);
-  }, []);
-
-  const currentStep = tourSteps[currentStepIndex];
-  const isComplete = session?.completed_at != null;
-
-  if (isLoading) {
-    return (
-      <div className="min-h-[600px] flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-[#0a84ff] border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  const [activeTab, setActiveTab] = useState<"dashboard" | "projects" | "employees">("dashboard");
+  const d = DEMO_DASHBOARD;
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-8">
-      {/* Error Banner */}
-      {loadError && (
-        <div className="p-4 bg-yellow-500/10 border border-yellow-500/50 rounded-xl mb-4">
-          <p className="text-yellow-400 text-sm">
-            ⚠️ Note: {loadError}. Using offline demo mode.
-          </p>
-        </div>
-      )}
-      {/* Header */}
-      <div className="text-center">
-        <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-[#0a84ff] to-[#5856d6] flex items-center justify-center text-white">
-          <SparklesIcon />
-        </div>
-        <h1 className="text-3xl font-bold text-white mb-4">Guided Demo</h1>
-        <p className="text-lg text-[#8e8e93] max-w-xl mx-auto">
-          Experience TaxScape Pro with realistic sample data. Learn the complete R&D tax credit workflow step-by-step.
-        </p>
-      </div>
-
-      {/* Demo Not Started */}
-      {!demoClientId && (
-        <div className="bg-[#1c1c1e] rounded-2xl border border-[#3a3a3c] p-8 text-center">
-          <h2 className="text-xl font-semibold text-white mb-4">Create Demo Data</h2>
-          <p className="text-[#8e8e93] mb-6 max-w-md mx-auto">
-            This will create a sample tech company with R&D projects, employees, timesheets, and expenses. 
-            You can explore the full workflow without affecting any real data.
-          </p>
-          
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-            <DataPreview label="Projects" count={5} />
-            <DataPreview label="Employees" count={8} />
-            <DataPreview label="Vendors" count={4} />
-            <DataPreview label="Timesheets" count="~180" />
-            <DataPreview label="AP Transactions" count="~48" />
+    <div className="min-h-screen bg-[#0a0a0a]">
+      {/* Demo Banner */}
+      <div className="bg-gradient-to-r from-[#0a84ff] to-[#5856d6] px-4 py-3">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <SparklesIcon />
+            <span className="font-medium text-white">Demo Mode - Showcasing TaxScape Pro with sample data</span>
           </div>
-
           <button
-            onClick={handleSeedDemo}
-            disabled={isSeeding}
-            className="px-8 py-4 bg-gradient-to-r from-[#0a84ff] to-[#5856d6] text-white rounded-xl font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 mx-auto"
+            onClick={() => router.push("/workspace" as Route)}
+            className="px-4 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium text-white"
           >
-            {isSeeding ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Creating Demo Data...
-              </>
-            ) : (
-              <>
-                <PlayIcon /> Start Guided Demo
-              </>
-            )}
+            Exit Demo
           </button>
         </div>
-      )}
+      </div>
 
-      {/* Demo Active */}
-      {demoClientId && (
-        <>
-          {/* Seeded Data Summary */}
-          {seededData && (
-            <div className="bg-green-500/10 border border-green-500/50 rounded-xl p-4">
-              <p className="text-green-400 font-medium mb-2">✓ Demo Data Created Successfully</p>
-              <div className="flex flex-wrap gap-4 text-sm text-green-300">
-                <span>{seededData.projects} projects</span>
-                <span>{seededData.employees} employees</span>
-                <span>{seededData.vendors} vendors</span>
-                <span>{seededData.timesheets} timesheets</span>
-                <span>{seededData.ap_transactions} AP transactions</span>
+      {/* Header */}
+      <div className="border-b border-[#3a3a3c] bg-[#1c1c1e]">
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-white">{d.client_name}</h1>
+              <p className="text-[#8e8e93] mt-1">Tax Year {d.tax_year} • R&D Tax Credit Study</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-sm text-[#8e8e93]">Estimated Credit</p>
+                <p className="text-2xl font-bold text-green-400">{formatCurrency(d.estimated_credit)}</p>
+              </div>
+              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#0a84ff] to-[#5856d6] flex items-center justify-center">
+                <span className="text-2xl font-bold text-white">{d.readiness_score}%</span>
               </div>
             </div>
-          )}
+          </div>
+          
+          {/* Tabs */}
+          <div className="flex gap-1 mt-6">
+            {["dashboard", "projects", "employees"].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab as any)}
+                className={`px-4 py-2 rounded-lg font-medium capitalize ${
+                  activeTab === tab
+                    ? "bg-[#0a84ff] text-white"
+                    : "text-[#8e8e93] hover:bg-[#2c2c2e]"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
-          {/* Tour Progress */}
-          <div className="bg-[#1c1c1e] rounded-2xl border border-[#3a3a3c] overflow-hidden">
-            <div className="p-4 border-b border-[#3a3a3c] flex items-center justify-between">
-              <h2 className="font-semibold text-white">Tour Progress</h2>
-              <span className="text-sm text-[#8e8e93]">
-                Step {currentStepIndex + 1} of {tourSteps.length}
-              </span>
-            </div>
-            
-            {/* Progress Bar */}
-            <div className="h-2 bg-[#2c2c2e]">
-              <div
-                className="h-full bg-gradient-to-r from-[#0a84ff] to-[#5856d6] transition-all"
-                style={{ width: `${((currentStepIndex + (isComplete ? 1 : 0)) / tourSteps.length) * 100}%` }}
-              />
-            </div>
-
-            {/* Steps List */}
-            <div className="divide-y divide-[#2c2c2e]">
-              {tourSteps.map((step, index) => {
-                const isCompleted = index < currentStepIndex || isComplete;
-                const isCurrent = index === currentStepIndex && !isComplete;
-                
-                return (
-                  <div
-                    key={step.id}
-                    className={`p-4 flex items-start gap-4 ${isCurrent ? "bg-[#0a84ff]/10" : ""}`}
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                        isCompleted
-                          ? "bg-green-500 text-white"
-                          : isCurrent
-                          ? "bg-[#0a84ff] text-white"
-                          : "bg-[#2c2c2e] text-[#8e8e93]"
-                      }`}
-                    >
-                      {isCompleted ? <CheckIcon /> : index + 1}
-                    </div>
-                    <div className="flex-1">
-                      <p className={`font-medium ${isCurrent ? "text-white" : isCompleted ? "text-[#8e8e93]" : "text-[#8e8e93]"}`}>
-                        {step.title}
-                      </p>
-                      <p className="text-sm text-[#8e8e93]">{step.description}</p>
-                      {isCurrent && step.hints.length > 0 && (
-                        <ul className="mt-2 text-sm text-[#0a84ff]">
-                          {step.hints.map((hint, i) => (
-                            <li key={i}>💡 {hint}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                    {isCurrent && (
-                      <button
-                        onClick={handleGoToStep}
-                        className="px-3 py-1 bg-[#0a84ff] text-white rounded-lg text-sm flex items-center gap-1"
-                      >
-                        Go <ArrowRightIcon />
-                      </button>
-                    )}
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        {activeTab === "dashboard" && (
+          <div className="space-y-8">
+            {/* Pipeline Steps */}
+            <div className="grid grid-cols-7 gap-2">
+              {d.pipeline_steps.map((step, i) => (
+                <div
+                  key={step.id}
+                  className={`p-4 rounded-xl border ${
+                    step.status === "completed"
+                      ? "bg-green-500/10 border-green-500/30"
+                      : step.status === "in_progress"
+                      ? "bg-[#0a84ff]/10 border-[#0a84ff]/30"
+                      : "bg-[#1c1c1e] border-[#3a3a3c]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                      step.status === "completed" ? "bg-green-500 text-white" :
+                      step.status === "in_progress" ? "bg-[#0a84ff] text-white" :
+                      "bg-[#3a3a3c] text-[#8e8e93]"
+                    }`}>
+                      {step.status === "completed" ? "✓" : i + 1}
+                    </span>
                   </div>
-                );
-              })}
+                  <p className={`text-sm font-medium ${
+                    step.status === "completed" ? "text-green-400" :
+                    step.status === "in_progress" ? "text-[#0a84ff]" :
+                    "text-[#8e8e93]"
+                  }`}>
+                    {step.name}
+                  </p>
+                  <div className="mt-2 h-1 bg-[#2c2c2e] rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${
+                        step.status === "completed" ? "bg-green-500" :
+                        step.status === "in_progress" ? "bg-[#0a84ff]" : "bg-[#3a3a3c]"
+                      }`}
+                      style={{ width: `${step.percent}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
 
-          {/* Current Step Actions */}
-          {!isComplete && currentStep && (
-            <div className="bg-[#1c1c1e] rounded-2xl border border-[#3a3a3c] p-6">
-              <h3 className="text-lg font-semibold text-white mb-2">
-                Current Step: {currentStep.title}
-              </h3>
-              <p className="text-[#8e8e93] mb-4">{currentStep.description}</p>
+            {/* Stats Grid */}
+            <div className="grid grid-cols-4 gap-4">
+              <div className="bg-[#1c1c1e] rounded-xl border border-[#3a3a3c] p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-[#0a84ff]/20 rounded-lg text-[#0a84ff]">
+                    <FolderIcon />
+                  </div>
+                  <span className="text-[#8e8e93]">Projects</span>
+                </div>
+                <p className="text-3xl font-bold text-white">{d.projects_count}</p>
+                <p className="text-sm text-green-400 mt-1">{d.qualified_projects_count} qualified</p>
+              </div>
               
-              <div className="flex gap-4">
-                <button
-                  onClick={handleGoToStep}
-                  className="flex-1 px-4 py-3 bg-[#0a84ff] text-white rounded-xl font-medium hover:bg-[#0070e0] flex items-center justify-center gap-2"
-                >
-                  Go to {currentStep.title.split(" ")[0]} <ArrowRightIcon />
-                </button>
-                <button
-                  onClick={handleNextStep}
-                  className="px-4 py-3 border border-[#3a3a3c] text-white rounded-xl hover:bg-[#2c2c2e]"
-                >
-                  Skip Step
-                </button>
+              <div className="bg-[#1c1c1e] rounded-xl border border-[#3a3a3c] p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-purple-500/20 rounded-lg text-purple-400">
+                    <UsersIcon />
+                  </div>
+                  <span className="text-[#8e8e93]">Employees</span>
+                </div>
+                <p className="text-3xl font-bold text-white">{d.employees_count}</p>
+                <p className="text-sm text-[#8e8e93] mt-1">Performing R&D</p>
+              </div>
+              
+              <div className="bg-[#1c1c1e] rounded-xl border border-[#3a3a3c] p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-green-500/20 rounded-lg text-green-400">
+                    <DollarIcon />
+                  </div>
+                  <span className="text-[#8e8e93]">Total QRE</span>
+                </div>
+                <p className="text-3xl font-bold text-white">{formatCurrency(d.total_qre)}</p>
+                <p className="text-sm text-[#8e8e93] mt-1">Qualified expenses</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-green-500/20 to-green-600/10 rounded-xl border border-green-500/30 p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-green-500/30 rounded-lg text-green-400">
+                    <CheckCircleIcon />
+                  </div>
+                  <span className="text-green-300">Est. Credit</span>
+                </div>
+                <p className="text-3xl font-bold text-green-400">{formatCurrency(d.estimated_credit)}</p>
+                <p className="text-sm text-green-300/70 mt-1">6.5% of QRE</p>
               </div>
             </div>
-          )}
 
-          {/* Completion */}
-          {isComplete && (
-            <div className="bg-gradient-to-r from-green-500/20 to-[#0a84ff]/20 rounded-2xl border border-green-500/50 p-8 text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-500/20 flex items-center justify-center text-green-400">
-                <CheckIcon />
+            {/* Blockers & Actions */}
+            <div className="grid grid-cols-2 gap-6">
+              {/* Blockers */}
+              <div className="bg-[#1c1c1e] rounded-xl border border-[#3a3a3c] overflow-hidden">
+                <div className="px-5 py-4 border-b border-[#3a3a3c]">
+                  <h3 className="font-semibold text-white">Active Blockers</h3>
+                </div>
+                <div className="divide-y divide-[#2c2c2e]">
+                  {d.top_blockers.map((blocker) => (
+                    <div key={blocker.id} className="px-5 py-4 flex items-start gap-3">
+                      <div className={`p-1 rounded ${
+                        blocker.severity === "high" ? "bg-red-500/20 text-red-400" :
+                        blocker.severity === "medium" ? "bg-yellow-500/20 text-yellow-400" :
+                        "bg-blue-500/20 text-blue-400"
+                      }`}>
+                        <AlertCircleIcon />
+                      </div>
+                      <div>
+                        <p className="font-medium text-white">{blocker.title}</p>
+                        <p className="text-sm text-[#8e8e93] mt-0.5">{blocker.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <h3 className="text-2xl font-bold text-white mb-2">Tour Complete! 🎉</h3>
-              <p className="text-[#8e8e93] mb-6">
-                You&apos;ve completed the guided tour. Continue exploring on your own or restart with fresh data.
-              </p>
-              <div className="flex gap-4 justify-center">
-                <button
-                  onClick={() => router.push("/workspace")}
-                  className="px-6 py-3 bg-[#0a84ff] text-white rounded-xl font-medium hover:bg-[#0070e0]"
-                >
-                  Go to Dashboard
-                </button>
-                <button
-                  onClick={handleResetDemo}
-                  className="px-6 py-3 border border-[#3a3a3c] text-white rounded-xl hover:bg-[#2c2c2e] flex items-center gap-2"
-                >
-                  <RotateCwIcon /> Restart Demo
-                </button>
+
+              {/* Next Actions */}
+              <div className="bg-[#1c1c1e] rounded-xl border border-[#3a3a3c] overflow-hidden">
+                <div className="px-5 py-4 border-b border-[#3a3a3c]">
+                  <h3 className="font-semibold text-white">Recommended Actions</h3>
+                </div>
+                <div className="divide-y divide-[#2c2c2e]">
+                  {d.next_actions.map((action) => (
+                    <div key={action.id} className="px-5 py-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`w-2 h-2 rounded-full ${priorityColors[action.priority]}`} />
+                        <span className="font-medium text-white">{action.title}</span>
+                        {action.blocking && (
+                          <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs rounded">Blocking</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-[#8e8e93]">{action.reason}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs text-[#8e8e93]">~{action.effort}</span>
+                        <button className="text-[#0a84ff] text-sm font-medium flex items-center gap-1 hover:underline">
+                          Take action <ArrowRightIcon />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          )}
 
-          {/* Quick Links */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <QuickLink label="Dashboard" href="/workspace" />
-            <QuickLink label="Projects" href="/workspace/projects" />
-            <QuickLink label="Import Data" href="/workspace/rd-analysis" />
-            <QuickLink label="Studies" href="/workspace/studies" />
+            {/* Readiness Breakdown */}
+            <div className="bg-[#1c1c1e] rounded-xl border border-[#3a3a3c] p-6">
+              <h3 className="font-semibold text-white mb-4">Readiness Breakdown</h3>
+              <div className="grid grid-cols-7 gap-4">
+                {Object.entries(d.readiness_breakdown).map(([key, value]) => (
+                  <div key={key} className="text-center">
+                    <div className="relative w-16 h-16 mx-auto mb-2">
+                      <svg className="w-16 h-16 transform -rotate-90">
+                        <circle cx="32" cy="32" r="28" stroke="#2c2c2e" strokeWidth="6" fill="none" />
+                        <circle
+                          cx="32" cy="32" r="28"
+                          stroke={value >= 80 ? "#22c55e" : value >= 50 ? "#eab308" : "#ef4444"}
+                          strokeWidth="6"
+                          fill="none"
+                          strokeDasharray={`${(value / 100) * 176} 176`}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white">
+                        {value}%
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#8e8e93] capitalize">
+                      {key.replace(/_/g, " ")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        </>
-      )}
+        )}
+
+        {activeTab === "projects" && (
+          <div className="bg-[#1c1c1e] rounded-xl border border-[#3a3a3c] overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-[#2c2c2e]">
+                <tr>
+                  <th className="px-5 py-3 text-left text-sm font-medium text-[#8e8e93]">Project Name</th>
+                  <th className="px-5 py-3 text-left text-sm font-medium text-[#8e8e93]">Status</th>
+                  <th className="px-5 py-3 text-left text-sm font-medium text-[#8e8e93]">AI Confidence</th>
+                  <th className="px-5 py-3 text-right text-sm font-medium text-[#8e8e93]">QRE Amount</th>
+                  <th className="px-5 py-3 text-left text-sm font-medium text-[#8e8e93]">Technical Uncertainty</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#2c2c2e]">
+                {DEMO_PROJECTS.map((project) => (
+                  <tr key={project.id} className="hover:bg-[#2c2c2e]/50">
+                    <td className="px-5 py-4 font-medium text-white">{project.name}</td>
+                    <td className="px-5 py-4">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${statusColors[project.status]}`}>
+                        {project.status.replace("_", " ")}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-20 h-2 bg-[#2c2c2e] rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${
+                              project.confidence >= 80 ? "bg-green-500" :
+                              project.confidence >= 60 ? "bg-yellow-500" : "bg-red-500"
+                            }`}
+                            style={{ width: `${project.confidence}%` }}
+                          />
+                        </div>
+                        <span className="text-sm text-[#8e8e93]">{project.confidence}%</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-right font-medium text-white">
+                      {project.qre > 0 ? formatCurrency(project.qre) : "—"}
+                    </td>
+                    <td className="px-5 py-4 text-sm text-[#8e8e93] max-w-xs truncate">
+                      {project.uncertainty}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeTab === "employees" && (
+          <div className="bg-[#1c1c1e] rounded-xl border border-[#3a3a3c] overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-[#2c2c2e]">
+                <tr>
+                  <th className="px-5 py-3 text-left text-sm font-medium text-[#8e8e93]">Employee</th>
+                  <th className="px-5 py-3 text-left text-sm font-medium text-[#8e8e93]">Title</th>
+                  <th className="px-5 py-3 text-left text-sm font-medium text-[#8e8e93]">Department</th>
+                  <th className="px-5 py-3 text-right text-sm font-medium text-[#8e8e93]">R&D %</th>
+                  <th className="px-5 py-3 text-right text-sm font-medium text-[#8e8e93]">Total Wages</th>
+                  <th className="px-5 py-3 text-right text-sm font-medium text-[#8e8e93]">QRE Contribution</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#2c2c2e]">
+                {DEMO_EMPLOYEES.map((emp) => (
+                  <tr key={emp.id} className="hover:bg-[#2c2c2e]/50">
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#0a84ff] to-[#5856d6] flex items-center justify-center text-white text-sm font-medium">
+                          {emp.name.split(" ").map(n => n[0]).join("")}
+                        </div>
+                        <span className="font-medium text-white">{emp.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-[#8e8e93]">{emp.title}</td>
+                    <td className="px-5 py-4 text-[#8e8e93]">{emp.department}</td>
+                    <td className="px-5 py-4 text-right">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        emp.rd_percent >= 75 ? "bg-green-500/20 text-green-400" :
+                        emp.rd_percent >= 50 ? "bg-yellow-500/20 text-yellow-400" :
+                        "bg-[#3a3a3c] text-[#8e8e93]"
+                      }`}>
+                        {emp.rd_percent}%
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-right text-white">{formatCurrency(emp.wages)}</td>
+                    <td className="px-5 py-4 text-right font-medium text-green-400">
+                      {formatCurrency(emp.qre_contribution)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
-
-// =============================================================================
-// SUB-COMPONENTS
-// =============================================================================
-
-function DataPreview({ label, count }: { label: string; count: number | string }) {
-  return (
-    <div className="p-3 bg-[#2c2c2e] rounded-lg text-center">
-      <p className="text-xl font-bold text-white">{count}</p>
-      <p className="text-xs text-[#8e8e93]">{label}</p>
-    </div>
-  );
-}
-
-function QuickLink({ label, href }: { label: string; href: string }) {
-  const router = useRouter();
-  return (
-    <button
-      onClick={() => router.push(href as Route)}
-      className="p-4 bg-[#1c1c1e] border border-[#3a3a3c] rounded-xl text-left hover:bg-[#2c2c2e] transition-colors"
-    >
-      <p className="text-white font-medium">{label}</p>
-      <p className="text-xs text-[#8e8e93]">Go to page →</p>
-    </button>
-  );
-}
-

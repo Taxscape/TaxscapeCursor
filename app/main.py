@@ -1301,6 +1301,55 @@ async def create_client_simple(client: ClientCompanyCreate, user: dict = Depends
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# --- List All Clients for Current User (auto-detects org) ---
+@api_router.get("/clients")
+async def list_my_clients(user: dict = Depends(get_current_user)):
+    """
+    List all client companies for the current user.
+    Auto-detects the organization from user's profile or created_by field.
+    This endpoint works even when RLS on profiles table has issues.
+    """
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        # First try to get org from profile
+        org_id = None
+        try:
+            profile = supabase.table("profiles").select("organization_id").eq("id", user["id"]).single().execute()
+            org_id = profile.data.get("organization_id") if profile.data else None
+        except Exception as e:
+            logger.warning(f"Could not fetch profile (RLS issue?): {e}")
+        
+        # If we have an org ID, fetch clients by organization
+        if org_id:
+            result = supabase.table("client_companies")\
+                .select("*")\
+                .eq("organization_id", org_id)\
+                .eq("status", "active")\
+                .order("created_at", desc=True)\
+                .execute()
+            return {"clients": result.data or [], "organization_id": org_id}
+        
+        # Fallback: get clients created by this user
+        result = supabase.table("client_companies")\
+            .select("*")\
+            .eq("created_by", user["id"])\
+            .eq("status", "active")\
+            .order("created_at", desc=True)\
+            .execute()
+        
+        # Also get the org_id from the first client if available
+        clients = result.data or []
+        detected_org_id = clients[0]["organization_id"] if clients else None
+        
+        return {"clients": clients, "organization_id": detected_org_id}
+    except Exception as e:
+        logger.error(f"Error listing clients: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # --- Profile Selected Client ---
 @api_router.post("/profile/selected-client")
 async def set_selected_client(req: SelectedClientRequest, user: dict = Depends(get_current_user)):
@@ -3821,6 +3870,44 @@ app.include_router(missing_info_router)  # Auto-detection + capture
 # Demo Mode Router
 from app.demo_routes import router as demo_router
 app.include_router(demo_router)  # Demo seeding + guided tour
+
+# Onboarding Router
+from app.onboarding_routes import router as onboarding_router
+app.include_router(onboarding_router)  # CPA first-run onboarding experience
+
+# Intake Package Generator Router
+from app.intake_routes import router as intake_router
+app.include_router(intake_router)  # Intake package generation for client data requests
+
+# Intake Ingestion Pipeline Router
+from app.intake_ingestion_routes import router as intake_ingestion_router
+app.include_router(intake_ingestion_router)  # File upload, classification, parsing pipeline
+
+# Review System Router
+from app.review_routes import router as review_router
+app.include_router(review_router)  # Post-ingestion review with rules engine, findings, and copilot
+
+# Escalation System Router
+from app.escalation_routes import router as escalation_router
+app.include_router(escalation_router)  # Senior CPA escalation and override workflow
+
+# Evidence System Router
+from app.evidence_routes import router as evidence_router
+from app.evidence_routes import client_upload_router
+app.include_router(evidence_router)  # Evidence request + file management + reprocessing
+app.include_router(client_upload_router)  # Client upload (token-gated, no auth)
+
+# Credit Estimate Router
+from app.credit_estimate_routes import router as credit_estimate_router
+app.include_router(credit_estimate_router)  # Credit range drafting, signoff, exports
+
+# Study Packaging Router (v2)
+from app.study_packaging_routes import router as study_packaging_router
+app.include_router(study_packaging_router)  # Study finalization, artifacts, packaging
+
+# Admin Controls Router
+from app.admin_routes import router as admin_router
+app.include_router(admin_router)  # Authority library, org settings, audit exports
 
 async def trigger_workflow_event(event_type: str, user: dict, project_id: str = None, payload: dict = None):
     """Helper to log workflow events and trigger recomputation."""

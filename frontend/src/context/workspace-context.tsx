@@ -245,12 +245,18 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   // Initialize from auth context
   // -------------------------------------------------------------------------
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace-context.tsx:initEffect',message:'Init effect running',data:{authLoading,hasOrg:!!organization?.id,profileSelectedClientId:profile?.selected_client_id,profileKeys:profile?Object.keys(profile):[],stateClientId:state.clientId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+    // #endregion
     if (!authLoading) {
       if (organization?.id) {
         dispatch({ type: 'SET_ORG', payload: organization.id });
       }
       // Restore previously selected client from profile (if not already set by URL)
       if (profile?.selected_client_id && !state.clientId) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace-context.tsx:initEffect',message:'Restoring client from profile',data:{selectedClientId:profile.selected_client_id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+        // #endregion
         dispatch({ type: 'SET_CLIENT', payload: { 
           clientId: profile.selected_client_id 
         }});
@@ -299,13 +305,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, []);
   
   const setClient = useCallback((clientId: string | null, taxYear?: string) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace-context.tsx:setClient',message:'setClient called',data:{clientId,taxYear},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
     dispatch({ type: 'SET_CLIENT', payload: { clientId, taxYear } });
     
     // Persist selection to backend so it survives page refreshes
     if (clientId) {
-      setSelectedClient(clientId).catch(err => 
-        console.error('Failed to persist client selection:', err)
-      );
+      setSelectedClient(clientId).then(() => {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace-context.tsx:setClient',message:'setSelectedClient API success',data:{clientId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+        // #endregion
+      }).catch(err => {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace-context.tsx:setClient',message:'setSelectedClient API error',data:{error:err?.message||String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+        // #endregion
+        console.error('Failed to persist client selection:', err);
+      });
     }
     
     // Invalidate client-specific caches

@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { useWorkspace } from "@/context/workspace-context";
 import { useAuth } from "@/context/auth-context";
+import { getApiUrl } from "@/lib/api";
+import { getSupabaseClient } from "@/lib/supabase";
 import toast from "react-hot-toast";
 
 // =============================================================================
@@ -109,32 +111,83 @@ interface ClientDashboardSummary {
 // API FUNCTIONS
 // =============================================================================
 
+async function getAuthToken(): Promise<string> {
+  const supabase = getSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("Not authenticated");
+  }
+  return session.access_token;
+}
+
 async function getClientDashboard(clientId: string, taxYear: number): Promise<ClientDashboardSummary> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("supabase.auth.token") : null;
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace/page.tsx:getClientDashboard',message:'Dashboard API call starting',data:{clientId,taxYear},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  
+  const apiUrl = getApiUrl();
+  const token = await getAuthToken();
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace/page.tsx:getClientDashboard',message:'API URL and token obtained',data:{apiUrl,hasToken:!!token},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  
   const response = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL || "https://taxscape-api.onrender.com"}/api/dashboard/client-summary?client_company_id=${clientId}&tax_year=${taxYear}`,
+    `${apiUrl}/api/dashboard/client-summary?client_company_id=${clientId}&tax_year=${taxYear}`,
     {
       headers: {
-        Authorization: token ? `Bearer ${JSON.parse(token).access_token}` : "",
+        Authorization: `Bearer ${token}`,
       },
     }
   );
-  if (!response.ok) throw new Error("Failed to fetch dashboard");
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace/page.tsx:getClientDashboard',message:'Dashboard API response',data:{status:response.status,ok:response.ok},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace/page.tsx:getClientDashboard',message:'Dashboard API error',data:{status:response.status,errorText},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    throw new Error("Failed to fetch dashboard");
+  }
   return response.json();
 }
 
 async function seedDemoData(clientName: string, taxYear: number): Promise<{ success: boolean; client_company_id: string }> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("supabase.auth.token") : null;
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace/page.tsx:seedDemoData',message:'Demo seed starting',data:{clientName,taxYear},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
+  
+  const apiUrl = getApiUrl();
+  const token = await getAuthToken();
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace/page.tsx:seedDemoData',message:'Demo seed API URL',data:{apiUrl,hasToken:!!token},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
+  
   const response = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL || "https://taxscape-api.onrender.com"}/api/demo/seed?client_name=${encodeURIComponent(clientName)}&tax_year=${taxYear}`,
+    `${apiUrl}/api/demo/seed?client_name=${encodeURIComponent(clientName)}&tax_year=${taxYear}`,
     {
       method: "POST",
       headers: {
-        Authorization: token ? `Bearer ${JSON.parse(token).access_token}` : "",
+        Authorization: `Bearer ${token}`,
       },
     }
   );
-  if (!response.ok) throw new Error("Failed to seed demo data");
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace/page.tsx:seedDemoData',message:'Demo seed response',data:{status:response.status,ok:response.ok},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace/page.tsx:seedDemoData',message:'Demo seed error',data:{status:response.status,errorText},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+    throw new Error("Failed to seed demo data");
+  }
   return response.json();
 }
 
@@ -292,7 +345,7 @@ export default function CPAHomeDashboard() {
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <button
-                onClick={() => setShowDemoModal(true)}
+                onClick={() => router.push("/workspace/demo" as Route)}
                 className="px-6 py-3 bg-gradient-to-r from-[#0a84ff] to-[#5856d6] text-white rounded-xl font-medium hover:opacity-90 flex items-center justify-center gap-2"
               >
                 <PlayIcon /> Start Guided Demo

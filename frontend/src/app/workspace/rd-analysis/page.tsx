@@ -43,11 +43,15 @@ type ImportStep = "upload" | "preview" | "importing" | "complete";
 // API FUNCTIONS
 // =============================================================================
 
-const API_URL = getApiUrl();
+// NOTE: Do NOT cache getApiUrl() at module level - call it fresh each time
+// to ensure proper localhost detection at runtime
 
 async function getAuthToken(): Promise<string> {
   const supabase = getSupabaseClient();
   const { data: { session } } = await supabase.auth.getSession();
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:getAuthToken',message:'getAuthToken called',data:{hasSession:!!session,hasToken:!!session?.access_token,tokenLength:session?.access_token?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'})}).catch(()=>{});
+  // #endregion
   if (!session?.access_token) {
     throw new Error("Not authenticated. Please log in again.");
   }
@@ -60,13 +64,17 @@ async function previewImport(
   taxYear: number
 ): Promise<{ import_file_id: string; preview: ImportPreview; sheet_mapping: Record<string, string> }> {
   const token = await getAuthToken();
+  const apiUrl = getApiUrl(); // Get fresh URL at runtime
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:previewImport',message:'previewImport called with fresh apiUrl',data:{clientId,taxYear,apiUrl,hostname:typeof window!=='undefined'?window.location.hostname:'server'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'M'})}).catch(()=>{});
+  // #endregion
   const formData = new FormData();
   formData.append("file", file);
   formData.append("client_id", clientId);
   formData.append("tax_year", String(taxYear));
 
   const response = await fetch(
-    `${API_URL}/api/workspace-data/import/preview`,
+    `${apiUrl}/api/workspace-data/import/preview`,
     {
       method: "POST",
       headers: {
@@ -86,7 +94,7 @@ async function previewImport(
 async function commitImport(importFileId: string): Promise<{ success: boolean; commit_summary: CommitSummary; message: string }> {
   const token = await getAuthToken();
   const response = await fetch(
-    `${API_URL}/api/workspace-data/import/commit?import_file_id=${importFileId}`,
+    `${getApiUrl()}/api/workspace-data/import/commit?import_file_id=${importFileId}`,
     {
       method: "POST",
       headers: {
@@ -105,7 +113,7 @@ async function commitImport(importFileId: string): Promise<{ success: boolean; c
 async function triggerRecompute(clientId: string, taxYear: number): Promise<void> {
   const token = await getAuthToken();
   const response = await fetch(
-    `${API_URL}/api/workspace-data/recompute`,
+    `${getApiUrl()}/api/workspace-data/recompute`,
     {
       method: "POST",
       headers: {
@@ -204,6 +212,9 @@ export default function RDAnalysisPage() {
   // Handle file upload and preview
   const handleUpload = useCallback(
     async (file: File) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:handleUpload',message:'handleUpload called',data:{fileName:file?.name,clientId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       if (!clientId) {
         setError("Please select a client first");
         return;
@@ -219,12 +230,21 @@ export default function RDAnalysisPage() {
       setUploadedFileName(file.name);
 
       try {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:previewImport',message:'Calling previewImport API',data:{clientId,taxYear,apiUrl:getApiUrl()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
         const result = await previewImport(file, clientId, Number(taxYear) || 2024);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:previewImport',message:'previewImport success',data:{importFileId:result.import_file_id,entitiesCount:result.preview?.detected_entities?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
         setImportFileId(result.import_file_id);
         setPreview(result.preview);
         setStep("preview");
         toast.success(`Found ${result.preview.detected_entities.length} data sheets to import`);
       } catch (err: any) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:previewImport',message:'previewImport error',data:{error:err?.message||String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
         setError(err.message || "Failed to process file");
         setStep("upload");
         toast.error(err.message || "Upload failed");
@@ -235,13 +255,22 @@ export default function RDAnalysisPage() {
 
   // Handle commit
   const handleCommit = useCallback(async () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:handleCommit',message:'handleCommit called',data:{importFileId,clientId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'N'})}).catch(()=>{});
+    // #endregion
     if (!importFileId || !clientId) return;
 
     setStep("importing");
     setError(null);
 
     try {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:commitImport',message:'Calling commitImport API',data:{importFileId,apiUrl:getApiUrl()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'N'})}).catch(()=>{});
+      // #endregion
       const result = await commitImport(importFileId);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:commitImport',message:'commitImport success',data:{success:result.success,totalInserted:result.commit_summary?.total_inserted,totalUpdated:result.commit_summary?.total_updated},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'N'})}).catch(()=>{});
+      // #endregion
       setCommitSummary(result.commit_summary);
       
       // Trigger recompute in the background
@@ -259,6 +288,9 @@ export default function RDAnalysisPage() {
       setStep("complete");
       toast.success(result.message);
     } catch (err: any) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:commitImport',message:'commitImport error',data:{error:err?.message||String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'N'})}).catch(()=>{});
+      // #endregion
       setError(err.message || "Import failed");
       setStep("preview");
       toast.error(err.message || "Import failed");
@@ -362,7 +394,12 @@ export default function RDAnalysisPage() {
             <input
               type="file"
               accept=".xlsx,.xls,.csv"
-              onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
+              onChange={(e) => {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'rd-analysis/page.tsx:input.onChange',message:'File input onChange fired',data:{hasFiles:!!e.target.files?.length,fileName:e.target.files?.[0]?.name},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+                // #endregion
+                e.target.files?.[0] && handleUpload(e.target.files[0]);
+              }}
               className="hidden"
             />
           </label>
