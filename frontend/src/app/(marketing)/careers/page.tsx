@@ -32,7 +32,6 @@ export default function CareersPage() {
           <div className="hidden md:flex items-center gap-10">
             <Link href="/#how-it-works" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">How it Works</Link>
             <Link href="/case-studies" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Case Studies</Link>
-            <Link href="/about" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">About</Link>
           </div>
 
           <div className="flex items-center gap-4">
@@ -81,7 +80,6 @@ export default function CareersPage() {
           </Link>
           <div className="flex justify-center gap-10 text-sm font-bold text-gray-500 mb-10">
             <Link href="/case-studies" className="hover:text-blue-600 transition-colors">Case Studies</Link>
-            <Link href="/about" className="hover:text-blue-600 transition-colors">About</Link>
             <Link href="/careers" className="hover:text-blue-600 transition-colors text-gray-900">Careers</Link>
             <Link href="/privacy" className="hover:text-blue-600 transition-colors">Privacy Policy</Link>
           </div>
