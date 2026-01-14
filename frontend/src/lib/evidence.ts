@@ -374,8 +374,9 @@ export async function uploadEvidenceFiles(
     formData.append('notes', notes);
   }
 
-  // Remove Content-Type to let browser set it with boundary
-  const { 'Content-Type': _, ...restHeaders } = headers;
+  // Remove Content-Type to let browser set it with boundary for multipart/form-data
+  const headersObj = headers as Record<string, string>;
+  const { 'Content-Type': _, ...restHeaders } = headersObj;
 
   const response = await fetch(
     `${getApiUrl()}/api/evidence/requests/${requestId}/upload`,
