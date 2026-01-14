@@ -33,14 +33,14 @@ type TabType = "authority" | "settings" | "exports" | "legacy";
 export default function AdminPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { user, profile, isLoading: authLoading } = useAuth();
+  const { user, profile, isLoading: authLoading, isExecutive, isAdmin } = useAuth();
   
   const [activeTab, setActiveTab] = useState<TabType>("authority");
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Check if user is executive or admin
-  const isExecutive = profile?.role === "executive" || profile?.role === "admin";
+  // Check if user is executive or admin (using auth context values)
+  const canAccessAdmin = isExecutive || isAdmin;
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -59,7 +59,7 @@ export default function AdminPage() {
     );
   }
 
-  if (!isExecutive) {
+  if (!canAccessAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center max-w-md">
