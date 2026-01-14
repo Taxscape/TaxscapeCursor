@@ -1679,6 +1679,15 @@ export type ClientCompany = {
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
+  // Extended fields from Prompt 8
+  primary_contact_name: string | null;
+  primary_contact_email: string | null;
+  purchased_sections: Record<string, boolean> | null;
+  study_scope: string | null;
+  intake_mode: string | null;
+  branding: Record<string, unknown> | null;
+  has_vendors_expected: boolean | null;
+  engagement_status: string | null;
   settings: Record<string, unknown>;
   status: string;
   created_by: string | null;
