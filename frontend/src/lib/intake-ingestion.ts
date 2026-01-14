@@ -178,7 +178,7 @@ export async function uploadIntakeFiles(
   sessionId: string,
   files: File[]
 ): Promise<{ success: boolean; files: UploadResult[]; session_id: string }> {
-  const headers = await getAuthHeaders();
+  const headers = await getAuthHeaders() as Record<string, string>;
   
   const formData = new FormData();
   files.forEach((file) => {
