@@ -1,400 +1,1209 @@
--- ============================================
--- TAXSCAPE COMPLETE DATABASE SCHEMA + MIGRATIONS
--- ============================================
--- Run this ONCE in Supabase SQL Editor (Dashboard → SQL Editor)
--- This is a COMPLETE standalone file - no other SQL files needed.
--- ============================================
+-- ============================================================================
+-- COMPLETE MIGRATION - ALL PROMPTS 7-15 COMBINED
+-- ============================================================================
+-- Run this ONCE in Supabase SQL Editor to set up everything
+-- This file is IDEMPOTENT - safe to run multiple times
+-- ============================================================================
 
--- ============================================
--- STEP 1: ENABLE EXTENSIONS
--- ============================================
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- ============================================================================
+-- PART 1: CREATE ALL ENUM TYPES
+-- ============================================================================
 
--- ============================================
--- STEP 2: BASE TABLES
--- ============================================
+-- Onboarding status (Prompt 7)
+DO $$ BEGIN
+    CREATE TYPE onboarding_session_status AS ENUM ('started', 'in_progress', 'completed', 'abandoned');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
--- ORGANIZATIONS TABLE
-CREATE TABLE IF NOT EXISTS public.organizations (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    name TEXT NOT NULL,
-    slug TEXT UNIQUE,
-    industry TEXT,
-    tax_year TEXT DEFAULT '2024',
-    settings JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+-- Intake template types (Prompt 8)
+DO $$ BEGIN
+    CREATE TYPE intake_template_type AS ENUM (
+        'data_request_master', 'projects_questionnaire', 'employee_payroll_template',
+        'timesheet_template', 'vendors_contracts_template', 'ap_transactions_template',
+        'supplies_template', 'section_174_info_request'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Authority types (Prompt 10)
+DO $$ BEGIN
+    CREATE TYPE authority_type_enum AS ENUM (
+        'irc_section', 'regulation', 'irs_guidance', 
+        'form_instruction', 'case_law', 'internal_policy'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Review finding enums (Prompt 10)
+DO $$ BEGIN
+    CREATE TYPE review_finding_domain AS ENUM (
+        'employees', 'projects', 'timesheets', 'vendors', 
+        'contracts', 'ap_transactions', 'supplies', 'section_174', 'cross_domain'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE review_finding_severity AS ENUM ('low', 'medium', 'high');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE review_finding_status AS ENUM (
+        'open', 'in_review', 'resolved_verified', 
+        'resolved_fixed', 'resolved_escalated', 'dismissed'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE finding_resolution_type AS ENUM (
+        'verified_no_change', 'field_updated', 'client_evidence_requested',
+        'task_created', 'escalated_to_senior', 'dismissed_with_reason'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE completion_method_enum AS ENUM (
+        'manual_user_action', 'ai_validated', 'senior_override'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Escalation enums (Prompt 11)
+DO $$ BEGIN
+    CREATE TYPE escalation_source_type AS ENUM ('review_finding', 'intake_mapping', 'manual');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE escalation_status AS ENUM (
+        'pending', 'assigned', 'in_review', 'resolved', 'returned', 'dismissed'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE escalation_decision AS ENUM (
+        'approve', 'override', 'request_evidence', 'return_guidance', 'dismiss'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE escalation_reason_code AS ENUM (
+        'materiality_threshold', 'client_confirmation_received', 'documentation_sufficient',
+        'additional_evidence_required', 'scope_clarification_needed', 'senior_judgment_applied',
+        'calculation_verified', 'risk_accepted', 'other'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Evidence enums (Prompt 12)
+DO $$ BEGIN
+    CREATE TYPE evidence_request_status AS ENUM (
+        'draft', 'sent', 'partially_received', 'complete', 'expired', 'cancelled'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE evidence_file_status AS ENUM (
+        'uploaded', 'linked', 'rejected', 'archived'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE reprocessing_status AS ENUM (
+        'queued', 'running', 'completed', 'failed'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Credit estimate enums (Prompt 13)
+DO $$ BEGIN
+    CREATE TYPE credit_estimate_status AS ENUM (
+        'draft', 'pending_review', 'approved', 'rejected', 'superseded'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE estimate_signoff_decision AS ENUM (
+        'approved', 'rejected', 'changes_requested'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Study v2 enums (Prompt 14)
+DO $$ BEGIN
+    CREATE TYPE study_v2_status AS ENUM (
+        'draft', 'ready_for_finalization', 'finalizing', 'final', 'complete', 'superseded'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE study_artifact_v2_type AS ENUM (
+        'excel_study_workbook', 'form_6765_export', 'section_41_narratives_docx',
+        'section_174_narratives_docx', 'project_narrative_packets_zip',
+        'client_cover_summary_pdf', 'client_package_zip'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE study_artifact_gen_status AS ENUM ('queued', 'running', 'completed', 'failed');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE study_signoff_decision AS ENUM ('approved', 'rejected', 'changes_requested');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE study_signoff_reason AS ENUM (
+        'all_findings_resolved', 'senior_override_allowed', 'documentation_sufficient',
+        'documentation_insufficient', 'client_scope_change', 'other'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Admin enums (Prompt 15)
+DO $$ BEGIN
+    CREATE TYPE authority_change_type AS ENUM ('created', 'updated', 'deactivated', 'reactivated');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE audit_export_type AS ENUM ('audit_log_csv', 'defense_pack_zip');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE audit_export_status AS ENUM ('queued', 'running', 'completed', 'failed');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- ============================================================================
+-- PART 2: EXTEND EXISTING TABLES
+-- ============================================================================
+
+-- ----- Profiles extensions (Prompt 7) -----
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS has_seen_onboarding BOOLEAN DEFAULT false;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS experience_level TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS onboarding_session_id UUID;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS onboarding_last_seen_at TIMESTAMPTZ;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS role_level TEXT;
+
+-- ----- Client Companies extensions (Prompt 8) -----
+ALTER TABLE client_companies ADD COLUMN IF NOT EXISTS primary_contact_name TEXT;
+ALTER TABLE client_companies ADD COLUMN IF NOT EXISTS primary_contact_email TEXT;
+ALTER TABLE client_companies ADD COLUMN IF NOT EXISTS purchased_sections JSONB DEFAULT '{"section_41": true, "section_174": false}';
+ALTER TABLE client_companies ADD COLUMN IF NOT EXISTS study_scope TEXT;
+ALTER TABLE client_companies ADD COLUMN IF NOT EXISTS intake_mode TEXT DEFAULT 'portal_upload_only';
+ALTER TABLE client_companies ADD COLUMN IF NOT EXISTS branding JSONB DEFAULT '{}';
+ALTER TABLE client_companies ADD COLUMN IF NOT EXISTS has_vendors_expected BOOLEAN DEFAULT TRUE;
+ALTER TABLE client_companies ADD COLUMN IF NOT EXISTS engagement_status TEXT DEFAULT 'setup';
+
+-- ----- Employees extensions (Prompt 9) -----
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS tax_year TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS location_state TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS w2_wages DECIMAL(15, 2);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS stock_compensation DECIMAL(15, 2);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS severance DECIMAL(15, 2);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS bonus DECIMAL(15, 2);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS employee_external_id TEXT;
+
+-- ----- Projects extensions (Prompt 9) -----
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS tax_year TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_owner TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_contact TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS category TEXT;
+
+-- ----- Time Logs extensions (Prompt 9) - if table exists -----
+DO $$ BEGIN
+    ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS tax_year TEXT;
+    ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'timesheet';
+    ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS period_start DATE;
+    ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS period_end DATE;
+    ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS allocation_method TEXT;
+EXCEPTION WHEN undefined_table THEN null; END $$;
+
+-- ----- Contractors extensions (Prompt 9) -----
+ALTER TABLE contractors ADD COLUMN IF NOT EXISTS tax_year TEXT;
+ALTER TABLE contractors ADD COLUMN IF NOT EXISTS country TEXT DEFAULT 'United States';
+ALTER TABLE contractors ADD COLUMN IF NOT EXISTS risk_bearer TEXT;
+ALTER TABLE contractors ADD COLUMN IF NOT EXISTS ip_rights TEXT;
+ALTER TABLE contractors ADD COLUMN IF NOT EXISTS is_foreign_research BOOLEAN DEFAULT FALSE;
+
+-- ----- Expenses extensions (Prompt 9) -----
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS tax_year TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vendor_name TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS gl_account TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS invoice_id TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS expense_date DATE;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS rd_category TEXT;
+
+-- ============================================================================
+-- PART 3: CREATE NEW TABLES - PROMPT 7 (ONBOARDING)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS onboarding_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    client_company_id UUID REFERENCES client_companies(id) ON DELETE SET NULL,
+    tax_years JSONB DEFAULT '[]'::jsonb,
+    purchased_sections JSONB DEFAULT '{}'::jsonb,
+    study_scope TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    context_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Add columns if they don't exist (for existing tables)
-ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS slug TEXT;
-ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS industry TEXT;
-ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS tax_year TEXT DEFAULT '2024';
-ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}';
-
-CREATE INDEX IF NOT EXISTS idx_organizations_name ON public.organizations(name);
-CREATE INDEX IF NOT EXISTS idx_organizations_slug ON public.organizations(slug);
-
--- PROFILES TABLE (extends auth.users)
-CREATE TABLE IF NOT EXISTS public.profiles (
-    id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    full_name TEXT,
-    company_name TEXT,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE SET NULL,
-    is_admin BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS onboarding_step_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    onboarding_session_id UUID NOT NULL REFERENCES onboarding_sessions(id) ON DELETE CASCADE,
+    step_key TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'not_started',
+    completion_method TEXT,
+    completed_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    completed_at TIMESTAMPTZ,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Add columns if they don't exist (for existing tables)
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS company_name TEXT;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS organization_id UUID;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+-- ============================================================================
+-- PART 4: CREATE NEW TABLES - PROMPT 8 (INTAKE PACKAGE)
+-- ============================================================================
 
-CREATE INDEX IF NOT EXISTS idx_profiles_organization_id ON public.profiles(organization_id);
-
--- ORGANIZATION MEMBERS TABLE
-CREATE TABLE IF NOT EXISTS public.organization_members (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    role TEXT NOT NULL DEFAULT 'engineer' CHECK (role IN ('executive', 'cpa', 'engineer')),
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('active', 'pending', 'inactive')),
-    invited_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    invited_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    accepted_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, user_id)
+CREATE TABLE IF NOT EXISTS intake_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE NOT NULL,
+    client_company_id UUID REFERENCES client_companies(id) ON DELETE CASCADE NOT NULL,
+    tax_years JSONB NOT NULL DEFAULT '[]',
+    template_type TEXT NOT NULL,
+    template_version INTEGER NOT NULL DEFAULT 1,
+    storage_bucket TEXT NOT NULL DEFAULT 'intake-templates',
+    storage_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    file_size_bytes INTEGER,
+    status TEXT DEFAULT 'active',
+    created_by_user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    metadata JSONB DEFAULT '{}' NOT NULL,
+    UNIQUE(client_company_id, template_type, template_version)
 );
 
-CREATE INDEX IF NOT EXISTS idx_org_members_organization_id ON public.organization_members(organization_id);
-CREATE INDEX IF NOT EXISTS idx_org_members_user_id ON public.organization_members(user_id);
-CREATE INDEX IF NOT EXISTS idx_org_members_status ON public.organization_members(status);
-CREATE INDEX IF NOT EXISTS idx_org_members_role ON public.organization_members(role);
-
--- VERIFICATION TASKS TABLE
-CREATE TABLE IF NOT EXISTS public.verification_tasks (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    assigned_to UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    category TEXT NOT NULL CHECK (category IN ('projects', 'vendors', 'supplies', 'wages')),
-    item_id UUID,
-    title TEXT NOT NULL,
-    description TEXT,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'denied')),
-    priority TEXT DEFAULT 'medium' CHECK (priority IN ('high', 'medium', 'low')),
-    due_date TIMESTAMP WITH TIME ZONE,
-    comment TEXT,
-    verified_at TIMESTAMP WITH TIME ZONE,
-    verified_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS intake_email_drafts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE NOT NULL,
+    client_company_id UUID REFERENCES client_companies(id) ON DELETE CASCADE NOT NULL,
+    tax_years JSONB NOT NULL DEFAULT '[]',
+    subject TEXT NOT NULL,
+    body_text TEXT NOT NULL,
+    to_recipients JSONB DEFAULT '[]' NOT NULL,
+    cc_recipients JSONB DEFAULT '[]' NOT NULL,
+    bcc_recipients JSONB DEFAULT '[]' NOT NULL,
+    attachment_template_ids JSONB DEFAULT '[]' NOT NULL,
+    status TEXT DEFAULT 'draft',
+    marked_sent_at TIMESTAMPTZ,
+    created_by_user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    metadata JSONB DEFAULT '{}' NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_verification_tasks_organization_id ON public.verification_tasks(organization_id);
-CREATE INDEX IF NOT EXISTS idx_verification_tasks_assigned_to ON public.verification_tasks(assigned_to);
-CREATE INDEX IF NOT EXISTS idx_verification_tasks_status ON public.verification_tasks(status);
-CREATE INDEX IF NOT EXISTS idx_verification_tasks_category ON public.verification_tasks(category);
-
--- AUDIT LOGS TABLE
-CREATE TABLE IF NOT EXISTS public.audit_logs (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    action TEXT NOT NULL,
-    item_type TEXT,
-    item_id UUID,
-    details JSONB DEFAULT '{}',
-    ip_address TEXT,
-    user_agent TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS client_intake_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE NOT NULL,
+    client_company_id UUID REFERENCES client_companies(id) ON DELETE CASCADE NOT NULL,
+    tax_years JSONB NOT NULL DEFAULT '[]',
+    status TEXT DEFAULT 'open',
+    expected_inputs JSONB DEFAULT '{}' NOT NULL,
+    received_files JSONB DEFAULT '[]' NOT NULL,
+    received_files_count INTEGER DEFAULT 0,
+    parsed_summary JSONB DEFAULT '{}',
+    source_onboarding_session_id UUID,
+    source_email_draft_id UUID REFERENCES intake_email_drafts(id) ON DELETE SET NULL,
+    template_ids JSONB DEFAULT '[]' NOT NULL,
+    created_by_user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    metadata JSONB DEFAULT '{}' NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_audit_logs_organization_id ON public.audit_logs(organization_id);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON public.audit_logs(user_id);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON public.audit_logs(action);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON public.audit_logs(created_at DESC);
-
--- PROJECTS TABLE
-CREATE TABLE IF NOT EXISTS public.projects (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    description TEXT,
-    technical_uncertainty TEXT,
-    process_of_experimentation TEXT,
-    qualification_status TEXT DEFAULT 'pending' CHECK (qualification_status IN ('pending', 'qualified', 'not_qualified')),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS intake_upload_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_hash TEXT NOT NULL UNIQUE,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE NOT NULL,
+    client_company_id UUID REFERENCES client_companies(id) ON DELETE CASCADE NOT NULL,
+    intake_session_id UUID REFERENCES client_intake_sessions(id) ON DELETE CASCADE,
+    tax_years JSONB NOT NULL DEFAULT '[]',
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked BOOLEAN DEFAULT FALSE,
+    revoked_at TIMESTAMPTZ,
+    revoked_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    max_uses INTEGER DEFAULT 100,
+    use_count INTEGER DEFAULT 0,
+    last_used_at TIMESTAMPTZ,
+    uploads_per_hour INTEGER DEFAULT 20,
+    created_by_user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    metadata JSONB DEFAULT '{}' NOT NULL
 );
 
--- Add columns if they don't exist (for existing tables)
-ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS organization_id UUID;
-ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS technical_uncertainty TEXT;
-ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS process_of_experimentation TEXT;
-ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS qualification_status TEXT DEFAULT 'pending';
+-- ============================================================================
+-- PART 5: CREATE NEW TABLES - PROMPT 9 (INTAKE INGESTION)
+-- ============================================================================
 
-CREATE INDEX IF NOT EXISTS idx_projects_user_id ON public.projects(user_id);
-CREATE INDEX IF NOT EXISTS idx_projects_organization_id ON public.projects(organization_id);
-
--- EMPLOYEES TABLE
-CREATE TABLE IF NOT EXISTS public.employees (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    title TEXT,
-    department TEXT,
-    state TEXT,
-    total_wages DECIMAL(12, 2) DEFAULT 0,
-    qualified_percent DECIMAL(5, 2) DEFAULT 0,
-    rd_percentage DECIMAL(5, 2) DEFAULT 0,
-    verification_status TEXT DEFAULT 'pending' CHECK (verification_status IN ('pending', 'verified', 'denied')),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS intake_files (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_intake_session_id UUID REFERENCES client_intake_sessions(id) ON DELETE CASCADE NOT NULL,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE NOT NULL,
+    client_company_id UUID REFERENCES client_companies(id) ON DELETE CASCADE NOT NULL,
+    uploaded_by_user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    original_filename TEXT NOT NULL,
+    storage_bucket TEXT NOT NULL DEFAULT 'intake-files',
+    storage_path TEXT NOT NULL,
+    mime_type TEXT,
+    file_size_bytes INTEGER,
+    sha256 TEXT NOT NULL,
+    upload_source TEXT DEFAULT 'portal_upload',
+    classification_domain TEXT DEFAULT 'unknown',
+    classification_confidence FLOAT DEFAULT 0,
+    classification_reason TEXT,
+    classification_method TEXT DEFAULT 'heuristic',
+    status TEXT DEFAULT 'uploaded',
+    parse_error TEXT,
+    parse_summary JSONB DEFAULT '{}',
+    sheet_names JSONB DEFAULT '[]',
+    header_row JSONB DEFAULT '[]',
+    preview_data JSONB DEFAULT '[]',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Add columns if they don't exist (for existing tables)
-ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS organization_id UUID;
-ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS title TEXT;
-ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS department TEXT;
-ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS state TEXT;
-ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS total_wages DECIMAL(12, 2) DEFAULT 0;
-ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS qualified_percent DECIMAL(5, 2) DEFAULT 0;
-ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS rd_percentage DECIMAL(5, 2) DEFAULT 0;
-ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS verification_status TEXT DEFAULT 'pending';
-
-CREATE INDEX IF NOT EXISTS idx_employees_user_id ON public.employees(user_id);
-CREATE INDEX IF NOT EXISTS idx_employees_organization_id ON public.employees(organization_id);
-
--- CONTRACTORS TABLE
-CREATE TABLE IF NOT EXISTS public.contractors (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE,
-    project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
-    name TEXT NOT NULL,
-    cost DECIMAL(12, 2) DEFAULT 0,
-    is_qualified BOOLEAN DEFAULT TRUE,
-    location TEXT DEFAULT 'US',
-    notes TEXT,
-    verification_status TEXT DEFAULT 'pending' CHECK (verification_status IN ('pending', 'verified', 'denied')),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS intake_mappings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    intake_file_id UUID REFERENCES intake_files(id) ON DELETE CASCADE NOT NULL,
+    mapping_type TEXT NOT NULL,
+    status TEXT DEFAULT 'open',
+    prompt TEXT NOT NULL,
+    context JSONB DEFAULT '{}',
+    options JSONB DEFAULT '[]',
+    resolution JSONB,
+    resolved_by_user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Add columns if they don't exist (for existing tables)
-ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS organization_id UUID;
-ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS project_id UUID;
-ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS cost DECIMAL(12, 2) DEFAULT 0;
-ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS is_qualified BOOLEAN DEFAULT TRUE;
-ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS location TEXT DEFAULT 'US';
-ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS notes TEXT;
-ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS verification_status TEXT DEFAULT 'pending';
-
-CREATE INDEX IF NOT EXISTS idx_contractors_user_id ON public.contractors(user_id);
-CREATE INDEX IF NOT EXISTS idx_contractors_organization_id ON public.contractors(organization_id);
-CREATE INDEX IF NOT EXISTS idx_contractors_project_id ON public.contractors(project_id);
-
--- PROJECT ALLOCATIONS TABLE
-CREATE TABLE IF NOT EXISTS public.project_allocations (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    employee_id UUID REFERENCES public.employees(id) ON DELETE CASCADE NOT NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
-    allocation_percent DECIMAL(5, 2) DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(employee_id, project_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_allocations_employee_id ON public.project_allocations(employee_id);
-CREATE INDEX IF NOT EXISTS idx_allocations_project_id ON public.project_allocations(project_id);
-
--- BUDGETS TABLE
-CREATE TABLE IF NOT EXISTS public.budgets (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    total_amount DECIMAL(12, 2) DEFAULT 0,
-    allocated_amount DECIMAL(12, 2) DEFAULT 0,
-    category TEXT CHECK (category IN ('personnel', 'materials', 'software', 'contractors', 'other')),
-    fiscal_year TEXT DEFAULT '2024',
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'closed', 'draft')),
-    notes TEXT,
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_budgets_organization_id ON public.budgets(organization_id);
-CREATE INDEX IF NOT EXISTS idx_budgets_project_id ON public.budgets(project_id);
-CREATE INDEX IF NOT EXISTS idx_budgets_category ON public.budgets(category);
-CREATE INDEX IF NOT EXISTS idx_budgets_status ON public.budgets(status);
-
--- EXPENSES TABLE
-CREATE TABLE IF NOT EXISTS public.expenses (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    budget_id UUID REFERENCES public.budgets(id) ON DELETE SET NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
-    description TEXT NOT NULL,
-    amount DECIMAL(12, 2) NOT NULL,
-    category TEXT CHECK (category IN ('personnel', 'materials', 'software', 'contractors', 'other')),
+CREATE TABLE IF NOT EXISTS contracts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE NOT NULL,
+    client_company_id UUID REFERENCES client_companies(id) ON DELETE CASCADE NOT NULL,
+    contractor_id UUID REFERENCES contractors(id) ON DELETE SET NULL,
     vendor_name TEXT,
-    expense_date DATE DEFAULT CURRENT_DATE,
-    receipt_url TEXT,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    approved_at TIMESTAMP WITH TIME ZONE,
-    logged_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    contract_name TEXT,
+    contract_type TEXT,
+    effective_date DATE,
+    expiration_date DATE,
+    contract_value DECIMAL(15, 2),
+    risk_bearer TEXT,
+    ip_rights TEXT,
+    scope_of_work TEXT,
+    storage_bucket TEXT,
+    storage_path TEXT,
+    tax_year TEXT,
+    needs_review BOOLEAN DEFAULT TRUE,
+    source_intake_file_id UUID,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_expenses_organization_id ON public.expenses(organization_id);
-CREATE INDEX IF NOT EXISTS idx_expenses_budget_id ON public.expenses(budget_id);
-CREATE INDEX IF NOT EXISTS idx_expenses_project_id ON public.expenses(project_id);
-CREATE INDEX IF NOT EXISTS idx_expenses_category ON public.expenses(category);
-CREATE INDEX IF NOT EXISTS idx_expenses_expense_date ON public.expenses(expense_date DESC);
-CREATE INDEX IF NOT EXISTS idx_expenses_status ON public.expenses(status);
+CREATE TABLE IF NOT EXISTS supplies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE NOT NULL,
+    client_company_id UUID REFERENCES client_companies(id) ON DELETE CASCADE NOT NULL,
+    item_name TEXT NOT NULL,
+    description TEXT,
+    vendor_name TEXT,
+    vendor_id UUID REFERENCES contractors(id) ON DELETE SET NULL,
+    project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+    project_name TEXT,
+    amount DECIMAL(15, 2),
+    purchase_date DATE,
+    consumed BOOLEAN DEFAULT TRUE,
+    capitalized BOOLEAN DEFAULT FALSE,
+    rd_qualified BOOLEAN DEFAULT TRUE,
+    qualification_status TEXT DEFAULT 'pending',
+    tax_year TEXT,
+    source_intake_file_id UUID,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- ENGINEERING TASKS TABLE
-CREATE TABLE IF NOT EXISTS public.engineering_tasks (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS section_174_responses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE NOT NULL,
+    client_company_id UUID REFERENCES client_companies(id) ON DELETE CASCADE NOT NULL,
+    tax_year TEXT NOT NULL,
+    has_software_development BOOLEAN,
+    software_dev_nature TEXT,
+    dev_vs_maintenance_ratio TEXT,
+    has_foreign_development BOOLEAN,
+    labor_us DECIMAL(15, 2),
+    labor_foreign DECIMAL(15, 2),
+    supplies_total DECIMAL(15, 2),
+    contract_research_us DECIMAL(15, 2),
+    contract_research_foreign DECIMAL(15, 2),
+    book_treatment TEXT,
+    currently_capitalized_costs BOOLEAN,
+    has_167f_software_amortization BOOLEAN,
+    has_patent_acquisition_costs BOOLEAN,
+    responses JSONB DEFAULT '{}',
+    source_intake_file_id UUID,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================================
+-- PART 6: CREATE NEW TABLES - PROMPT 10 (REVIEW SYSTEM)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS authority_library (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    authority_type authority_type_enum NOT NULL,
+    citation_label TEXT NOT NULL,
+    citation_key TEXT NOT NULL UNIQUE,
+    summary TEXT NOT NULL,
+    excerpt TEXT,
+    url TEXT,
+    tags JSONB DEFAULT '[]'::jsonb,
+    is_active BOOLEAN DEFAULT true,
+    version INTEGER DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS review_findings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    client_company_id UUID NOT NULL REFERENCES client_companies(id),
+    tax_year INTEGER NOT NULL,
+    intake_session_id UUID,
+    domain review_finding_domain NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id UUID,
+    rule_id TEXT NOT NULL,
+    severity review_finding_severity NOT NULL DEFAULT 'medium',
+    status review_finding_status NOT NULL DEFAULT 'open',
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    trigger_evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+    recommended_actions JSONB DEFAULT '[]'::jsonb,
+    authority_refs JSONB DEFAULT '[]'::jsonb,
+    estimated_impact JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS finding_resolutions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    review_finding_id UUID NOT NULL REFERENCES review_findings(id) ON DELETE CASCADE,
+    resolution_type finding_resolution_type NOT NULL,
+    completion_method completion_method_enum NOT NULL,
+    resolution_note TEXT,
+    changes JSONB DEFAULT '{}'::jsonb,
+    artifacts JSONB DEFAULT '[]'::jsonb,
+    resolved_by_user_id UUID REFERENCES profiles(id),
+    resolved_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS review_configurations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    client_company_id UUID REFERENCES client_companies(id),
+    wage_outlier_threshold INTEGER DEFAULT 500000,
+    large_transaction_threshold INTEGER DEFAULT 50000,
+    allowable_allocation_bounds JSONB DEFAULT '{"lower": 0.01, "upper": 0.95}'::jsonb,
+    timesheets_required BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(organization_id, client_company_id)
+);
+
+CREATE TABLE IF NOT EXISTS review_runs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    client_company_id UUID NOT NULL REFERENCES client_companies(id),
+    tax_year INTEGER NOT NULL,
+    intake_session_id UUID,
+    run_by_user_id UUID REFERENCES profiles(id),
+    findings_count INTEGER DEFAULT 0,
+    high_severity_count INTEGER DEFAULT 0,
+    qre_at_risk_total NUMERIC DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================================
+-- PART 7: CREATE NEW TABLES - PROMPT 11 (ESCALATIONS)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS escalation_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    client_company_id UUID NOT NULL REFERENCES client_companies(id),
+    tax_year INTEGER NOT NULL,
+    source_type escalation_source_type NOT NULL,
+    source_id UUID,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    severity review_finding_severity NOT NULL DEFAULT 'medium',
+    estimated_impact JSONB DEFAULT '{}'::jsonb,
+    proposed_action JSONB DEFAULT '{}'::jsonb,
+    authority_refs JSONB DEFAULT '[]'::jsonb,
+    status escalation_status NOT NULL DEFAULT 'pending',
+    assigned_to_user_id UUID REFERENCES profiles(id),
+    created_by_user_id UUID REFERENCES profiles(id),
+    decision escalation_decision,
+    decision_reason_code escalation_reason_code,
+    decision_note TEXT,
+    decided_by_user_id UUID REFERENCES profiles(id),
+    decided_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================================
+-- PART 8: CREATE NEW TABLES - PROMPT 12 (EVIDENCE)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS evidence_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    client_company_id UUID NOT NULL REFERENCES client_companies(id),
+    tax_year INTEGER NOT NULL,
+    request_type TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'blocked')),
-    priority TEXT DEFAULT 'medium' CHECK (priority IN ('high', 'medium', 'low')),
-    assigned_to UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    due_date TIMESTAMP WITH TIME ZONE,
-    estimated_hours DECIMAL(6, 2) DEFAULT 0,
-    hours_logged DECIMAL(6, 2) DEFAULT 0,
-    milestone TEXT,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    requested_items JSONB DEFAULT '[]'::jsonb,
+    linked_finding_id UUID REFERENCES review_findings(id),
+    linked_mapping_id UUID,
+    linked_task_id UUID,
+    status evidence_request_status NOT NULL DEFAULT 'draft',
+    due_date DATE,
+    created_by_user_id UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_eng_tasks_organization_id ON public.engineering_tasks(organization_id);
-CREATE INDEX IF NOT EXISTS idx_eng_tasks_project_id ON public.engineering_tasks(project_id);
-CREATE INDEX IF NOT EXISTS idx_eng_tasks_assigned_to ON public.engineering_tasks(assigned_to);
-CREATE INDEX IF NOT EXISTS idx_eng_tasks_status ON public.engineering_tasks(status);
-CREATE INDEX IF NOT EXISTS idx_eng_tasks_priority ON public.engineering_tasks(priority);
-CREATE INDEX IF NOT EXISTS idx_eng_tasks_due_date ON public.engineering_tasks(due_date);
-
--- TIME LOGS TABLE
-CREATE TABLE IF NOT EXISTS public.time_logs (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    task_id UUID REFERENCES public.engineering_tasks(id) ON DELETE CASCADE,
-    project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    hours DECIMAL(6, 2) NOT NULL,
-    description TEXT,
-    log_date DATE DEFAULT CURRENT_DATE,
-    billable BOOLEAN DEFAULT TRUE,
-    hourly_rate DECIMAL(10, 2),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS client_upload_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    evidence_request_id UUID NOT NULL REFERENCES evidence_requests(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    max_uses INTEGER DEFAULT 10,
+    use_count INTEGER DEFAULT 0,
+    is_revoked BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_time_logs_organization_id ON public.time_logs(organization_id);
-CREATE INDEX IF NOT EXISTS idx_time_logs_task_id ON public.time_logs(task_id);
-CREATE INDEX IF NOT EXISTS idx_time_logs_project_id ON public.time_logs(project_id);
-CREATE INDEX IF NOT EXISTS idx_time_logs_user_id ON public.time_logs(user_id);
-CREATE INDEX IF NOT EXISTS idx_time_logs_log_date ON public.time_logs(log_date DESC);
-
--- CHAT SESSIONS TABLE
-CREATE TABLE IF NOT EXISTS public.chat_sessions (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE,
-    title TEXT DEFAULT 'New Audit Session',
-    structured_output JSONB,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS evidence_files (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    evidence_request_id UUID REFERENCES evidence_requests(id),
+    storage_bucket TEXT DEFAULT 'evidence-files',
+    storage_path TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_size_bytes BIGINT,
+    sha256 TEXT,
+    status evidence_file_status NOT NULL DEFAULT 'uploaded',
+    linked_finding_id UUID REFERENCES review_findings(id),
+    linked_task_id UUID,
+    linked_entity_type TEXT,
+    linked_entity_id UUID,
+    uploaded_by_user_id UUID REFERENCES profiles(id),
+    uploaded_via TEXT DEFAULT 'portal',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Add columns if they don't exist (for existing tables)
-ALTER TABLE public.chat_sessions ADD COLUMN IF NOT EXISTS organization_id UUID;
-ALTER TABLE public.chat_sessions ADD COLUMN IF NOT EXISTS title TEXT DEFAULT 'New Audit Session';
-ALTER TABLE public.chat_sessions ADD COLUMN IF NOT EXISTS structured_output JSONB;
-ALTER TABLE public.chat_sessions ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
-
-CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON public.chat_sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_chat_sessions_organization_id ON public.chat_sessions(organization_id);
-
--- CHAT MESSAGES TABLE
-CREATE TABLE IF NOT EXISTS public.chat_messages (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    session_id UUID REFERENCES public.chat_sessions(id) ON DELETE CASCADE NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-    content TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS reprocessing_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    client_company_id UUID NOT NULL REFERENCES client_companies(id),
+    tax_year INTEGER NOT NULL,
+    trigger_type TEXT NOT NULL,
+    trigger_id UUID,
+    affected_rules JSONB DEFAULT '[]'::jsonb,
+    status reprocessing_status NOT NULL DEFAULT 'queued',
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    error TEXT,
+    results JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON public.chat_messages(session_id);
+-- ============================================================================
+-- PART 9: CREATE NEW TABLES - PROMPT 13 (CREDIT ESTIMATES)
+-- ============================================================================
 
--- STUDIES TABLE
-CREATE TABLE IF NOT EXISTS public.studies (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE,
-    chat_session_id UUID REFERENCES public.chat_sessions(id) ON DELETE SET NULL,
-    title TEXT NOT NULL,
-    file_path TEXT,
-    file_url TEXT,
-    total_qre DECIMAL(12, 2) DEFAULT 0,
-    total_credit DECIMAL(12, 2) DEFAULT 0,
-    status TEXT DEFAULT 'generated' CHECK (status IN ('generating', 'generated', 'failed')),
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS credit_estimates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    client_company_id UUID NOT NULL REFERENCES client_companies(id),
+    tax_year INTEGER NOT NULL,
+    estimate_version INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'draft',
+    methodology TEXT DEFAULT 'standard',
+    range_low JSONB DEFAULT '{}'::jsonb,
+    range_base JSONB DEFAULT '{}'::jsonb,
+    range_high JSONB DEFAULT '{}'::jsonb,
+    assumptions JSONB DEFAULT '[]'::jsonb,
+    data_completeness_score NUMERIC DEFAULT 0,
+    risk_notes JSONB DEFAULT '[]'::jsonb,
+    missing_inputs JSONB DEFAULT '[]'::jsonb,
+    created_by_user_id UUID REFERENCES profiles(id),
+    approved_by_user_id UUID REFERENCES profiles(id),
+    approved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Add columns if they don't exist (for existing tables)
-ALTER TABLE public.studies ADD COLUMN IF NOT EXISTS organization_id UUID;
-ALTER TABLE public.studies ADD COLUMN IF NOT EXISTS chat_session_id UUID;
-ALTER TABLE public.studies ADD COLUMN IF NOT EXISTS file_path TEXT;
-ALTER TABLE public.studies ADD COLUMN IF NOT EXISTS file_url TEXT;
-ALTER TABLE public.studies ADD COLUMN IF NOT EXISTS total_qre DECIMAL(12, 2) DEFAULT 0;
-ALTER TABLE public.studies ADD COLUMN IF NOT EXISTS total_credit DECIMAL(12, 2) DEFAULT 0;
-ALTER TABLE public.studies ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'generated';
-ALTER TABLE public.studies ADD COLUMN IF NOT EXISTS metadata JSONB;
-
-CREATE INDEX IF NOT EXISTS idx_studies_user_id ON public.studies(user_id);
-CREATE INDEX IF NOT EXISTS idx_studies_organization_id ON public.studies(organization_id);
-
--- DEMO REQUESTS TABLE
-CREATE TABLE IF NOT EXISTS public.demo_requests (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL,
-    company TEXT,
-    message TEXT,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'contacted', 'scheduled', 'completed', 'cancelled')),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS estimate_exports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    credit_estimate_id UUID NOT NULL REFERENCES credit_estimates(id) ON DELETE CASCADE,
+    export_type TEXT NOT NULL,
+    storage_bucket TEXT DEFAULT 'estimate-exports',
+    storage_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    created_by_user_id UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    metadata JSONB DEFAULT '{}'::jsonb
 );
 
-CREATE INDEX IF NOT EXISTS idx_demo_requests_email ON public.demo_requests(email);
-CREATE INDEX IF NOT EXISTS idx_demo_requests_status ON public.demo_requests(status);
+CREATE TABLE IF NOT EXISTS estimate_signoffs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    credit_estimate_id UUID NOT NULL REFERENCES credit_estimates(id) ON DELETE CASCADE,
+    decision TEXT NOT NULL,
+    reason_code TEXT NOT NULL,
+    note TEXT,
+    completion_method TEXT NOT NULL DEFAULT 'senior_override',
+    decided_by_user_id UUID REFERENCES profiles(id),
+    decided_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- ============================================
--- STEP 3: HELPER FUNCTIONS
--- ============================================
+-- ============================================================================
+-- PART 10: CREATE NEW TABLES - PROMPT 14 (STUDY PACKAGING)
+-- ============================================================================
 
--- Function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+CREATE TABLE IF NOT EXISTS studies_v2 (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    client_company_id UUID NOT NULL REFERENCES client_companies(id),
+    tax_year INTEGER NOT NULL,
+    study_version INTEGER NOT NULL DEFAULT 1,
+    status study_v2_status NOT NULL DEFAULT 'draft',
+    intake_session_id UUID,
+    approved_credit_estimate_id UUID REFERENCES credit_estimates(id),
+    finalized_by_user_id UUID REFERENCES profiles(id),
+    finalized_at TIMESTAMPTZ,
+    locked_at TIMESTAMPTZ,
+    lock_reason TEXT,
+    snapshot_metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(client_company_id, tax_year, study_version)
+);
+
+CREATE TABLE IF NOT EXISTS study_artifacts_v2 (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    study_id UUID NOT NULL REFERENCES studies_v2(id) ON DELETE CASCADE,
+    artifact_type study_artifact_v2_type NOT NULL,
+    generation_status study_artifact_gen_status NOT NULL DEFAULT 'queued',
+    error TEXT,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    storage_bucket TEXT DEFAULT 'study-artifacts',
+    storage_path TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    page_count INTEGER,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_by_user_id UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(study_id, artifact_type)
+);
+
+CREATE TABLE IF NOT EXISTS study_signoffs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    study_id UUID NOT NULL REFERENCES studies_v2(id) ON DELETE CASCADE,
+    decision study_signoff_decision NOT NULL,
+    reason_code study_signoff_reason NOT NULL,
+    note TEXT NOT NULL,
+    completion_method TEXT NOT NULL DEFAULT 'senior_override',
+    decided_by_user_id UUID REFERENCES profiles(id),
+    decided_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS study_finalization_checks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_company_id UUID NOT NULL REFERENCES client_companies(id),
+    tax_year INTEGER NOT NULL,
+    computed_at TIMESTAMPTZ DEFAULT NOW(),
+    checks JSONB DEFAULT '[]'::jsonb,
+    blocking_count INTEGER DEFAULT 0,
+    warning_count INTEGER DEFAULT 0,
+    computed_by_user_id UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(client_company_id, tax_year)
+);
+
+CREATE TABLE IF NOT EXISTS study_delivery_email_drafts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    study_id UUID NOT NULL REFERENCES studies_v2(id) ON DELETE CASCADE,
+    to_email TEXT,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_by_user_id UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    marked_sent_at TIMESTAMPTZ
+);
+
+-- ============================================================================
+-- PART 11: CREATE NEW TABLES - PROMPT 15 (ADMIN CONTROLS)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS org_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) UNIQUE,
+    defaults JSONB NOT NULL DEFAULT '{}'::jsonb,
+    feature_flags JSONB NOT NULL DEFAULT '{}'::jsonb,
+    purchased_sections JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS authority_change_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES organizations(id),
+    authority_id UUID NOT NULL,
+    change_type authority_change_type NOT NULL,
+    before JSONB,
+    after JSONB,
+    changed_by_user_id UUID REFERENCES profiles(id),
+    changed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS audit_exports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    client_company_id UUID REFERENCES client_companies(id),
+    tax_year INTEGER,
+    export_type audit_export_type NOT NULL,
+    status audit_export_status NOT NULL DEFAULT 'queued',
+    error TEXT,
+    storage_bucket TEXT DEFAULT 'audit-exports',
+    storage_path TEXT NOT NULL,
+    sha256 TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    requested_by_user_id UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================================
+-- PART 12: CREATE ALL INDEXES
+-- ============================================================================
+
+-- Onboarding indexes
+CREATE INDEX IF NOT EXISTS idx_onboarding_sessions_user_id ON onboarding_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_onboarding_sessions_org_id ON onboarding_sessions(organization_id);
+CREATE INDEX IF NOT EXISTS idx_onboarding_sessions_status ON onboarding_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_onboarding_step_logs_session ON onboarding_step_logs(onboarding_session_id, step_key);
+
+-- Intake Package indexes
+CREATE INDEX IF NOT EXISTS idx_intake_templates_org ON intake_templates(organization_id);
+CREATE INDEX IF NOT EXISTS idx_intake_templates_client ON intake_templates(client_company_id);
+CREATE INDEX IF NOT EXISTS idx_intake_email_drafts_org ON intake_email_drafts(organization_id);
+CREATE INDEX IF NOT EXISTS idx_intake_email_drafts_client ON intake_email_drafts(client_company_id);
+CREATE INDEX IF NOT EXISTS idx_intake_sessions_org ON client_intake_sessions(organization_id);
+CREATE INDEX IF NOT EXISTS idx_intake_sessions_client ON client_intake_sessions(client_company_id);
+CREATE INDEX IF NOT EXISTS idx_intake_sessions_status ON client_intake_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_upload_tokens_hash ON intake_upload_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_upload_tokens_client ON intake_upload_tokens(client_company_id);
+
+-- Intake Ingestion indexes
+CREATE INDEX IF NOT EXISTS idx_intake_files_session ON intake_files(client_intake_session_id);
+CREATE INDEX IF NOT EXISTS idx_intake_files_sha256 ON intake_files(sha256);
+CREATE INDEX IF NOT EXISTS idx_intake_files_domain_status ON intake_files(classification_domain, status);
+CREATE INDEX IF NOT EXISTS idx_intake_mappings_file ON intake_mappings(intake_file_id);
+CREATE INDEX IF NOT EXISTS idx_intake_mappings_status ON intake_mappings(status);
+CREATE INDEX IF NOT EXISTS idx_contracts_org ON contracts(organization_id);
+CREATE INDEX IF NOT EXISTS idx_contracts_client ON contracts(client_company_id);
+CREATE INDEX IF NOT EXISTS idx_supplies_org ON supplies(organization_id);
+CREATE INDEX IF NOT EXISTS idx_supplies_client ON supplies(client_company_id);
+CREATE INDEX IF NOT EXISTS idx_174_responses_client ON section_174_responses(client_company_id, tax_year);
+
+-- Review System indexes
+CREATE INDEX IF NOT EXISTS idx_authority_library_citation_key ON authority_library(citation_key);
+CREATE INDEX IF NOT EXISTS idx_authority_library_tags ON authority_library USING GIN(tags);
+CREATE INDEX IF NOT EXISTS idx_authority_library_type ON authority_library(authority_type);
+CREATE INDEX IF NOT EXISTS idx_review_findings_client_year_status ON review_findings(client_company_id, tax_year, status);
+CREATE INDEX IF NOT EXISTS idx_review_findings_rule_id ON review_findings(rule_id);
+CREATE INDEX IF NOT EXISTS idx_review_findings_domain_severity ON review_findings(domain, severity);
+CREATE INDEX IF NOT EXISTS idx_finding_resolutions_finding_id ON finding_resolutions(review_finding_id);
+CREATE INDEX IF NOT EXISTS idx_review_runs_client_year ON review_runs(client_company_id, tax_year);
+
+-- Escalation indexes
+CREATE INDEX IF NOT EXISTS idx_escalation_requests_client_year ON escalation_requests(client_company_id, tax_year);
+CREATE INDEX IF NOT EXISTS idx_escalation_requests_status ON escalation_requests(status);
+CREATE INDEX IF NOT EXISTS idx_escalation_requests_assigned ON escalation_requests(assigned_to_user_id);
+
+-- Evidence indexes
+CREATE INDEX IF NOT EXISTS idx_evidence_requests_client ON evidence_requests(client_company_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_requests_status ON evidence_requests(status);
+CREATE INDEX IF NOT EXISTS idx_evidence_files_request ON evidence_files(evidence_request_id);
+CREATE INDEX IF NOT EXISTS idx_client_upload_tokens_hash ON client_upload_tokens(token_hash);
+
+-- Credit Estimate indexes
+CREATE INDEX IF NOT EXISTS idx_credit_estimates_client_year ON credit_estimates(client_company_id, tax_year);
+CREATE INDEX IF NOT EXISTS idx_credit_estimates_status ON credit_estimates(status);
+
+-- Study indexes
+CREATE INDEX IF NOT EXISTS idx_studies_v2_client_year_status ON studies_v2(client_company_id, tax_year, status);
+CREATE INDEX IF NOT EXISTS idx_studies_v2_org ON studies_v2(organization_id);
+CREATE INDEX IF NOT EXISTS idx_study_artifacts_v2_study ON study_artifacts_v2(study_id);
+CREATE INDEX IF NOT EXISTS idx_study_signoffs_study ON study_signoffs(study_id);
+CREATE INDEX IF NOT EXISTS idx_study_finalization_checks_client_year ON study_finalization_checks(client_company_id, tax_year);
+CREATE INDEX IF NOT EXISTS idx_study_delivery_email_study ON study_delivery_email_drafts(study_id);
+
+-- Admin indexes
+CREATE INDEX IF NOT EXISTS idx_org_settings_org_id ON org_settings(organization_id);
+CREATE INDEX IF NOT EXISTS idx_authority_change_log_authority_id ON authority_change_log(authority_id);
+CREATE INDEX IF NOT EXISTS idx_audit_exports_org_id ON audit_exports(organization_id);
+CREATE INDEX IF NOT EXISTS idx_audit_exports_client_year ON audit_exports(client_company_id, tax_year);
+
+-- ============================================================================
+-- PART 13: ENABLE RLS ON ALL TABLES
+-- ============================================================================
+
+ALTER TABLE onboarding_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE onboarding_step_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE intake_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE intake_email_drafts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE client_intake_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE intake_upload_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE intake_files ENABLE ROW LEVEL SECURITY;
+ALTER TABLE intake_mappings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE contracts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE supplies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE section_174_responses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE authority_library ENABLE ROW LEVEL SECURITY;
+ALTER TABLE review_findings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE finding_resolutions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE review_configurations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE review_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE escalation_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evidence_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE client_upload_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evidence_files ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reprocessing_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE credit_estimates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE estimate_exports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE estimate_signoffs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE studies_v2 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE study_artifacts_v2 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE study_signoffs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE study_finalization_checks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE study_delivery_email_drafts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE org_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE authority_change_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_exports ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================================
+-- PART 14: DROP OLD POLICIES SAFELY
+-- ============================================================================
+
+-- Drop all existing policies so we can recreate them cleanly
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can read own onboarding sessions" ON onboarding_sessions; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can create own onboarding sessions" ON onboarding_sessions; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can update own onboarding sessions" ON onboarding_sessions; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "Org admins can read org onboarding sessions" ON onboarding_sessions; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "onboarding_sessions_user_access" ON onboarding_sessions; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can read own step logs" ON onboarding_step_logs; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can create own step logs" ON onboarding_step_logs; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can update own step logs" ON onboarding_step_logs; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "Org admins can read org step logs" ON onboarding_step_logs; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "onboarding_step_logs_user_access" ON onboarding_step_logs; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can view org intake templates" ON intake_templates; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can create intake templates" ON intake_templates; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can update intake templates" ON intake_templates; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "intake_templates_org_access" ON intake_templates; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can view org email drafts" ON intake_email_drafts; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can create email drafts" ON intake_email_drafts; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can update email drafts" ON intake_email_drafts; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "intake_email_drafts_org_access" ON intake_email_drafts; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can view org intake sessions" ON client_intake_sessions; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can create intake sessions" ON client_intake_sessions; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can update intake sessions" ON client_intake_sessions; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "client_intake_sessions_org_access" ON client_intake_sessions; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can view org upload tokens" ON intake_upload_tokens; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can create upload tokens" ON intake_upload_tokens; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can update upload tokens" ON intake_upload_tokens; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "intake_upload_tokens_service_access" ON intake_upload_tokens; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can view org intake files" ON intake_files; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can create intake files" ON intake_files; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can update intake files" ON intake_files; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "intake_files_org_access" ON intake_files; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can view org mappings" ON intake_mappings; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can manage mappings" ON intake_mappings; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "intake_mappings_org_access" ON intake_mappings; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can view org contracts" ON contracts; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can manage contracts" ON contracts; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "contracts_org_access" ON contracts; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can view org supplies" ON supplies; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can manage supplies" ON supplies; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "supplies_org_access" ON supplies; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can view org 174 responses" ON section_174_responses; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "CPAs can manage 174 responses" ON section_174_responses; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "section_174_responses_org_access" ON section_174_responses; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "authority_library_read" ON authority_library; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "authority_library_service_write" ON authority_library; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "review_findings_org_access" ON review_findings; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "finding_resolutions_access" ON finding_resolutions; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "review_config_org_access" ON review_configurations; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "review_runs_org_access" ON review_runs; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "escalation_requests_org_access" ON escalation_requests; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "evidence_requests_org_access" ON evidence_requests; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "client_upload_tokens_access" ON client_upload_tokens; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "evidence_files_org_access" ON evidence_files; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "reprocessing_jobs_org_access" ON reprocessing_jobs; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "credit_estimates_org_access" ON credit_estimates; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "estimate_exports_access" ON estimate_exports; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "estimate_signoffs_access" ON estimate_signoffs; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "studies_v2_org_access" ON studies_v2; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "study_artifacts_v2_access" ON study_artifacts_v2; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "study_signoffs_access" ON study_signoffs; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "study_finalization_checks_org_access" ON study_finalization_checks; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "study_delivery_email_access" ON study_delivery_email_drafts; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "org_settings_read_access" ON org_settings; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "org_settings_write_access" ON org_settings; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "authority_change_log_org_access" ON authority_change_log; EXCEPTION WHEN undefined_table THEN null; END $$;
+DO $$ BEGIN DROP POLICY IF EXISTS "audit_exports_org_access" ON audit_exports; EXCEPTION WHEN undefined_table THEN null; END $$;
+
+-- ============================================================================
+-- PART 15: CREATE SIMPLE RLS POLICIES (org-based, no role column dependencies)
+-- ============================================================================
+
+-- Onboarding sessions: users can access their own
+CREATE POLICY "onboarding_sessions_user_access" ON onboarding_sessions
+    FOR ALL TO authenticated
+    USING (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
+
+-- Onboarding step logs: users can access their own session's logs
+CREATE POLICY "onboarding_step_logs_user_access" ON onboarding_step_logs
+    FOR ALL TO authenticated
+    USING (onboarding_session_id IN (SELECT id FROM onboarding_sessions WHERE user_id = auth.uid()));
+
+-- Intake templates: org members can access
+CREATE POLICY "intake_templates_org_access" ON intake_templates
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Intake email drafts: org members can access
+CREATE POLICY "intake_email_drafts_org_access" ON intake_email_drafts
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Client intake sessions: org members can access
+CREATE POLICY "client_intake_sessions_org_access" ON client_intake_sessions
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Intake upload tokens: service role only for security
+CREATE POLICY "intake_upload_tokens_service_access" ON intake_upload_tokens
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Intake files: org members can access
+CREATE POLICY "intake_files_org_access" ON intake_files
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Intake mappings: based on file access
+CREATE POLICY "intake_mappings_org_access" ON intake_mappings
+    FOR ALL TO authenticated
+    USING (intake_file_id IN (
+        SELECT id FROM intake_files 
+        WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    ));
+
+-- Contracts: org members can access
+CREATE POLICY "contracts_org_access" ON contracts
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Supplies: org members can access
+CREATE POLICY "supplies_org_access" ON supplies
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Section 174 responses: org members can access
+CREATE POLICY "section_174_responses_org_access" ON section_174_responses
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Authority Library: everyone can read, service role can write
+CREATE POLICY "authority_library_read" ON authority_library
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "authority_library_service_write" ON authority_library
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Review Findings
+CREATE POLICY "review_findings_org_access" ON review_findings
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Finding Resolutions
+CREATE POLICY "finding_resolutions_access" ON finding_resolutions
+    FOR ALL TO authenticated
+    USING (review_finding_id IN (
+        SELECT id FROM review_findings 
+        WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    ));
+
+-- Review Configurations
+CREATE POLICY "review_config_org_access" ON review_configurations
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Review Runs
+CREATE POLICY "review_runs_org_access" ON review_runs
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Escalation Requests
+CREATE POLICY "escalation_requests_org_access" ON escalation_requests
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Evidence Requests
+CREATE POLICY "evidence_requests_org_access" ON evidence_requests
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Client Upload Tokens (service role only for security)
+CREATE POLICY "client_upload_tokens_access" ON client_upload_tokens
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Evidence Files
+CREATE POLICY "evidence_files_org_access" ON evidence_files
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Reprocessing Jobs
+CREATE POLICY "reprocessing_jobs_org_access" ON reprocessing_jobs
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Credit Estimates
+CREATE POLICY "credit_estimates_org_access" ON credit_estimates
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Estimate Exports
+CREATE POLICY "estimate_exports_access" ON estimate_exports
+    FOR ALL TO authenticated
+    USING (credit_estimate_id IN (
+        SELECT id FROM credit_estimates 
+        WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    ));
+
+-- Estimate Signoffs
+CREATE POLICY "estimate_signoffs_access" ON estimate_signoffs
+    FOR ALL TO authenticated
+    USING (credit_estimate_id IN (
+        SELECT id FROM credit_estimates 
+        WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    ));
+
+-- Studies V2
+CREATE POLICY "studies_v2_org_access" ON studies_v2
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Study Artifacts V2
+CREATE POLICY "study_artifacts_v2_access" ON study_artifacts_v2
+    FOR ALL TO authenticated
+    USING (study_id IN (
+        SELECT id FROM studies_v2 
+        WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    ));
+
+-- Study Signoffs
+CREATE POLICY "study_signoffs_access" ON study_signoffs
+    FOR ALL TO authenticated
+    USING (study_id IN (
+        SELECT id FROM studies_v2 
+        WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    ));
+
+-- Study Finalization Checks
+CREATE POLICY "study_finalization_checks_org_access" ON study_finalization_checks
+    FOR ALL TO authenticated
+    USING (client_company_id IN (
+        SELECT id FROM client_companies 
+        WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    ));
+
+-- Study Delivery Email Drafts
+CREATE POLICY "study_delivery_email_access" ON study_delivery_email_drafts
+    FOR ALL TO authenticated
+    USING (study_id IN (
+        SELECT id FROM studies_v2 
+        WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    ));
+
+-- Org Settings
+CREATE POLICY "org_settings_read_access" ON org_settings
+    FOR SELECT TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+CREATE POLICY "org_settings_write_access" ON org_settings
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Authority Change Log
+CREATE POLICY "authority_change_log_org_access" ON authority_change_log
+    FOR ALL TO authenticated
+    USING (organization_id IS NULL OR organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- Audit Exports
+CREATE POLICY "audit_exports_org_access" ON audit_exports
+    FOR ALL TO authenticated
+    USING (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()))
+    WITH CHECK (organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+-- ============================================================================
+-- PART 16: CREATE TRIGGERS
+-- ============================================================================
+
+-- Create updated_at function if it doesn't exist
+CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
@@ -402,967 +1211,88 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to check if user is org executive (admin)
-CREATE OR REPLACE FUNCTION public.is_org_admin(org_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM public.organization_members
-        WHERE organization_id = org_id
-        AND user_id = auth.uid()
-        AND role = 'executive'
-        AND status = 'active'
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Onboarding sessions
+DROP TRIGGER IF EXISTS update_onboarding_sessions_updated_at ON onboarding_sessions;
+CREATE TRIGGER update_onboarding_sessions_updated_at
+    BEFORE UPDATE ON onboarding_sessions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Function to check if user is org CPA
-CREATE OR REPLACE FUNCTION public.is_org_cpa(org_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM public.organization_members
-        WHERE organization_id = org_id
-        AND user_id = auth.uid()
-        AND role = 'cpa'
-        AND status = 'active'
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Intake email drafts
+DROP TRIGGER IF EXISTS update_intake_email_drafts_updated_at ON intake_email_drafts;
+CREATE TRIGGER update_intake_email_drafts_updated_at 
+    BEFORE UPDATE ON intake_email_drafts
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Function to check if user is org engineer
-CREATE OR REPLACE FUNCTION public.is_org_engineer(org_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM public.organization_members
-        WHERE organization_id = org_id
-        AND user_id = auth.uid()
-        AND role = 'engineer'
-        AND status = 'active'
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Client intake sessions
+DROP TRIGGER IF EXISTS update_client_intake_sessions_updated_at ON client_intake_sessions;
+CREATE TRIGGER update_client_intake_sessions_updated_at 
+    BEFORE UPDATE ON client_intake_sessions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Function to get user's role in org
-CREATE OR REPLACE FUNCTION public.get_user_role(org_id UUID)
-RETURNS TEXT AS $$
-DECLARE
-    user_role TEXT;
-BEGIN
-    SELECT role INTO user_role
-    FROM public.organization_members
-    WHERE organization_id = org_id
-    AND user_id = auth.uid()
-    AND status = 'active';
-    RETURN user_role;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Intake files
+DROP TRIGGER IF EXISTS update_intake_files_updated_at ON intake_files;
+CREATE TRIGGER update_intake_files_updated_at 
+    BEFORE UPDATE ON intake_files
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Function to check if user is org member
-CREATE OR REPLACE FUNCTION public.is_org_member(org_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM public.organization_members
-        WHERE organization_id = org_id
-        AND user_id = auth.uid()
-        AND status = 'active'
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Contracts
+DROP TRIGGER IF EXISTS update_contracts_updated_at ON contracts;
+CREATE TRIGGER update_contracts_updated_at 
+    BEFORE UPDATE ON contracts
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Function to get user's organization ID
-CREATE OR REPLACE FUNCTION public.get_user_org_id()
-RETURNS UUID AS $$
-DECLARE
-    org_id UUID;
-BEGIN
-    SELECT organization_id INTO org_id
-    FROM public.profiles
-    WHERE id = auth.uid();
-    RETURN org_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Supplies
+DROP TRIGGER IF EXISTS update_supplies_updated_at ON supplies;
+CREATE TRIGGER update_supplies_updated_at 
+    BEFORE UPDATE ON supplies
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Function to generate a URL-safe slug from text
-CREATE OR REPLACE FUNCTION public.generate_slug(input_text TEXT)
-RETURNS TEXT AS $$
-DECLARE
-    base_slug TEXT;
-    final_slug TEXT;
-    counter INT := 0;
-BEGIN
-    base_slug := lower(trim(input_text));
-    base_slug := regexp_replace(base_slug, '[^a-z0-9\s-]', '', 'g');
-    base_slug := regexp_replace(base_slug, '\s+', '-', 'g');
-    base_slug := regexp_replace(base_slug, '-+', '-', 'g');
-    base_slug := trim(both '-' from base_slug);
+-- Section 174 responses
+DROP TRIGGER IF EXISTS update_174_responses_updated_at ON section_174_responses;
+CREATE TRIGGER update_174_responses_updated_at 
+    BEFORE UPDATE ON section_174_responses
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================================
+-- PART 17: SEED AUTHORITY LIBRARY (if empty)
+-- ============================================================================
+
+INSERT INTO authority_library (authority_type, citation_label, citation_key, summary, excerpt, tags)
+SELECT * FROM (VALUES
+    ('irc_section'::authority_type_enum, 'IRC §41(d) - Qualified Research', 'IRC_41_D', 
+     'Defines the four-part test for qualified research activities',
+     'Research must meet: (1) permitted purpose, (2) technological in nature, (3) elimination of uncertainty, (4) process of experimentation',
+     '["four_part_test", "qualified_research"]'::jsonb),
     
-    IF base_slug = '' OR base_slug IS NULL THEN
-        base_slug := 'org-' || substring(gen_random_uuid()::text from 1 for 8);
-    END IF;
+    ('irc_section'::authority_type_enum, 'IRC §41(b) - QRE Components', 'IRC_41_B',
+     'Defines qualified research expenditures including wages, supplies, and contract research',
+     'QRE includes: in-house research expenses (wages, supplies) and contract research expenses (65% of amounts paid)',
+     '["qre", "wages", "supplies", "contract_research"]'::jsonb),
     
-    final_slug := base_slug;
+    ('irc_section'::authority_type_enum, 'IRC §41(b)(3) - Contract Research 65% Rule', 'IRC_41_B_3',
+     '65% of contract research payments qualify as QRE',
+     'Only 65 percent of contract research payments shall be treated as qualified research expenses',
+     '["contract_research", "65_percent"]'::jsonb),
     
-    WHILE EXISTS (SELECT 1 FROM public.organizations WHERE slug = final_slug) LOOP
-        counter := counter + 1;
-        final_slug := base_slug || '-' || counter;
-    END LOOP;
+    ('irc_section'::authority_type_enum, 'IRC §174 - R&E Expenditures', 'IRC_174',
+     'Post-TCJA rules requiring capitalization of R&E expenditures',
+     'R&E expenditures must be capitalized and amortized over 5 years (domestic) or 15 years (foreign)',
+     '["section_174", "capitalization"]'::jsonb),
     
-    RETURN final_slug;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to create profile and organization on user signup
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-DECLARE
-    new_org_id UUID;
-    company_name_val TEXT;
-    org_slug TEXT;
-BEGIN
-    company_name_val := COALESCE(NEW.raw_user_meta_data->>'company_name', '');
+    ('irc_section'::authority_type_enum, 'IRC §41(d)(4) - Foreign Research Exclusion', 'IRC_41_D_4',
+     'Research conducted outside the United States does not qualify',
+     'Qualified research shall not include research conducted outside the United States',
+     '["foreign_research", "exclusion"]'::jsonb),
     
-    IF company_name_val != '' THEN
-        org_slug := public.generate_slug(company_name_val);
-        
-        INSERT INTO public.organizations (name, slug)
-        VALUES (company_name_val, org_slug)
-        RETURNING id INTO new_org_id;
-    END IF;
-    
-    INSERT INTO public.profiles (id, email, full_name, company_name, organization_id, is_admin)
-    VALUES (
-        NEW.id,
-        NEW.email,
-        COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
-        company_name_val,
-        new_org_id,
-        TRUE
-    );
-    
-    IF new_org_id IS NOT NULL THEN
-        INSERT INTO public.organization_members (organization_id, user_id, role, status, accepted_at)
-        VALUES (new_org_id, NEW.id, 'executive', 'active', NOW());
-    END IF;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Drop trigger if exists and recreate
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
--- ============================================
--- STEP 4: APPLY UPDATED_AT TRIGGERS
--- ============================================
-DROP TRIGGER IF EXISTS update_profiles_updated_at ON public.profiles;
-CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON public.profiles
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_organizations_updated_at ON public.organizations;
-CREATE TRIGGER update_organizations_updated_at BEFORE UPDATE ON public.organizations
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_org_members_updated_at ON public.organization_members;
-CREATE TRIGGER update_org_members_updated_at BEFORE UPDATE ON public.organization_members
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_verification_tasks_updated_at ON public.verification_tasks;
-CREATE TRIGGER update_verification_tasks_updated_at BEFORE UPDATE ON public.verification_tasks
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_projects_updated_at ON public.projects;
-CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON public.projects
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_employees_updated_at ON public.employees;
-CREATE TRIGGER update_employees_updated_at BEFORE UPDATE ON public.employees
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_contractors_updated_at ON public.contractors;
-CREATE TRIGGER update_contractors_updated_at BEFORE UPDATE ON public.contractors
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_chat_sessions_updated_at ON public.chat_sessions;
-CREATE TRIGGER update_chat_sessions_updated_at BEFORE UPDATE ON public.chat_sessions
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_demo_requests_updated_at ON public.demo_requests;
-CREATE TRIGGER update_demo_requests_updated_at BEFORE UPDATE ON public.demo_requests
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_budgets_updated_at ON public.budgets;
-CREATE TRIGGER update_budgets_updated_at BEFORE UPDATE ON public.budgets
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_expenses_updated_at ON public.expenses;
-CREATE TRIGGER update_expenses_updated_at BEFORE UPDATE ON public.expenses
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_eng_tasks_updated_at ON public.engineering_tasks;
-CREATE TRIGGER update_eng_tasks_updated_at BEFORE UPDATE ON public.engineering_tasks
-    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
--- ============================================
--- STEP 5: ROW LEVEL SECURITY
--- ============================================
-
--- Enable RLS on all tables
-ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.organization_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.verification_tasks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.contractors ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.project_allocations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.chat_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.studies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.demo_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.budgets ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.engineering_tasks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.time_logs ENABLE ROW LEVEL SECURITY;
-
--- ORGANIZATIONS POLICIES
-DROP POLICY IF EXISTS "Users can view their organization" ON public.organizations;
-CREATE POLICY "Users can view their organization" ON public.organizations
-    FOR SELECT USING (
-        id = public.get_user_org_id() OR public.is_org_member(id)
-    );
-
-DROP POLICY IF EXISTS "Admins can update their organization" ON public.organizations;
-CREATE POLICY "Admins can update their organization" ON public.organizations
-    FOR UPDATE USING (public.is_org_admin(id));
-
-DROP POLICY IF EXISTS "Users can create organizations" ON public.organizations;
-CREATE POLICY "Users can create organizations" ON public.organizations
-    FOR INSERT WITH CHECK (true);
-
--- PROFILES POLICIES
-DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
-CREATE POLICY "Users can view own profile" ON public.profiles
-    FOR SELECT USING (auth.uid() = id);
-
-DROP POLICY IF EXISTS "Users can view org members profiles" ON public.profiles;
-CREATE POLICY "Users can view org members profiles" ON public.profiles
-    FOR SELECT USING (
-        organization_id IN (
-            SELECT organization_id FROM public.organization_members WHERE user_id = auth.uid()
-        )
-    );
-
-DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
-CREATE POLICY "Users can update own profile" ON public.profiles
-    FOR UPDATE USING (auth.uid() = id);
-
-DROP POLICY IF EXISTS "Users can insert own profile" ON public.profiles;
-CREATE POLICY "Users can insert own profile" ON public.profiles
-    FOR INSERT WITH CHECK (auth.uid() = id);
-
--- ORGANIZATION MEMBERS POLICIES
-DROP POLICY IF EXISTS "Users can view org members" ON public.organization_members;
-CREATE POLICY "Users can view org members" ON public.organization_members
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Admins can insert org members" ON public.organization_members;
-CREATE POLICY "Admins can insert org members" ON public.organization_members
-    FOR INSERT WITH CHECK (public.is_org_admin(organization_id));
-
-DROP POLICY IF EXISTS "Admins can update org members" ON public.organization_members;
-CREATE POLICY "Admins can update org members" ON public.organization_members
-    FOR UPDATE USING (public.is_org_admin(organization_id));
-
-DROP POLICY IF EXISTS "Admins can delete org members" ON public.organization_members;
-CREATE POLICY "Admins can delete org members" ON public.organization_members
-    FOR DELETE USING (public.is_org_admin(organization_id));
-
--- VERIFICATION TASKS POLICIES
-DROP POLICY IF EXISTS "Users can view org tasks" ON public.verification_tasks;
-CREATE POLICY "Users can view org tasks" ON public.verification_tasks
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Admins can insert tasks" ON public.verification_tasks;
-CREATE POLICY "Admins can insert tasks" ON public.verification_tasks
-    FOR INSERT WITH CHECK (public.is_org_admin(organization_id));
-
-DROP POLICY IF EXISTS "Assigned users can update tasks" ON public.verification_tasks;
-CREATE POLICY "Assigned users can update tasks" ON public.verification_tasks
-    FOR UPDATE USING (assigned_to = auth.uid() OR public.is_org_admin(organization_id));
-
-DROP POLICY IF EXISTS "Admins can delete tasks" ON public.verification_tasks;
-CREATE POLICY "Admins can delete tasks" ON public.verification_tasks
-    FOR DELETE USING (public.is_org_admin(organization_id));
-
--- AUDIT LOGS POLICIES
-DROP POLICY IF EXISTS "Users can view org audit logs" ON public.audit_logs;
-CREATE POLICY "Users can view org audit logs" ON public.audit_logs
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "System can insert audit logs" ON public.audit_logs;
-CREATE POLICY "System can insert audit logs" ON public.audit_logs
-    FOR INSERT WITH CHECK (organization_id = public.get_user_org_id());
-
--- PROJECTS POLICIES
-DROP POLICY IF EXISTS "Users can view org projects" ON public.projects;
-CREATE POLICY "Users can view org projects" ON public.projects
-    FOR SELECT USING (organization_id = public.get_user_org_id() OR user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can insert org projects" ON public.projects;
-CREATE POLICY "Users can insert org projects" ON public.projects
-    FOR INSERT WITH CHECK (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can update own projects" ON public.projects;
-CREATE POLICY "Users can update own projects" ON public.projects
-    FOR UPDATE USING (user_id = auth.uid() OR public.is_org_admin(organization_id));
-
-DROP POLICY IF EXISTS "Users can delete own projects" ON public.projects;
-CREATE POLICY "Users can delete own projects" ON public.projects
-    FOR DELETE USING (user_id = auth.uid() OR public.is_org_admin(organization_id));
-
--- EMPLOYEES POLICIES
-DROP POLICY IF EXISTS "Users can view org employees" ON public.employees;
-CREATE POLICY "Users can view org employees" ON public.employees
-    FOR SELECT USING (organization_id = public.get_user_org_id() OR user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can insert org employees" ON public.employees;
-CREATE POLICY "Users can insert org employees" ON public.employees
-    FOR INSERT WITH CHECK (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can update org employees" ON public.employees;
-CREATE POLICY "Users can update org employees" ON public.employees
-    FOR UPDATE USING (user_id = auth.uid() OR public.is_org_admin(organization_id));
-
-DROP POLICY IF EXISTS "Users can delete own employees" ON public.employees;
-CREATE POLICY "Users can delete own employees" ON public.employees
-    FOR DELETE USING (user_id = auth.uid() OR public.is_org_admin(organization_id));
-
--- CONTRACTORS POLICIES
-DROP POLICY IF EXISTS "Users can view org contractors" ON public.contractors;
-CREATE POLICY "Users can view org contractors" ON public.contractors
-    FOR SELECT USING (organization_id = public.get_user_org_id() OR user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can insert org contractors" ON public.contractors;
-CREATE POLICY "Users can insert org contractors" ON public.contractors
-    FOR INSERT WITH CHECK (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can update org contractors" ON public.contractors;
-CREATE POLICY "Users can update org contractors" ON public.contractors
-    FOR UPDATE USING (user_id = auth.uid() OR public.is_org_admin(organization_id));
-
-DROP POLICY IF EXISTS "Users can delete own contractors" ON public.contractors;
-CREATE POLICY "Users can delete own contractors" ON public.contractors
-    FOR DELETE USING (user_id = auth.uid() OR public.is_org_admin(organization_id));
-
--- PROJECT ALLOCATIONS POLICIES
-DROP POLICY IF EXISTS "Users can view org allocations" ON public.project_allocations;
-CREATE POLICY "Users can view org allocations" ON public.project_allocations
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM public.employees e
-            WHERE e.id = employee_id
-            AND (e.organization_id = public.get_user_org_id() OR e.user_id = auth.uid())
-        )
-    );
-
-DROP POLICY IF EXISTS "Users can insert org allocations" ON public.project_allocations;
-CREATE POLICY "Users can insert org allocations" ON public.project_allocations
-    FOR INSERT WITH CHECK (
-        EXISTS (SELECT 1 FROM public.employees WHERE id = employee_id AND user_id = auth.uid())
-    );
-
-DROP POLICY IF EXISTS "Users can update org allocations" ON public.project_allocations;
-CREATE POLICY "Users can update org allocations" ON public.project_allocations
-    FOR UPDATE USING (
-        EXISTS (SELECT 1 FROM public.employees WHERE id = employee_id AND user_id = auth.uid())
-    );
-
-DROP POLICY IF EXISTS "Users can delete org allocations" ON public.project_allocations;
-CREATE POLICY "Users can delete org allocations" ON public.project_allocations
-    FOR DELETE USING (
-        EXISTS (SELECT 1 FROM public.employees WHERE id = employee_id AND user_id = auth.uid())
-    );
-
--- CHAT SESSIONS POLICIES
-DROP POLICY IF EXISTS "Users can view own chat sessions" ON public.chat_sessions;
-CREATE POLICY "Users can view own chat sessions" ON public.chat_sessions
-    FOR SELECT USING (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can insert own chat sessions" ON public.chat_sessions;
-CREATE POLICY "Users can insert own chat sessions" ON public.chat_sessions
-    FOR INSERT WITH CHECK (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can update own chat sessions" ON public.chat_sessions;
-CREATE POLICY "Users can update own chat sessions" ON public.chat_sessions
-    FOR UPDATE USING (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can delete own chat sessions" ON public.chat_sessions;
-CREATE POLICY "Users can delete own chat sessions" ON public.chat_sessions
-    FOR DELETE USING (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Admins can view org chat sessions" ON public.chat_sessions;
-CREATE POLICY "Admins can view org chat sessions" ON public.chat_sessions
-    FOR SELECT USING (public.is_org_admin(organization_id));
-
--- CHAT MESSAGES POLICIES
-DROP POLICY IF EXISTS "Users can view own chat messages" ON public.chat_messages;
-CREATE POLICY "Users can view own chat messages" ON public.chat_messages
-    FOR SELECT USING (
-        EXISTS (SELECT 1 FROM public.chat_sessions WHERE id = session_id AND user_id = auth.uid())
-    );
-
-DROP POLICY IF EXISTS "Users can insert own chat messages" ON public.chat_messages;
-CREATE POLICY "Users can insert own chat messages" ON public.chat_messages
-    FOR INSERT WITH CHECK (
-        EXISTS (SELECT 1 FROM public.chat_sessions WHERE id = session_id AND user_id = auth.uid())
-    );
-
--- STUDIES POLICIES
-DROP POLICY IF EXISTS "Users can view own studies" ON public.studies;
-CREATE POLICY "Users can view own studies" ON public.studies
-    FOR SELECT USING (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can insert own studies" ON public.studies;
-CREATE POLICY "Users can insert own studies" ON public.studies
-    FOR INSERT WITH CHECK (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can update own studies" ON public.studies;
-CREATE POLICY "Users can update own studies" ON public.studies
-    FOR UPDATE USING (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can delete own studies" ON public.studies;
-CREATE POLICY "Users can delete own studies" ON public.studies
-    FOR DELETE USING (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Admins can view org studies" ON public.studies;
-CREATE POLICY "Admins can view org studies" ON public.studies
-    FOR SELECT USING (public.is_org_admin(organization_id));
-
--- DEMO REQUESTS POLICIES
-DROP POLICY IF EXISTS "Anyone can submit demo requests" ON public.demo_requests;
-CREATE POLICY "Anyone can submit demo requests" ON public.demo_requests
-    FOR INSERT WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Admins can view demo requests" ON public.demo_requests;
-CREATE POLICY "Admins can view demo requests" ON public.demo_requests
-    FOR SELECT USING (
-        EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_admin = TRUE)
-    );
-
-DROP POLICY IF EXISTS "Admins can update demo requests" ON public.demo_requests;
-CREATE POLICY "Admins can update demo requests" ON public.demo_requests
-    FOR UPDATE USING (
-        EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND is_admin = TRUE)
-    );
-
--- BUDGETS POLICIES
-DROP POLICY IF EXISTS "Users can view org budgets" ON public.budgets;
-CREATE POLICY "Users can view org budgets" ON public.budgets
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "CPAs and Executives can insert budgets" ON public.budgets;
-CREATE POLICY "CPAs and Executives can insert budgets" ON public.budgets
-    FOR INSERT WITH CHECK (
-        public.is_org_admin(organization_id) OR public.is_org_cpa(organization_id)
-    );
-
-DROP POLICY IF EXISTS "CPAs and Executives can update budgets" ON public.budgets;
-CREATE POLICY "CPAs and Executives can update budgets" ON public.budgets
-    FOR UPDATE USING (
-        public.is_org_admin(organization_id) OR public.is_org_cpa(organization_id)
-    );
-
-DROP POLICY IF EXISTS "Executives can delete budgets" ON public.budgets;
-CREATE POLICY "Executives can delete budgets" ON public.budgets
-    FOR DELETE USING (public.is_org_admin(organization_id));
-
--- EXPENSES POLICIES
-DROP POLICY IF EXISTS "Users can view org expenses" ON public.expenses;
-CREATE POLICY "Users can view org expenses" ON public.expenses
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "CPAs can insert expenses" ON public.expenses;
-CREATE POLICY "CPAs can insert expenses" ON public.expenses
-    FOR INSERT WITH CHECK (
-        public.is_org_admin(organization_id) OR public.is_org_cpa(organization_id)
-    );
-
-DROP POLICY IF EXISTS "CPAs can update expenses" ON public.expenses;
-CREATE POLICY "CPAs can update expenses" ON public.expenses
-    FOR UPDATE USING (
-        public.is_org_admin(organization_id) OR public.is_org_cpa(organization_id)
-    );
-
-DROP POLICY IF EXISTS "Executives can delete expenses" ON public.expenses;
-CREATE POLICY "Executives can delete expenses" ON public.expenses
-    FOR DELETE USING (public.is_org_admin(organization_id));
-
--- ENGINEERING TASKS POLICIES
-DROP POLICY IF EXISTS "Users can view org engineering tasks" ON public.engineering_tasks;
-CREATE POLICY "Users can view org engineering tasks" ON public.engineering_tasks
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Engineers and Executives can insert tasks" ON public.engineering_tasks;
-CREATE POLICY "Engineers and Executives can insert tasks" ON public.engineering_tasks
-    FOR INSERT WITH CHECK (
-        public.is_org_admin(organization_id) OR public.is_org_engineer(organization_id)
-    );
-
-DROP POLICY IF EXISTS "Assigned users can update eng tasks" ON public.engineering_tasks;
-CREATE POLICY "Assigned users can update eng tasks" ON public.engineering_tasks
-    FOR UPDATE USING (
-        assigned_to = auth.uid() OR 
-        public.is_org_admin(organization_id) OR 
-        public.is_org_engineer(organization_id)
-    );
-
-DROP POLICY IF EXISTS "Executives can delete eng tasks" ON public.engineering_tasks;
-CREATE POLICY "Executives can delete eng tasks" ON public.engineering_tasks
-    FOR DELETE USING (public.is_org_admin(organization_id));
-
--- TIME LOGS POLICIES
-DROP POLICY IF EXISTS "Users can view org time logs" ON public.time_logs;
-CREATE POLICY "Users can view org time logs" ON public.time_logs
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Engineers can insert time logs" ON public.time_logs;
-CREATE POLICY "Engineers can insert time logs" ON public.time_logs
-    FOR INSERT WITH CHECK (
-        user_id = auth.uid() AND public.is_org_member(organization_id)
-    );
-
-DROP POLICY IF EXISTS "Users can update own time logs" ON public.time_logs;
-CREATE POLICY "Users can update own time logs" ON public.time_logs
-    FOR UPDATE USING (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "Users can delete own time logs" ON public.time_logs;
-CREATE POLICY "Users can delete own time logs" ON public.time_logs
-    FOR DELETE USING (user_id = auth.uid() OR public.is_org_admin(organization_id));
-
--- ============================================
--- STEP 6: CLIENT COMPANIES (CPA-CENTRIC)
--- ============================================
-CREATE TABLE IF NOT EXISTS public.client_companies (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    name TEXT NOT NULL,
-    slug TEXT,
-    industry TEXT,
-    tax_year TEXT DEFAULT '2024',
-    ein TEXT,
-    address TEXT,
-    city TEXT,
-    state TEXT,
-    zip_code TEXT,
-    contact_name TEXT,
-    contact_email TEXT,
-    contact_phone TEXT,
-    settings JSONB DEFAULT '{}',
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'archived')),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_client_companies_org_id ON public.client_companies(organization_id);
-CREATE INDEX IF NOT EXISTS idx_client_companies_status ON public.client_companies(status);
-CREATE INDEX IF NOT EXISTS idx_client_companies_slug ON public.client_companies(slug);
-
--- Add client_company_id to existing tables
-ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS client_company_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE;
-ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS client_company_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE;
-ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS client_company_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE;
-ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS client_company_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE;
-ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS client_company_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE;
-ALTER TABLE public.engineering_tasks ADD COLUMN IF NOT EXISTS client_company_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE;
-ALTER TABLE public.time_logs ADD COLUMN IF NOT EXISTS client_company_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE;
-ALTER TABLE public.chat_sessions ADD COLUMN IF NOT EXISTS client_company_id UUID REFERENCES public.client_companies(id) ON DELETE SET NULL;
-ALTER TABLE public.studies ADD COLUMN IF NOT EXISTS client_company_id UUID REFERENCES public.client_companies(id) ON DELETE SET NULL;
-ALTER TABLE public.verification_tasks ADD COLUMN IF NOT EXISTS client_company_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS selected_client_id UUID REFERENCES public.client_companies(id) ON DELETE SET NULL;
-
--- Helper functions for client companies
-CREATE OR REPLACE FUNCTION public.get_user_client_companies()
-RETURNS SETOF public.client_companies AS $$
-BEGIN
-    RETURN QUERY
-    SELECT cc.*
-    FROM public.client_companies cc
-    WHERE cc.organization_id = public.get_user_org_id()
-    AND cc.status = 'active'
-    ORDER BY cc.name;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION public.can_access_client_company(company_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM public.client_companies cc
-        WHERE cc.id = company_id
-        AND cc.organization_id = public.get_user_org_id()
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- RLS for client_companies
-ALTER TABLE public.client_companies ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can view org client companies" ON public.client_companies;
-CREATE POLICY "Users can view org client companies" ON public.client_companies
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "CPAs can create client companies" ON public.client_companies;
-CREATE POLICY "CPAs can create client companies" ON public.client_companies
-    FOR INSERT WITH CHECK (
-        organization_id = public.get_user_org_id() AND
-        (public.is_org_admin(organization_id) OR public.is_org_cpa(organization_id))
-    );
-
-DROP POLICY IF EXISTS "CPAs can update client companies" ON public.client_companies;
-CREATE POLICY "CPAs can update client companies" ON public.client_companies
-    FOR UPDATE USING (
-        organization_id = public.get_user_org_id() AND
-        (public.is_org_admin(organization_id) OR public.is_org_cpa(organization_id))
-    );
-
-DROP POLICY IF EXISTS "Executives can delete client companies" ON public.client_companies;
-CREATE POLICY "Executives can delete client companies" ON public.client_companies
-    FOR DELETE USING (public.is_org_admin(organization_id));
-
--- ============================================
--- STEP 7: WORKFLOW ENGINE
--- ============================================
-DO $$ BEGIN
-    CREATE TYPE public.workflow_overall_state AS ENUM ('not_started', 'in_progress', 'ready_for_review', 'needs_follow_up', 'approved', 'rejected');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE public.criterion_state AS ENUM ('missing', 'incomplete', 'sufficient', 'flagged', 'approved', 'rejected');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE public.workflow_risk_level AS ENUM ('low', 'medium', 'high');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE public.evidence_type AS ENUM ('project_narrative', 'technical_docs', 'test_results', 'source_control', 'tickets', 'time_logs', 'financial_support');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE public.evidence_source AS ENUM ('upload', 'manual_entry', 'ai_extracted', 'integration');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
--- Project Workflow Status
-CREATE TABLE IF NOT EXISTS public.project_workflow_status (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    client_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE NOT NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
-    tax_year INTEGER NOT NULL DEFAULT 2024,
-    overall_state public.workflow_overall_state DEFAULT 'not_started',
-    readiness_score INTEGER DEFAULT 0 CHECK (readiness_score >= 0 AND readiness_score <= 100),
-    risk_level public.workflow_risk_level DEFAULT 'low',
-    last_computed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    last_computed_version INTEGER DEFAULT 1,
-    computed_summary JSONB DEFAULT '{}',
-    UNIQUE(project_id, tax_year)
-);
-
--- Project Criterion Status
-CREATE TABLE IF NOT EXISTS public.project_criterion_status (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
-    criterion_key TEXT NOT NULL CHECK (criterion_key IN ('qualified_purpose', 'technological_in_nature', 'elimination_of_uncertainty', 'process_of_experimentation')),
-    state public.criterion_state DEFAULT 'missing',
-    confidence FLOAT DEFAULT 0.0,
-    missing_requirements JSONB DEFAULT '[]',
-    supporting_evidence_ids UUID[] DEFAULT '{}',
-    last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(project_id, criterion_key)
-);
-
--- Project Evidence
-CREATE TABLE IF NOT EXISTS public.project_evidence (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    client_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE NOT NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
-    evidence_type public.evidence_type NOT NULL,
-    source public.evidence_source DEFAULT 'manual_entry',
-    file_id UUID,
-    url TEXT,
-    text_excerpt TEXT,
-    metadata JSONB DEFAULT '{}',
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Workflow Events (Append-only)
-CREATE TABLE IF NOT EXISTS public.workflow_events (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    client_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE NOT NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
-    event_type TEXT NOT NULL,
-    payload JSONB DEFAULT '{}',
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS idx_workflow_status_project_id ON public.project_workflow_status(project_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_status_client_id ON public.project_workflow_status(client_id);
-CREATE INDEX IF NOT EXISTS idx_criterion_status_project_id ON public.project_criterion_status(project_id);
-CREATE INDEX IF NOT EXISTS idx_evidence_project_id ON public.project_evidence(project_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_events_project_id ON public.workflow_events(project_id);
-
--- RLS for workflow tables
-ALTER TABLE public.project_workflow_status ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.project_criterion_status ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.project_evidence ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.workflow_events ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can view org workflow status" ON public.project_workflow_status;
-CREATE POLICY "Users can view org workflow status" ON public.project_workflow_status
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Users can update org workflow status" ON public.project_workflow_status;
-CREATE POLICY "Users can update org workflow status" ON public.project_workflow_status
-    FOR UPDATE USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Users can insert org workflow status" ON public.project_workflow_status;
-CREATE POLICY "Users can insert org workflow status" ON public.project_workflow_status
-    FOR INSERT WITH CHECK (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Users can view org criterion status" ON public.project_criterion_status;
-CREATE POLICY "Users can view org criterion status" ON public.project_criterion_status
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM public.projects p 
-            WHERE p.id = project_id 
-            AND p.organization_id = public.get_user_org_id()
-        )
-    );
-
-DROP POLICY IF EXISTS "Users can view org evidence" ON public.project_evidence;
-CREATE POLICY "Users can view org evidence" ON public.project_evidence
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Users can insert org evidence" ON public.project_evidence;
-CREATE POLICY "Users can insert org evidence" ON public.project_evidence
-    FOR INSERT WITH CHECK (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Users can view org workflow events" ON public.workflow_events;
-CREATE POLICY "Users can view org workflow events" ON public.workflow_events
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Users can insert org workflow events" ON public.workflow_events;
-CREATE POLICY "Users can insert org workflow events" ON public.workflow_events
-    FOR INSERT WITH CHECK (organization_id = public.get_user_org_id());
-
--- ============================================
--- STEP 8: RBAC & CPA ROLES
--- ============================================
-DO $$ BEGIN
-    CREATE TYPE cpa_role AS ENUM ('managing_partner', 'reviewer', 'preparer', 'associate', 'ops_admin');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
-
--- Permissions table
-CREATE TABLE IF NOT EXISTS public.permissions (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    code TEXT UNIQUE NOT NULL,
-    category TEXT NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Seed permissions
-INSERT INTO public.permissions (code, category, description) VALUES
-('client.create', 'client', 'Create new client companies'),
-('client.edit', 'client', 'Edit client company details'),
-('client.delete', 'client', 'Delete client companies'),
-('project.create', 'project', 'Create new projects'),
-('project.edit', 'project', 'Edit project details'),
-('project.approve_reject', 'project', 'Final approve/reject decision'),
-('task.create', 'task', 'Create new tasks'),
-('task.assign', 'task', 'Assign or reassign tasks'),
-('task.review', 'task', 'Review task deliverables')
-ON CONFLICT (code) DO NOTHING;
-
--- Add cpa_role to profiles
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS cpa_role cpa_role DEFAULT 'associate';
-
--- ============================================
--- STEP 9: AI COPILOT ENGINE
--- ============================================
-CREATE TABLE IF NOT EXISTS public.ai_suggestions (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    client_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE NOT NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
-    category TEXT NOT NULL,
-    severity TEXT DEFAULT 'info',
-    summary TEXT NOT NULL,
-    findings JSONB DEFAULT '[]',
-    citations JSONB DEFAULT '[]',
-    suggested_actions JSONB DEFAULT '[]',
-    questions_for_user JSONB DEFAULT '[]',
-    confidence FLOAT DEFAULT 0.0,
-    status TEXT DEFAULT 'active',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.ai_proposed_actions (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    client_id UUID REFERENCES public.client_companies(id) ON DELETE CASCADE NOT NULL,
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
-    suggestion_id UUID REFERENCES public.ai_suggestions(id) ON DELETE SET NULL,
-    action_type TEXT NOT NULL,
-    target_entity_type TEXT,
-    target_entity_id UUID,
-    proposed_changes JSONB NOT NULL,
-    status TEXT DEFAULT 'pending_approval',
-    approved_by UUID REFERENCES public.profiles(id),
-    approved_at TIMESTAMP WITH TIME ZONE,
-    executed_at TIMESTAMP WITH TIME ZONE,
-    execution_error TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.ai_interaction_logs (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    interaction_type TEXT NOT NULL,
-    request_payload JSONB DEFAULT '{}',
-    response_payload JSONB DEFAULT '{}',
-    response_time_ms INTEGER,
-    citation_count INTEGER DEFAULT 0,
-    is_hallucination_check_passed BOOLEAN DEFAULT TRUE,
-    request_id TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS idx_ai_suggestions_project_id ON public.ai_suggestions(project_id);
-CREATE INDEX IF NOT EXISTS idx_ai_suggestions_client_id ON public.ai_suggestions(client_id);
-CREATE INDEX IF NOT EXISTS idx_ai_proposed_actions_status ON public.ai_proposed_actions(status);
-
--- RLS for AI tables
-ALTER TABLE public.ai_suggestions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ai_proposed_actions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ai_interaction_logs ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can view org suggestions" ON public.ai_suggestions;
-CREATE POLICY "Users can view org suggestions" ON public.ai_suggestions
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Users can manage suggestions" ON public.ai_suggestions;
-CREATE POLICY "Users can manage suggestions" ON public.ai_suggestions
-    FOR ALL USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Users can view org proposed actions" ON public.ai_proposed_actions;
-CREATE POLICY "Users can view org proposed actions" ON public.ai_proposed_actions
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
-DROP POLICY IF EXISTS "Users can view their org interaction logs" ON public.ai_interaction_logs;
-CREATE POLICY "Users can view their org interaction logs" ON public.ai_interaction_logs
-    FOR SELECT USING (organization_id = public.get_user_org_id());
-
--- ============================================
--- STEP 10: REACTIVE WORKSPACE (Versioning)
--- ============================================
--- Add version columns to core tables
-DO $$ 
-DECLARE 
-    t TEXT;
-BEGIN 
-    FOR t IN 
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name IN (
-            'organizations', 'profiles', 'client_companies', 'projects', 
-            'employees', 'contractors', 'expenses', 'budgets', 
-            'time_logs', 'verification_tasks', 'project_workflow_status',
-            'project_criterion_status', 'project_evidence'
-        )
-    LOOP 
-        EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;', t);
-        EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS last_modified_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL;', t);
-    END LOOP;
-END $$;
-
--- Saved Views table
-CREATE TABLE IF NOT EXISTS public.saved_views (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    organization_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE NOT NULL,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    entity_type TEXT NOT NULL CHECK (entity_type IN ('projects', 'employees', 'contractors', 'tasks', 'expenses')),
-    name TEXT NOT NULL,
-    filters JSONB DEFAULT '[]',
-    sort JSONB DEFAULT '[]',
-    grouping JSONB DEFAULT '[]',
-    visible_columns JSONB DEFAULT '[]',
-    pinned BOOLEAN DEFAULT FALSE,
-    is_shared BOOLEAN DEFAULT FALSE,
-    version INTEGER DEFAULT 1,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-ALTER TABLE public.saved_views ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can view their own or shared org views" ON public.saved_views;
-CREATE POLICY "Users can view their own or shared org views" ON public.saved_views
-    FOR SELECT USING (
-        organization_id = public.get_user_org_id() AND (
-            user_id = auth.uid() OR is_shared = TRUE
-        )
-    );
-
-DROP POLICY IF EXISTS "Users can create their own views" ON public.saved_views;
-CREATE POLICY "Users can create their own views" ON public.saved_views
-    FOR INSERT WITH CHECK (
-        organization_id = public.get_user_org_id() AND user_id = auth.uid()
-    );
-
--- Version increment function
-CREATE OR REPLACE FUNCTION public.increment_version()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.version := OLD.version + 1;
-    NEW.updated_at := NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- ============================================
--- COMPLETE!
--- ============================================
--- Your database is now fully configured for TaxScape Pro
--- with all features:
--- ✅ Base tables (organizations, profiles, projects, etc.)
--- ✅ CPA-centric client management
--- ✅ Workflow engine with four-part test tracking
--- ✅ RBAC with CPA roles
--- ✅ AI Copilot tables
--- ✅ Reactive workspace with versioning
--- ✅ Row Level Security on all tables
+    ('form_instruction'::authority_type_enum, 'Form 6765 Instructions', 'FORM_6765',
+     'IRS form for computing and claiming the R&D tax credit',
+     'Use Form 6765 to figure and claim the credit for increasing research activities',
+     '["form_6765", "credit_computation"]'::jsonb)
+) AS v(authority_type, citation_label, citation_key, summary, excerpt, tags)
+WHERE NOT EXISTS (SELECT 1 FROM authority_library LIMIT 1);
+
+-- ============================================================================
+-- DONE!
+-- ============================================================================
+
+SELECT 'COMPLETE_MIGRATION finished successfully - ALL Prompts 7-15 applied!' AS status;
