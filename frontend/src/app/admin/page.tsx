@@ -899,7 +899,7 @@ function AuditExportsTab({
               className="w-64 p-2 border rounded-lg"
             >
               <option value="">Select a client...</option>
-              {(clients || []).map((c: any) => (
+              {(clients?.clients || []).map((c: any) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
