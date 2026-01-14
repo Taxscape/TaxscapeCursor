@@ -857,8 +857,9 @@ function AuditExportsTab({
   const { data: exports, isLoading: loadingExports, refetch } = useQuery({
     queryKey: ["auditExports", selectedClientId],
     queryFn: () => listAuditExports(selectedClientId || undefined),
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Refetch if any exports are pending
+      const data = query.state.data;
       if (data?.some((e) => e.status === "queued" || e.status === "running")) {
         return 3000;
       }
