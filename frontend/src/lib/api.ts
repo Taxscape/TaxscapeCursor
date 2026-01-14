@@ -124,7 +124,7 @@ async function getFreshSession() {
 }
 
 // Helper to get auth headers with retry logic and token refresh
-async function getAuthHeaders(): Promise<HeadersInit> {
+export async function getAuthHeaders(): Promise<HeadersInit> {
   const session = await getFreshSession();
   
   const headers: HeadersInit = { "Content-Type": "application/json" };
