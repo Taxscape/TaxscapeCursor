@@ -49,7 +49,7 @@ export default function CareersPage() {
             Careers at <span className="text-blue-600">TaxScape.ai</span>
           </h1>
           <p className="text-xl md:text-2xl text-gray-600 leading-relaxed mb-12">
-            We're building the future of tax intelligence.
+            We&apos;re building the future of tax intelligence.
           </p>
         </div>
       </section>

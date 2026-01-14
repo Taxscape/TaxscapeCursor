@@ -67,7 +67,7 @@ export async function checkApiConnection(): Promise<{ connected: boolean; error?
 }
 
 // Helper to get a fresh session, refreshing token if needed
-async function getFreshSession() {
+export async function getFreshSession() {
   const supabase = getSupabaseClient();
   
   console.log('[API] getFreshSession called');
