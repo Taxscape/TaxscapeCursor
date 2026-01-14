@@ -379,9 +379,9 @@ export default function HomePage() {
               </div>
 
               <div className="mt-auto relative z-10">
-                <button className="w-full py-5 bg-white text-blue-600 rounded-2xl font-black text-xl hover:bg-blue-50 transition-all shadow-xl shadow-blue-900/20 active:scale-95">
-                  Enable Expert Mode
-                </button>
+                <div className="w-full py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl text-center">
+                  <span className="text-white/90 font-bold text-sm tracking-wide">Available with Professional Plan</span>
+                </div>
               </div>
 
               {/* Decorative Elements */}
