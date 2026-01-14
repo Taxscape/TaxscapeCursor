@@ -633,6 +633,7 @@ export default function OnboardingPage() {
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [showYearSelector, setShowYearSelector] = useState(false);
   const [selectedYears, setSelectedYears] = useState<number[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedClientName, setSelectedClientName] = useState<string | null>(
     null
   );
@@ -799,9 +800,8 @@ export default function OnboardingPage() {
     // Handle navigation to intake generator
     if (action.type === "generate_intake_package") {
       // Build URL with context from onboarding
-      const clientId = engagementContext.client?.id || "";
       const params = new URLSearchParams({
-        client_id: clientId,
+        client_id: selectedClientId || "",
         from: "onboarding",
         onboarding_session_id: sessionId || "",
       });
@@ -833,6 +833,7 @@ export default function OnboardingPage() {
   // Handle client selection
   const handleClientSelect = (client: ClientCompany) => {
     setShowClientPicker(false);
+    setSelectedClientId(client.id);
     setSelectedClientName(client.name);
 
     addMessage({
