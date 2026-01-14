@@ -83,7 +83,7 @@ function EscalationDetailPanel({
   onResolved: () => void;
 }) {
   const queryClient = useQueryClient();
-  const { profile } = useAuth();
+  const { profile, isExecutive } = useAuth();
   
   const [decisionType, setDecisionType] = useState<DecisionType | ''>('');
   const [reasonCode, setReasonCode] = useState<ReasonCode | ''>('');
@@ -154,9 +154,8 @@ function EscalationDetailPanel({
   
   const { escalation, source_object, entity_snapshot, authority_details, history, available_seniors } = data;
   const isActive = !['resolved', 'cancelled'].includes(escalation.status);
-  const isSenior = profile?.role_level && ['senior', 'director', 'partner'].includes(profile.role_level);
-  const isExecutive = profile?.role === 'executive';
-  const canResolve = isSenior || isExecutive;
+  // Use isExecutive from auth context for senior/executive role check
+  const canResolve = isExecutive;
   
   return (
     <div className="fixed inset-y-0 right-0 w-[700px] bg-white shadow-2xl border-l border-slate-200 overflow-y-auto z-50">
