@@ -399,7 +399,7 @@ export default function HomePage() {
               Companies Eligible for Credits
             </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              From early-stage startups to enterprise organizations — if you're innovating, you likely qualify.
+              From early-stage startups to enterprise organizations — if you&apos;re innovating, you likely qualify.
             </p>
           </div>
 

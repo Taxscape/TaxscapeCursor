@@ -184,9 +184,9 @@ function EscalationDetailPanel({
           </p>
         </div>
         
-        {/* Junior's Summary */}
+        {/* Junior&apos;s Summary */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-blue-800 mb-2">Junior's Summary</h3>
+          <h3 className="text-sm font-semibold text-blue-800 mb-2">Junior&apos;s Summary</h3>
           <p className="text-sm text-blue-900">{escalation.summary}</p>
           
           {escalation.proposed_action && Object.keys(escalation.proposed_action).length > 0 && (

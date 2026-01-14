@@ -943,7 +943,7 @@ export default function OnboardingPage() {
                 Welcome to TaxScape
               </h1>
               <p className="text-sm text-gray-500">
-                Let's set up your first R&D tax credit study
+                Let&apos;s set up your first R&D tax credit study
               </p>
             </div>
             <div className="flex items-center gap-2">

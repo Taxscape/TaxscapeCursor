@@ -263,7 +263,7 @@ export default function CaseStudiesPage() {
                       </svg>
                     </div>
                     <p className="text-xl font-medium mb-6 relative z-10 italic">
-                      "{study.quote}"
+                      &ldquo;{study.quote}&rdquo;
                     </p>
                     <div className="font-bold relative z-10 opacity-80">— {study.author}</div>
                   </div>

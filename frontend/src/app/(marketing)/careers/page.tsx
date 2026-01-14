@@ -65,7 +65,7 @@ export default function CareersPage() {
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-4">No Open Positions</h2>
             <p className="text-gray-500 text-lg">
-              We don't have any current openings at the moment. Please check back later or follow us for updates.
+              We don&apos;t have any current openings at the moment. Please check back later or follow us for updates.
             </p>
           </div>
         </div>
