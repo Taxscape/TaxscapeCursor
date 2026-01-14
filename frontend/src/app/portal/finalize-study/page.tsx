@@ -56,8 +56,8 @@ export default function FinalizeStudyPage() {
     queryKey: ["study", selectedStudyId],
     queryFn: () => getStudy(selectedStudyId!),
     enabled: !!selectedStudyId,
-    refetchInterval: (data) => {
-      if (data?.status === "finalizing") return 3000;
+    refetchInterval: (query) => {
+      if (query.state.data?.status === "finalizing") return 3000;
       return false;
     },
   });
