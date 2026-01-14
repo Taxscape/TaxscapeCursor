@@ -97,7 +97,7 @@ export default function AdminPage() {
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">{user?.email}</span>
             <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded-full">
-              {profile?.role}
+              {isAdmin ? "Admin" : isExecutive ? "Executive" : "User"}
             </span>
           </div>
         </div>
