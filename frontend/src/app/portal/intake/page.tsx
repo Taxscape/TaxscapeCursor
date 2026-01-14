@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/auth-context";
@@ -127,7 +127,7 @@ const Icons = {
 // Main Component
 // ============================================================================
 
-export default function IntakePackageGeneratorPage() {
+function IntakePackageGeneratorContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -889,5 +889,13 @@ export default function IntakePackageGeneratorPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function IntakePackageGeneratorPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+      <IntakePackageGeneratorContent />
+    </Suspense>
   );
 }

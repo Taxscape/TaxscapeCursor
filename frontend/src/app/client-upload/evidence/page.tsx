@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   checkUploadTokenStatus,
@@ -14,7 +14,7 @@ import {
 // Page Component - Public Client Upload (No Auth Required)
 // ============================================================================
 
-export default function ClientUploadPage() {
+function ClientUploadContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
 
@@ -443,5 +443,13 @@ function ClientUploadForm({
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ClientUploadPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+      <ClientUploadContent />
+    </Suspense>
   );
 }

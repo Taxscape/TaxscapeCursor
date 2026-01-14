@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -674,7 +674,7 @@ function FindingDetailPanel({
 // Main Page Component
 // ============================================================================
 
-export default function ReviewInboxPage() {
+function ReviewInboxContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -962,5 +962,13 @@ export default function ReviewInboxPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function ReviewInboxPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+      <ReviewInboxContent />
+    </Suspense>
   );
 }

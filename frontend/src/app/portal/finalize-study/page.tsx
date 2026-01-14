@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -22,7 +22,7 @@ import {
   EmailDraft,
 } from "@/lib/study-packaging";
 
-export default function FinalizeStudyPage() {
+function FinalizeStudyContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -581,5 +581,13 @@ export default function FinalizeStudyPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function FinalizeStudyPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+      <FinalizeStudyContent />
+    </Suspense>
   );
 }
