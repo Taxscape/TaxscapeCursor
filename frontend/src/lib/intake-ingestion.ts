@@ -213,7 +213,7 @@ export async function getIntakeSessionDetail(
   files_summary: Partial<IntakeFile>[];
   open_mappings_count: number;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getAuthHeaders() as Record<string, string>;
   headers["Content-Type"] = "application/json";
   
   const response = await fetch(`${API_URL}/api/intake/sessions/${sessionId}`, {
@@ -233,7 +233,7 @@ export async function getIntakeSessionDetail(
 export async function listSessionFiles(
   sessionId: string
 ): Promise<{ success: boolean; files: IntakeFile[] }> {
-  const headers = await getAuthHeaders();
+  const headers = await getAuthHeaders() as Record<string, string>;
   headers["Content-Type"] = "application/json";
   
   const response = await fetch(`${API_URL}/api/intake/sessions/${sessionId}/files`, {
@@ -255,7 +255,7 @@ export async function overrideClassification(
   domain: ClassificationDomain,
   reason: string
 ): Promise<{ success: boolean; new_domain: ClassificationDomain }> {
-  const headers = await getAuthHeaders();
+  const headers = await getAuthHeaders() as Record<string, string>;
   headers["Content-Type"] = "application/json";
   
   const response = await fetch(`${API_URL}/api/intake/files/${fileId}/override-classification`, {
@@ -286,7 +286,7 @@ export async function processIntakeSession(
   mappings_created: number;
   summary: { total_rows_parsed: number; total_records_inserted: number };
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getAuthHeaders() as Record<string, string>;
   headers["Content-Type"] = "application/json";
   
   const response = await fetch(`${API_URL}/api/intake/sessions/${sessionId}/process`, {
@@ -307,7 +307,7 @@ export async function processIntakeSession(
 export async function getFileMappings(
   fileId: string
 ): Promise<{ success: boolean; mappings: IntakeMapping[] }> {
-  const headers = await getAuthHeaders();
+  const headers = await getAuthHeaders() as Record<string, string>;
   headers["Content-Type"] = "application/json";
   
   const response = await fetch(`${API_URL}/api/intake/files/${fileId}/mappings`, {
@@ -328,7 +328,7 @@ export async function resolveMapping(
   mappingId: string,
   resolution: Record<string, unknown>
 ): Promise<{ success: boolean; remaining_mappings: number }> {
-  const headers = await getAuthHeaders();
+  const headers = await getAuthHeaders() as Record<string, string>;
   headers["Content-Type"] = "application/json";
   
   const response = await fetch(`${API_URL}/api/intake/mappings/${mappingId}/resolve`, {
@@ -358,7 +358,7 @@ export async function finalizeIntakeSession(
   record_counts?: Record<string, number>;
   next_action?: string;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getAuthHeaders() as Record<string, string>;
   headers["Content-Type"] = "application/json";
   
   const response = await fetch(`${API_URL}/api/intake/sessions/${sessionId}/finalize`, {
@@ -385,7 +385,7 @@ export async function getMissingInputs(
   inputs: MissingInputSummary[];
   can_finalize: boolean;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getAuthHeaders() as Record<string, string>;
   headers["Content-Type"] = "application/json";
   
   const response = await fetch(`${API_URL}/api/intake/sessions/${sessionId}/missing-inputs`, {
