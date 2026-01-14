@@ -170,6 +170,12 @@ export type Profile = {
   organization_id: string | null;
   selected_client_id: string | null;
   is_admin: boolean;
+  // Onboarding fields from Prompt 7
+  has_seen_onboarding: boolean | null;
+  experience_level: string | null;
+  onboarding_session_id: string | null;
+  onboarding_last_seen_at: string | null;
+  role_level: string | null;
   created_at: string;
   updated_at: string;
   last_active_at: string;
