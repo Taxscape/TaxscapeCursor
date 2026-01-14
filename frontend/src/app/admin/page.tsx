@@ -350,7 +350,7 @@ function AuthorityLibraryTab({
       {createModalOpen && (
         <AuthorityModal
           onClose={() => setCreateModalOpen(false)}
-          onSubmit={(data) => createMutation.mutate(data)}
+          onSubmit={(data) => createMutation.mutate(data as AuthorityCreate)}
           isSubmitting={createMutation.isPending}
         />
       )}
