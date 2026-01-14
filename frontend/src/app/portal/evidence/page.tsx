@@ -43,7 +43,7 @@ export default function EvidenceCenterPage() {
     queryKey: ['evidence-requests', clientId, statusFilter],
     queryFn: () =>
       listEvidenceRequests({
-        client_id: clientId,
+        client_id: clientId ?? undefined,
         status: statusFilter as any || undefined,
       }),
     enabled: !!clientId,
@@ -54,7 +54,7 @@ export default function EvidenceCenterPage() {
   // Fetch reprocessing jobs
   const { data: jobsData } = useQuery({
     queryKey: ['reprocessing-jobs', clientId],
-    queryFn: () => listReprocessingJobs({ client_id: clientId, limit: 10 }),
+    queryFn: () => listReprocessingJobs({ client_id: clientId ?? undefined, limit: 10 }),
     enabled: !!clientId,
   });
 
