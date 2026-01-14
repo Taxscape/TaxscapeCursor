@@ -40,7 +40,8 @@ export default function AdminPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Check if user is executive or admin (using auth context values)
-  const canAccessAdmin = isExecutive || isAdmin;
+  // TEMPORARY: Allow all logged-in users to access admin
+  const canAccessAdmin = true; // isExecutive || isAdmin;
 
   useEffect(() => {
     if (!authLoading && !user) {
