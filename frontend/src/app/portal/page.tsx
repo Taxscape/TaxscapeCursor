@@ -642,17 +642,14 @@ export default function Portal() {
     }
   }, [authLoading, user, router]);
 
-  // Check if user needs onboarding (new CPA users)
+  // Check if user needs onboarding (new users who haven't completed it)
   useEffect(() => {
     if (!authLoading && user && profile) {
       // Check if user qualifies for onboarding redirect:
-      // - CPA role
-      // - Has not seen onboarding OR has incomplete onboarding session
-      const isCpaUser = profile.role === "cpa";
+      // - Has not seen onboarding
       const hasNotSeenOnboarding = profile.has_seen_onboarding === false;
-      const hasIncompleteOnboarding = profile.onboarding_session_id && !profile.has_seen_onboarding;
       
-      if (isCpaUser && hasNotSeenOnboarding) {
+      if (hasNotSeenOnboarding) {
         router.push("/onboarding");
       }
     }
@@ -661,8 +658,7 @@ export default function Portal() {
   // Check if user has incomplete onboarding (for "Continue onboarding" button)
   const hasIncompleteOnboarding = useMemo(() => {
     if (!profile) return false;
-    return profile.role === "cpa" && 
-           profile.onboarding_session_id && 
+    return profile.onboarding_session_id && 
            profile.has_seen_onboarding === false;
   }, [profile]);
 
