@@ -34,17 +34,15 @@ import {
 // ============================================================================
 
 export default function CreditRangePage() {
-  const { profile } = useAuth();
+  const { profile, isExecutive } = useAuth();
   const queryClient = useQueryClient();
   const [selectedEstimateId, setSelectedEstimateId] = useState<string | null>(null);
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [taxYear, setTaxYear] = useState(new Date().getFullYear() - 1);
 
   const clientId = profile?.selected_client_id;
-  const isSenior = profile?.role_level === 'senior' || 
-                   profile?.role_level === 'director' || 
-                   profile?.role_level === 'partner' ||
-                   profile?.role === 'executive';
+  // Senior users can approve estimates - using isExecutive from auth context
+  const isSenior = isExecutive;
 
   // Fetch estimates for client
   const { data: estimatesData, isLoading } = useQuery({
