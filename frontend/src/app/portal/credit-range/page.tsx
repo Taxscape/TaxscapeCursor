@@ -47,7 +47,7 @@ export default function CreditRangePage() {
   // Fetch estimates for client
   const { data: estimatesData, isLoading } = useQuery({
     queryKey: ['credit-estimates', clientId, taxYear],
-    queryFn: () => listEstimates({ client_id: clientId, tax_year: taxYear }),
+    queryFn: () => listEstimates({ client_id: clientId ?? undefined, tax_year: taxYear }),
     enabled: !!clientId,
   });
 
