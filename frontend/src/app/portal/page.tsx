@@ -39,6 +39,7 @@ import {
   createTimeLog,
   getClientCompanies,
   createClientCompany,
+  createClientSimple,
   setSelectedClient,
   getClientWorkflowSummary,
   uploadRDFiles,
@@ -942,17 +943,20 @@ export default function Portal() {
 
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!organization?.id || !newClientForm.name.trim()) return;
+    if (!newClientForm.name.trim()) return;
     
     setIsAddingClient(true);
     try {
-      const newClient = await createClientCompany(organization.id, {
+      // Use createClientSimple - it auto-creates an org if user doesn't have one
+      const result = await createClientSimple({
         name: newClientForm.name.trim(),
         industry: newClientForm.industry || undefined,
         tax_year: newClientForm.tax_year || undefined,
         contact_name: newClientForm.contact_name || undefined,
         contact_email: newClientForm.contact_email || undefined,
       });
+      
+      const newClient = result.client;
       
       setClientCompanies(prev => [...prev, newClient]);
       setSelectedClientState(newClient);
