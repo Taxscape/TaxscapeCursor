@@ -773,30 +773,70 @@ def _get_gemini_model():
     """Get or create Gemini model (singleton pattern, retries on error)"""
     global _rd_model, _gemini_configured
     
+    # #region agent log
+    _dbg_path = "/Users/dhruvramasubban/Desktop/TaxScapeCursor/.cursor/debug.log"
+    def _dbg(loc, msg, data):
+        try:
+            import json as _j
+            with open(_dbg_path, "a") as f:
+                f.write(_j.dumps({"location": loc, "message": msg, "data": data, "timestamp": int(__import__('time').time()*1000), "sessionId": "debug-session", "hypothesisId": "A,B,C"}) + "\n")
+        except: pass
+        logger.info(f"[DEBUG] {loc}: {msg} | {data}")
+    # #endregion
+    
+    # #region agent log
+    _dbg("rd_parser:_get_gemini_model:entry", "Starting model init", {"cached": _rd_model is not None, "configured": _gemini_configured, "model_name": RD_MODEL_NAME})
+    # #endregion
+    
     # Return cached model if available
     if _rd_model is not None:
         return _rd_model
     
     # Check dependencies
     if not GEMINI_AVAILABLE:
+        # #region agent log
+        _dbg("rd_parser:_get_gemini_model:no_sdk", "SDK not available", {"GEMINI_AVAILABLE": False})
+        # #endregion
         raise ValueError("google-generativeai package not installed. Run: pip install google-generativeai")
     
     # Check API key
     api_key = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    
+    # #region agent log
+    _dbg("rd_parser:_get_gemini_model:api_key_check", "Checking API key", {"has_key": bool(api_key), "key_length": len(api_key) if api_key else 0, "key_prefix": api_key[:8] if api_key else None})
+    # #endregion
+    
     if not api_key:
         raise ValueError("GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY not set")
     
     # Try to initialize model (don't cache errors - allow retry)
     try:
+        # #region agent log
+        _dbg("rd_parser:_get_gemini_model:before_configure", "About to configure genai", {"model": RD_MODEL_NAME})
+        # #endregion
+        
         # Always reconfigure to ensure fresh state
         genai.configure(api_key=api_key)
         _gemini_configured = True
+        
+        # #region agent log
+        _dbg("rd_parser:_get_gemini_model:after_configure", "genai configured, creating model", {"model": RD_MODEL_NAME})
+        # #endregion
+        
         _rd_model = genai.GenerativeModel(RD_MODEL_NAME)
+        
+        # #region agent log
+        _dbg("rd_parser:_get_gemini_model:success", "Model created successfully", {"model": RD_MODEL_NAME})
+        # #endregion
+        
         logger.info(f"R&D Gemini model initialized: {RD_MODEL_NAME}")
         return _rd_model
     except Exception as e:
         # Reset state to allow retry
         _rd_model = None
+        # #region agent log
+        _dbg("rd_parser:_get_gemini_model:error", "Model init failed", {"error": str(e), "error_type": type(e).__name__})
+        # #endregion
         logger.error(f"Failed to initialize Gemini model: {e}")
         raise ValueError(f"Failed to initialize Gemini model: {str(e)}")
 
@@ -808,32 +848,78 @@ def _get_gemini_client():
 
 def generate_ai_content(prompt: str, temperature: float = 0.2, max_output_tokens: int = 4096) -> str:
     """Generate content using Gemini model (legacy SDK)"""
+    # #region agent log
+    _dbg_path = "/Users/dhruvramasubban/Desktop/TaxScapeCursor/.cursor/debug.log"
+    import time as _time
+    _start = _time.time()
+    def _dbg(loc, msg, data):
+        try:
+            import json as _j
+            with open(_dbg_path, "a") as f:
+                f.write(_j.dumps({"location": loc, "message": msg, "data": data, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "B,C,D,E"}) + "\n")
+        except: pass
+        logger.info(f"[DEBUG] {loc}: {msg} | {data}")
+    _dbg("rd_parser:generate_ai_content:entry", "Starting content generation", {"prompt_len": len(prompt), "temp": temperature, "max_tokens": max_output_tokens})
+    # #endregion
+    
     model = _get_gemini_model()
     
-    response = model.generate_content(
-        prompt,
-        generation_config=genai.types.GenerationConfig(
-            temperature=temperature,
-            max_output_tokens=max_output_tokens,
+    # #region agent log
+    _dbg("rd_parser:generate_ai_content:before_generate", "About to call generate_content", {"model": RD_MODEL_NAME})
+    # #endregion
+    
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+            )
         )
-    )
+    except Exception as gen_err:
+        # #region agent log
+        _dbg("rd_parser:generate_ai_content:generate_error", "generate_content threw exception", {"error": str(gen_err), "error_type": type(gen_err).__name__, "elapsed_ms": int((_time.time()-_start)*1000)})
+        # #endregion
+        raise
+    
+    # #region agent log
+    _dbg("rd_parser:generate_ai_content:after_generate", "generate_content returned", {
+        "has_response": response is not None,
+        "has_candidates": hasattr(response, 'candidates') and bool(response.candidates) if response else False,
+        "candidate_count": len(response.candidates) if response and hasattr(response, 'candidates') and response.candidates else 0,
+        "finish_reason": response.candidates[0].finish_reason if response and hasattr(response, 'candidates') and response.candidates else None,
+        "elapsed_ms": int((_time.time()-_start)*1000)
+    })
+    # #endregion
     
     # Handle blocked responses (safety filters)
     if response and hasattr(response, 'candidates') and response.candidates:
         candidate = response.candidates[0]
         if hasattr(candidate, 'finish_reason') and candidate.finish_reason == 2:
+            # #region agent log
+            _dbg("rd_parser:generate_ai_content:safety_blocked", "Response blocked by safety filters", {"finish_reason": 2})
+            # #endregion
             raise ValueError("AI response blocked by safety filters. Please rephrase your request.")
     
     # Try to get text, handle potential errors
     try:
         if response and hasattr(response, 'text') and response.text:
+            # #region agent log
+            _dbg("rd_parser:generate_ai_content:success", "Got response text", {"text_len": len(response.text), "elapsed_ms": int((_time.time()-_start)*1000)})
+            # #endregion
             return response.text
     except ValueError as e:
+        # #region agent log
+        _dbg("rd_parser:generate_ai_content:text_access_error", "Error accessing response.text", {"error": str(e), "elapsed_ms": int((_time.time()-_start)*1000)})
+        # #endregion
         # This happens when response.text is accessed but no valid parts exist
         if "finish_reason" in str(e) or "Part" in str(e):
             raise ValueError("AI response was empty or blocked. Please try again.")
         raise
     
+    # #region agent log
+    _dbg("rd_parser:generate_ai_content:empty_response", "Response was empty", {"elapsed_ms": int((_time.time()-_start)*1000)})
+    # #endregion
     raise ValueError("AI returned empty response")
 
 

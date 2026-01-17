@@ -3345,29 +3345,53 @@ async def reset_ai_model(user: dict = Depends(get_current_user)):
 @rd_router.post("/ai-test")
 async def test_ai_model(user: dict = Depends(get_current_user)):
     """Test the AI model with a simple prompt"""
-    from app.rd_parser import generate_ai_content, reset_gemini_model
+    from app.rd_parser import generate_ai_content, reset_gemini_model, RD_MODEL_NAME, GEMINI_AVAILABLE
+    import traceback
+    import time
+    
+    start_time = time.time()
+    diagnostics = {
+        "model_name": RD_MODEL_NAME,
+        "gemini_sdk_available": GEMINI_AVAILABLE,
+        "api_key_env_vars": {
+            "GOOGLE_CLOUD_API_KEY": bool(os.environ.get("GOOGLE_CLOUD_API_KEY")),
+            "GEMINI_API_KEY": bool(os.environ.get("GEMINI_API_KEY")),
+            "GOOGLE_API_KEY": bool(os.environ.get("GOOGLE_API_KEY")),
+        },
+        "api_key_length": len(os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""),
+    }
     
     try:
         # Reset first to ensure fresh state
         reset_gemini_model()
+        diagnostics["reset_completed"] = True
         
-        # Try a simple test
+        # Try a simple test - use a very simple math question to avoid safety filters
         response = generate_ai_content(
-            "Reply with exactly: AI_TEST_OK",
+            "What is 2+2? Reply with just the number.",
             temperature=0.1,
             max_output_tokens=50
         )
         
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        
         return {
             "success": True,
-            "response": response.strip(),
-            "test_passed": "AI_TEST_OK" in response
+            "response": response.strip() if response else None,
+            "test_passed": response and ("4" in response),
+            "elapsed_ms": elapsed_ms,
+            "diagnostics": diagnostics
         }
     except Exception as e:
+        elapsed_ms = int((time.time() - start_time) * 1000)
         logger.error(f"AI test failed: {e}")
         return {
             "success": False,
-            "error": str(e)
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc(),
+            "elapsed_ms": elapsed_ms,
+            "diagnostics": diagnostics
         }
 
 
