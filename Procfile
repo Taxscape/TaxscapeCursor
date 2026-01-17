@@ -1,1 +1,2 @@
-web: gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000}
+web: gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --timeout 300
+worker: python worker.py --concurrency=${WORKER_CONCURRENCY:-3} --poll-interval=${WORKER_POLL_INTERVAL:-5}
