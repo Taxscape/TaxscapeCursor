@@ -3368,6 +3368,270 @@ async def download_rd_report(
         raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")
 
 
+@rd_router.get("/session/{session_id}/download-doc")
+async def download_rd_study_doc(
+    session_id: str,
+    user: dict = Depends(get_current_user)
+):
+    """Generate and download R&D study Word document with narratives and Four-Part Test analysis"""
+    if session_id not in rd_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session_data = rd_sessions[session_id]
+    
+    if session_data["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    
+    analysis_result = session_data.get("analysis_result")
+    if not analysis_result:
+        raise HTTPException(status_code=400, detail="Session not yet analyzed")
+    
+    try:
+        from docx import Document
+        from docx.shared import Inches, Pt
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.enum.table import WD_TABLE_ALIGNMENT
+        
+        session = RDAnalysisSession(**analysis_result)
+        
+        doc = Document()
+        
+        # === Title Page ===
+        title = doc.add_heading('R&D Tax Credit Study', 0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        if session.company_name:
+            company = doc.add_paragraph(session.company_name)
+            company.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            company.runs[0].font.size = Pt(18)
+        
+        year_para = doc.add_paragraph(f"Tax Year {session.tax_year}")
+        year_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        year_para.runs[0].font.size = Pt(14)
+        
+        if session.industry:
+            industry_para = doc.add_paragraph(f"Industry: {session.industry}")
+            industry_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        date_para = doc.add_paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y')}")
+        date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        doc.add_page_break()
+        
+        # === Executive Summary ===
+        doc.add_heading('Executive Summary', 1)
+        
+        summary_text = f"""This R&D Tax Credit Study has been prepared for {session.company_name or 'the Company'} for tax year {session.tax_year}. Based on our analysis of the provided documentation, we have identified and evaluated {session.projects_count} research and development projects against the Internal Revenue Code Section 41 Four-Part Test requirements.
+
+Key Findings:
+• Total Projects Evaluated: {session.projects_count}
+• Qualified Projects: {session.qualified_projects}
+• Qualification Rate: {round(session.qualified_projects / session.projects_count * 100, 1) if session.projects_count > 0 else 0}%
+• Total QRE Identified: ${session.total_qre:,.2f}
+• Total Employees Analyzed: {session.total_employees}
+• R&D Personnel: {session.rd_employees}
+
+QRE Breakdown:
+• Wage QRE: ${session.wage_qre:,.2f}
+• Supply QRE: ${session.supply_qre:,.2f}
+• Contract Research QRE: ${session.contract_qre:,.2f}
+
+The qualifying activities meet the requirements of IRC Section 41, which provides for a credit for increasing research activities. Each qualified project demonstrates a permitted purpose, technological uncertainty, a process of experimentation, and relies on principles of physical or biological sciences, engineering, or computer science."""
+        
+        doc.add_paragraph(summary_text)
+        
+        doc.add_page_break()
+        
+        # === Four-Part Test Explanation ===
+        doc.add_heading('IRC Section 41 Four-Part Test', 1)
+        
+        fpt_intro = """Under IRC Section 41(d), qualified research activities must satisfy four requirements, commonly known as the "Four-Part Test." Each project must meet ALL four criteria to qualify for the R&D tax credit:"""
+        doc.add_paragraph(fpt_intro)
+        
+        tests = [
+            ("1. Permitted Purpose (Section 41(d)(1)(B))", 
+             "The research must be undertaken for the purpose of discovering information that is technological in nature, and its application must be intended for use in developing a new or improved business component (product, process, computer software, technique, formula, or invention)."),
+            ("2. Technological Uncertainty (Section 41(d)(1)(B)(ii))", 
+             "The taxpayer must face uncertainty concerning the capability or method for developing or improving the product, or the appropriate design of the product at the outset of the research activities."),
+            ("3. Process of Experimentation (Section 41(d)(1)(C))", 
+             "Substantially all of the research activities must constitute elements of a process of experimentation that relates to a qualified purpose. This includes evaluating alternatives through modeling, simulation, systematic trial and error, or other methods."),
+            ("4. Technological in Nature (Section 41(d)(1)(B)(i))", 
+             "The research must rely on principles of physical or biological sciences, engineering, or computer science. The technological in nature requirement is met if the process of experimentation relies on such principles."),
+        ]
+        
+        for test_name, test_desc in tests:
+            p = doc.add_paragraph()
+            run = p.add_run(test_name)
+            run.bold = True
+            doc.add_paragraph(test_desc)
+        
+        doc.add_page_break()
+        
+        # === Project Narratives ===
+        doc.add_heading('Project Narratives', 1)
+        
+        for i, project in enumerate(session.projects, 1):
+            doc.add_heading(f"Project {i}: {project.name}", 2)
+            
+            # Project Overview
+            doc.add_heading("Project Overview", 3)
+            doc.add_paragraph(project.description or "Description not provided.")
+            
+            # Qualification Status
+            status_para = doc.add_paragraph()
+            status_run = status_para.add_run("Qualification Status: ")
+            status_run.bold = True
+            status_value = status_para.add_run("QUALIFIED" if project.qualified else "NOT QUALIFIED")
+            status_value.bold = True
+            if project.qualified:
+                status_value.font.color.rgb = None  # Will appear in document default
+            
+            # Four-Part Test Analysis
+            doc.add_heading("Four-Part Test Analysis", 3)
+            
+            if project.four_part_test:
+                fpt = project.four_part_test
+                
+                # Permitted Purpose
+                pp_para = doc.add_paragraph()
+                pp_run = pp_para.add_run("Permitted Purpose: ")
+                pp_run.bold = True
+                pp_status = pp_para.add_run("✓ Satisfied" if fpt.get('permitted_purpose') else "✗ Not Satisfied")
+                doc.add_paragraph(fpt.get('permitted_purpose') or "Analysis not available.")
+                
+                # Technological Uncertainty
+                tu_para = doc.add_paragraph()
+                tu_run = tu_para.add_run("Technological Uncertainty: ")
+                tu_run.bold = True
+                tu_status = tu_para.add_run("✓ Satisfied" if fpt.get('uncertainty') else "✗ Not Satisfied")
+                doc.add_paragraph(fpt.get('uncertainty') or "Analysis not available.")
+                
+                # Process of Experimentation
+                pe_para = doc.add_paragraph()
+                pe_run = pe_para.add_run("Process of Experimentation: ")
+                pe_run.bold = True
+                pe_status = pe_para.add_run("✓ Satisfied" if fpt.get('experimentation') else "✗ Not Satisfied")
+                doc.add_paragraph(fpt.get('experimentation') or "Analysis not available.")
+                
+                # Technological in Nature
+                tn_para = doc.add_paragraph()
+                tn_run = tn_para.add_run("Technological in Nature: ")
+                tn_run.bold = True
+                tn_status = tn_para.add_run("✓ Satisfied" if fpt.get('technological_nature') else "✗ Not Satisfied")
+                doc.add_paragraph(fpt.get('technological_nature') or "Analysis not available.")
+            else:
+                doc.add_paragraph("Four-Part Test analysis not available for this project.")
+            
+            # AI Evaluation (if available)
+            if project.ai_evaluation:
+                doc.add_heading("AI Analysis Summary", 3)
+                ai_summary = project.ai_evaluation.get('summary') or project.ai_evaluation.get('reasoning', 'AI analysis completed.')
+                doc.add_paragraph(ai_summary)
+            
+            # Gaps (if any)
+            if project.gaps:
+                doc.add_heading("Documentation Gaps", 3)
+                for gap in project.gaps:
+                    gap_type = gap.get('type', 'Unknown')
+                    gap_desc = gap.get('description', '')
+                    gap_para = doc.add_paragraph(f"• {gap_type}: {gap_desc}", style='List Bullet')
+            
+            doc.add_paragraph()  # Spacing between projects
+        
+        doc.add_page_break()
+        
+        # === QRE Summary ===
+        doc.add_heading('Qualified Research Expenditure (QRE) Summary', 1)
+        
+        qre_table = doc.add_table(rows=5, cols=2)
+        qre_table.style = 'Table Grid'
+        
+        qre_data = [
+            ('QRE Category', 'Amount'),
+            ('Wage QRE', f"${session.wage_qre:,.2f}"),
+            ('Supply QRE', f"${session.supply_qre:,.2f}"),
+            ('Contract Research QRE (65%)', f"${session.contract_qre:,.2f}"),
+            ('Total QRE', f"${session.total_qre:,.2f}"),
+        ]
+        
+        for i, (label, value) in enumerate(qre_data):
+            row = qre_table.rows[i]
+            row.cells[0].text = label
+            row.cells[1].text = value
+            if i == 0 or i == len(qre_data) - 1:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.bold = True
+        
+        doc.add_paragraph()
+        
+        # === Methodology ===
+        doc.add_heading('Methodology', 1)
+        
+        methodology_text = f"""This study was prepared using the following methodology:
+
+1. Data Collection: Financial records, project documentation, payroll data, and contractor information for tax year {session.tax_year} were collected and analyzed.
+
+2. Employee Identification: {session.total_employees} total employees were reviewed, with {session.rd_employees} identified as having performed qualifying R&D activities.
+
+3. Project Qualification: Each of the {session.projects_count} projects was evaluated against the IRC Section 41 Four-Part Test requirements using a combination of documentation review and AI-assisted analysis.
+
+4. QRE Calculation: Qualified Research Expenditures were calculated according to IRC Section 41 requirements, including:
+   - Wage QRE: Based on W-2 wages for qualified employees performing R&D activities
+   - Supply QRE: Based on supplies used and consumed in qualifying research
+   - Contract Research QRE: 65% of amounts paid to third parties for qualified research
+
+5. Documentation: Supporting documentation was reviewed and catalogued to support the credit calculation and defend against potential IRS examination.
+
+This study has been prepared in accordance with the requirements of IRC Section 41 and Treasury Regulations Section 1.41-4."""
+        
+        doc.add_paragraph(methodology_text)
+        
+        doc.add_page_break()
+        
+        # === Form 6765 Reference ===
+        doc.add_heading('Form 6765 Credit Computation Reference', 1)
+        
+        form_text = f"""The R&D Tax Credit is claimed on IRS Form 6765, "Credit for Increasing Research Activities."
+
+Based on the QRE amounts identified in this study:
+
+Total QRE: ${session.total_qre:,.2f}
+
+The taxpayer should consult with their tax advisor to determine:
+1. Whether to use the Regular Credit method or Alternative Simplified Credit (ASC) method
+2. The applicable base amount for credit calculation
+3. Any applicable carryforward or carryback elections
+4. State R&D credit opportunities
+
+Note: This study provides the QRE amounts needed for credit calculation. The actual credit amount will depend on the calculation method selected and the taxpayer's base period research expenditures."""
+        
+        doc.add_paragraph(form_text)
+        
+        # Save to BytesIO
+        doc_buffer = io.BytesIO()
+        doc.save(doc_buffer)
+        doc_buffer.seek(0)
+        
+        # Create filename
+        company_name = session.company_name.replace(" ", "_") if session.company_name else "Company"
+        filename = f"{company_name}_RD_Study_Narrative_{session.tax_year}.docx"
+        
+        return StreamingResponse(
+            doc_buffer,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except ImportError as e:
+        logger.error(f"python-docx not installed: {e}")
+        raise HTTPException(status_code=500, detail="Word document generation not available. Please install python-docx.")
+    except Exception as e:
+        logger.error(f"Error generating Word document: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating document: {str(e)}")
+
+
 @rd_router.delete("/session/{session_id}")
 async def delete_rd_session(
     session_id: str,
@@ -3908,6 +4172,10 @@ app.include_router(study_packaging_router)  # Study finalization, artifacts, pac
 # Admin Controls Router
 from app.admin_routes import router as admin_router
 app.include_router(admin_router)  # Authority library, org settings, audit exports
+
+# Background Jobs Router
+from app.jobs_routes import jobs_router
+app.include_router(jobs_router)  # Background job management, SSE streaming, job lifecycle
 
 async def trigger_workflow_event(event_type: str, user: dict, project_id: str = None, payload: dict = None):
     """Helper to log workflow events and trigger recomputation."""

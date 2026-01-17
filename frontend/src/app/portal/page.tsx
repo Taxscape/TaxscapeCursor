@@ -39,7 +39,6 @@ import {
   createTimeLog,
   getClientCompanies,
   createClientCompany,
-  createClientSimple,
   setSelectedClient,
   getClientWorkflowSummary,
   uploadRDFiles,
@@ -379,6 +378,8 @@ const Icons = {
 // ============================================================================
 type PortalUserRole = "executive" | "cpa" | "engineer";
 type ViewMode = 
+  // Upload first
+  | "upload-data"
   // Common views
   | "dashboard" 
   | "projects" 
@@ -416,7 +417,7 @@ export default function Portal() {
   const { user, profile, organization, userRole, isLoading: authLoading, isOrgAdmin, signOut } = useAuth();
 
   // Navigation state
-  const [currentView, setCurrentView] = useState<ViewMode>("dashboard");
+  const [currentView, setCurrentView] = useState<ViewMode>("rd-analysis");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Data State
@@ -582,10 +583,11 @@ export default function Portal() {
   const mainNavItems = useMemo(() => {
     const currentRole = (userRole as PortalUserRole) || 'cpa';
     
-    // Common items for all roles
+    // Common items for all roles - Upload/R&D Analysis is FIRST
     const commonItems = [
+      { id: "rd-analysis" as const, label: "Upload Data", icon: Icons.upload },
       { id: "dashboard" as const, label: "Dashboard", icon: Icons.layoutDashboard },
-      { id: "projects" as const, label: "Projects", icon: Icons.folderKanban, badge: projects.length > 0 ? projects.length.toString() : undefined },
+      { id: "projects" as const, label: "Projects", icon: Icons.folderKanban, badge: rdSession ? rdSession.projects.length.toString() : undefined },
       { id: "tasks" as const, label: "Tasks", icon: Icons.checkCircle, badge: tasks.filter(t => t.status === 'pending').length > 0 ? tasks.filter(t => t.status === 'pending').length.toString() : undefined },
     ];
     
@@ -627,7 +629,6 @@ export default function Portal() {
   }, [userRole, isOrgAdmin, projects.length, clientCompanies.length, tasks]);
 
   const toolsNavItems = useMemo(() => [
-    { id: "rd-analysis" as const, label: "R&D Analysis", icon: Icons.beaker },
     { id: "questionnaires" as const, label: "AI Assistant", icon: Icons.sparkles },
     { id: "documents" as const, label: "Documents", icon: Icons.fileText },
   ], []);
@@ -643,14 +644,17 @@ export default function Portal() {
     }
   }, [authLoading, user, router]);
 
-  // Check if user needs onboarding (new users who haven't completed it)
+  // Check if user needs onboarding (new CPA users)
   useEffect(() => {
     if (!authLoading && user && profile) {
       // Check if user qualifies for onboarding redirect:
-      // - Has not seen onboarding
+      // - CPA role
+      // - Has not seen onboarding OR has incomplete onboarding session
+      const isCpaUser = profile.role === "cpa";
       const hasNotSeenOnboarding = profile.has_seen_onboarding === false;
+      const hasIncompleteOnboarding = profile.onboarding_session_id && !profile.has_seen_onboarding;
       
-      if (hasNotSeenOnboarding) {
+      if (isCpaUser && hasNotSeenOnboarding) {
         router.push("/onboarding");
       }
     }
@@ -659,7 +663,8 @@ export default function Portal() {
   // Check if user has incomplete onboarding (for "Continue onboarding" button)
   const hasIncompleteOnboarding = useMemo(() => {
     if (!profile) return false;
-    return profile.onboarding_session_id && 
+    return profile.role === "cpa" && 
+           profile.onboarding_session_id && 
            profile.has_seen_onboarding === false;
   }, [profile]);
 
@@ -943,20 +948,17 @@ export default function Portal() {
 
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClientForm.name.trim()) return;
+    if (!organization?.id || !newClientForm.name.trim()) return;
     
     setIsAddingClient(true);
     try {
-      // Use createClientSimple - it auto-creates an org if user doesn't have one
-      const result = await createClientSimple({
+      const newClient = await createClientCompany(organization.id, {
         name: newClientForm.name.trim(),
         industry: newClientForm.industry || undefined,
         tax_year: newClientForm.tax_year || undefined,
         contact_name: newClientForm.contact_name || undefined,
         contact_email: newClientForm.contact_email || undefined,
       });
-      
-      const newClient = result.client;
       
       setClientCompanies(prev => [...prev, newClient]);
       setSelectedClientState(newClient);
@@ -1726,9 +1728,10 @@ export default function Portal() {
   // ============================================================================
 
   // Compute dashboard values from R&D session if available
-  const dashboardQRE = rdSession?.total_qre || kpiData.total_qre || 0;
-  const dashboardCredit = rdSession ? (rdSession.total_qre * 0.14) : kpiData.total_credit; // ASC rate
-  const dashboardProjects = rdSession?.projects.length || kpiData.project_count || projects.length;
+  // Only show data from rdSession - show zeros otherwise to keep dashboard clean
+  const dashboardQRE = rdSession?.total_qre || 0;
+  const dashboardCredit = rdSession ? (rdSession.total_qre * 0.14) : 0;
+  const dashboardProjects = rdSession?.projects.length || 0;
   const dashboardQualified = rdSession?.qualified_projects || 0;
   const dashboardGaps = rdSession?.gaps.length || 0;
   const rdProgress = rdSession 
@@ -2095,63 +2098,55 @@ export default function Portal() {
 
         {/* Right Column - QRE & Activity */}
         <div className="space-y-6">
-          {/* QRE Breakdown */}
+          {/* QRE Breakdown - Only show rdSession data */}
           <div className="glass-card p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4">QRE Breakdown</h3>
-            <div className="space-y-4">
-              {[
-                { label: "Wages", amount: kpiData.total_wages || 0, percentage: 65, color: "bg-foreground/80" },
-                { label: "Contractors", amount: (kpiData.total_qre || 0) * 0.22, percentage: 22, color: "bg-foreground/50" },
-                { label: "Supplies", amount: (kpiData.total_qre || 0) * 0.10, percentage: 10, color: "bg-foreground/30" },
-                { label: "Cloud/Computer", amount: (kpiData.total_qre || 0) * 0.03, percentage: 3, color: "bg-foreground/15" },
-              ].map((category, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{category.label}</span>
-                    <span className="font-medium text-foreground">{formatCurrency(category.amount)}</span>
+            {rdSession ? (
+              <>
+                <div className="space-y-4">
+                  {[
+                    { label: "Wages", amount: rdSession.wage_qre, percentage: rdSession.total_qre > 0 ? (rdSession.wage_qre / rdSession.total_qre) * 100 : 0, color: "bg-foreground/80" },
+                    { label: "Supplies", amount: rdSession.supply_qre, percentage: rdSession.total_qre > 0 ? (rdSession.supply_qre / rdSession.total_qre) * 100 : 0, color: "bg-foreground/50" },
+                    { label: "Contract Research", amount: rdSession.contract_qre, percentage: rdSession.total_qre > 0 ? (rdSession.contract_qre / rdSession.total_qre) * 100 : 0, color: "bg-foreground/30" },
+                  ].map((category, index) => (
+                    <div key={index} className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">{category.label}</span>
+                        <span className="font-medium text-foreground">{formatCurrency(category.amount)}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                        <div className={`h-full rounded-full ${category.color}`} style={{ width: `${category.percentage}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-6 pt-4 border-t border-border">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Total QRE</span>
+                    <span className="text-lg font-semibold text-foreground">{formatCurrency(rdSession.total_qre)}</span>
                   </div>
-                  <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                    <div className={`h-full rounded-full ${category.color}`} style={{ width: `${category.percentage}%` }} />
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-sm text-muted-foreground">Est. Credit (14% ASC)</span>
+                    <span className="text-lg font-semibold text-success">{formatCurrency(rdSession.total_qre * 0.14)}</span>
                   </div>
                 </div>
-              ))}
-            </div>
-            <div className="mt-6 pt-4 border-t border-border">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Total QRE</span>
-                <span className="text-lg font-semibold text-foreground">{formatCurrency(kpiData.total_qre || 0)}</span>
+              </>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <p className="text-sm">Upload your R&D data to see QRE breakdown</p>
+                <button onClick={() => setCurrentView("rd-analysis")} className="btn btn-outline btn-sm mt-2">
+                  {Icons.upload} Upload Data
+                </button>
               </div>
-              <div className="flex items-center justify-between mt-2">
-                <span className="text-sm text-muted-foreground">Est. Credit (10%)</span>
-                <span className="text-lg font-semibold text-success">{formatCurrency(kpiData.total_credit)}</span>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Recent Activity */}
           <div className="glass-card p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4">Recent Activity</h3>
-            <div className="space-y-4">
-              {[
-                { type: "complete", title: "Project data uploaded", user: "Engineering Team", time: "2 hours ago" },
-                { type: "upload", title: "Q4 payroll data uploaded", user: "HR Department", time: "5 hours ago" },
-                { type: "comment", title: "CPA added comment", user: "CPA Firm", time: "1 day ago" },
-              ].map((activity, index) => (
-                <div key={index} className="flex items-start gap-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                    activity.type === "complete" ? "bg-success/20 text-success" :
-                    activity.type === "upload" ? "bg-accent/30 text-accent-foreground" :
-                    "bg-muted text-muted-foreground"
-                  }`}>
-                    {activity.type === "complete" ? Icons.check : 
-                     activity.type === "upload" ? Icons.upload : Icons.messageSquare}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground">{activity.title}</p>
-                    <p className="text-xs text-muted-foreground">{activity.user} • {activity.time}</p>
-                  </div>
-                </div>
-              ))}
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-sm">No recent activity</p>
+              <p className="text-xs mt-1">Activity will appear here after you upload and analyze data</p>
             </div>
           </div>
         </div>
@@ -3401,113 +3396,103 @@ export default function Portal() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-semibold">Projects</h2>
-            <p className="text-sm text-muted-foreground">R&D Projects for tax credit qualification</p>
+            <p className="text-sm text-muted-foreground">
+              {rdSession ? `${rdSession.projects.length} projects from uploaded data` : "Upload data to see R&D projects"}
+            </p>
           </div>
-          <button 
-            onClick={() => {
-              setProjectForm({ name: '', description: '', technical_uncertainty: '', process_of_experimentation: '' });
-              setShowAddProjectModal(true);
-            }}
-            className="btn btn-primary"
-          >
-            {Icons.plus}
-            <span>New Project</span>
-          </button>
+          {!rdSession && (
+            <button 
+              onClick={() => setCurrentView("rd-analysis")}
+              className="btn btn-primary"
+            >
+              {Icons.upload}
+              <span>Upload Data</span>
+            </button>
+          )}
         </div>
-        {projects.length === 0 ? (
+        {!rdSession ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/30 flex items-center justify-center">
+              {Icons.upload}
+            </div>
+            <p className="text-lg font-medium mb-2">No projects yet</p>
+            <p className="text-sm mb-4">Upload your R&D source files to analyze projects</p>
+            <button 
+              onClick={() => setCurrentView("rd-analysis")}
+              className="btn btn-primary"
+            >
+              {Icons.upload}
+              <span>Go to Upload</span>
+            </button>
+          </div>
+        ) : rdSession.projects.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/30 flex items-center justify-center">
               {Icons.folderKanban}
             </div>
-            <p className="text-lg font-medium mb-2">No projects yet</p>
-            <p className="text-sm mb-4">Add your first R&D project to get started</p>
-            <button 
-              onClick={() => setShowAddProjectModal(true)}
-              className="btn btn-primary"
-            >
-              {Icons.plus}
-              <span>Add Your First Project</span>
-            </button>
+            <p className="text-lg font-medium mb-2">No projects found in data</p>
+            <p className="text-sm mb-4">The uploaded file did not contain any project data</p>
           </div>
         ) : (
+          /* Render rdSession.projects */
           <div className="grid grid-cols-1 gap-4">
-            {projects.map((project) => (
-              <div key={project.id} className="p-5 rounded-xl border border-border bg-card hover:border-accent/50 transition-all group">
+            {rdSession.projects.map((project) => (
+              <div key={project.project_id} className={`p-5 rounded-xl border bg-card transition-all group ${
+                project.qualified ? 'border-success/50 hover:border-success' : 'border-border hover:border-accent/50'
+              }`}>
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-bold text-foreground text-lg">{project.name}</h3>
-                      <span className={`badge ${
-                        project.qualification_status === "qualified" ? "badge-success" :
-                        project.qualification_status === "not_qualified" ? "badge-destructive" : "badge-warning"
-                      }`}>
-                        {project.qualification_status}
+                      <h3 className="font-bold text-foreground text-lg">{project.project_name}</h3>
+                      <span className={`badge ${project.qualified ? "badge-success" : "badge-destructive"}`}>
+                        {project.qualified ? "Qualified" : "Not Qualified"}
                       </span>
-                      {workflowSummary?.project_statuses?.[project.id] && (
-                        <>
-                          <span className={`badge ${
-                            workflowSummary.project_statuses[project.id].readiness_score > 80 ? 'badge-success' :
-                            workflowSummary.project_statuses[project.id].readiness_score > 50 ? 'badge-warning' : 'badge-destructive'
-                          }`}>
-                            {workflowSummary.project_statuses[project.id].readiness_score}% Ready
-                          </span>
-                          <span className={`badge ${
-                            workflowSummary.project_statuses[project.id].risk_level === 'low' ? 'bg-success/20 text-success' :
-                            workflowSummary.project_statuses[project.id].risk_level === 'medium' ? 'bg-warning/20 text-warning' : 'bg-destructive/20 text-destructive'
-                          }`}>
-                            {workflowSummary.project_statuses[project.id].risk_level.toUpperCase()} RISK
-                          </span>
-                        </>
-                      )}
+                      <span className="badge bg-accent/20 text-accent">
+                        {Math.round(project.confidence_score * 100)}% Confidence
+                      </span>
                     </div>
                     <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{project.description}</p>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                      <div className="p-3 rounded-lg bg-secondary/20 border border-border/50">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Technical Uncertainty</p>
-                          <InlineAssist 
-                            label="Technical Uncertainty" 
-                            context={project.description || ''} 
-                            onDraftGenerate={(draft) => console.log('Draft generated:', draft)} 
-                          />
+                    {/* AI Summary */}
+                    {project.ai_summary && (
+                      <div className="p-3 rounded-lg bg-accent/5 border border-accent/20 mb-4">
+                        <div className="flex items-center gap-2 mb-1">
+                          {Icons.sparkles}
+                          <p className="text-xs uppercase tracking-wider font-bold text-accent">AI Analysis</p>
                         </div>
-                        <p className="text-xs text-foreground italic">
-                          {project.technical_uncertainty || "Not specified yet. This is required for the 4-part test."}
-                        </p>
+                        <p className="text-sm text-foreground">{project.ai_summary}</p>
                       </div>
-                      <div className="p-3 rounded-lg bg-secondary/20 border border-border/50">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Process of Experimentation</p>
-                          <InlineAssist 
-                            label="Process of Experimentation" 
-                            context={project.description || ''} 
-                            onDraftGenerate={(draft) => console.log('Draft generated:', draft)} 
-                          />
-                        </div>
-                        <p className="text-xs text-foreground italic">
-                          {project.process_of_experimentation || "Not specified yet. This is required for the 4-part test."}
-                        </p>
+                    )}
+                    
+                    {/* Four-Part Test Results */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className={`p-3 rounded-lg ${project.four_part_test.permitted_purpose ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'} border`}>
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Permitted Purpose</p>
+                        <span className="text-sm font-medium">{project.four_part_test.permitted_purpose ? '✓ Pass' : '✗ Fail'}</span>
+                      </div>
+                      <div className={`p-3 rounded-lg ${project.four_part_test.technological_nature ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'} border`}>
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Tech Nature</p>
+                        <span className="text-sm font-medium">{project.four_part_test.technological_nature ? '✓ Pass' : '✗ Fail'}</span>
+                      </div>
+                      <div className={`p-3 rounded-lg ${project.four_part_test.elimination_of_uncertainty ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'} border`}>
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Uncertainty</p>
+                        <span className="text-sm font-medium">{project.four_part_test.elimination_of_uncertainty ? '✓ Pass' : '✗ Fail'}</span>
+                      </div>
+                      <div className={`p-3 rounded-lg ${project.four_part_test.process_experimentation ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'} border`}>
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Experimentation</p>
+                        <span className="text-sm font-medium">{project.four_part_test.process_experimentation ? '✓ Pass' : '✗ Fail'}</span>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex flex-col gap-2 ml-4">
-                    <button className="btn btn-ghost btn-icon-sm" title="Edit project">
-                      {Icons.edit}
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setShowChat(true);
-                        setMessages(prev => [...prev, {
-                          role: "user",
-                          content: `Can you help me evaluate the R&D qualification for project "${project.name}"? It's currently marked as "${project.qualification_status}".`
-                        }]);
-                      }}
-                      className="btn btn-ghost btn-icon-sm text-accent" 
-                      title="Analyze with AI"
-                    >
-                      {Icons.sparkles}
-                    </button>
+                    
+                    {/* Missing Info */}
+                    {project.missing_info && project.missing_info.length > 0 && (
+                      <div className="mt-3 p-3 rounded-lg bg-warning/10 border border-warning/30">
+                        <p className="text-xs font-semibold text-warning mb-1">Missing Information</p>
+                        <ul className="text-xs text-muted-foreground list-disc list-inside">
+                          {project.missing_info.map((info, i) => <li key={i}>{info}</li>)}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

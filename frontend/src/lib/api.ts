@@ -2058,7 +2058,7 @@ export async function uploadRDFiles(files: File[]): Promise<{ session_id: string
     formData.append("files", file);
   });
   
-  const response = await fetch(`${API_URL}/api/rd-analysis/upload`, {
+  const response = await fetch(`${getApiUrl()}/api/rd-analysis/upload`, {
     method: "POST",
     headers,
     body: formData,
@@ -2075,7 +2075,7 @@ export async function uploadRDFiles(files: File[]): Promise<{ session_id: string
 export async function parseRDSession(sessionId: string, useAI: boolean = true): Promise<{ session: RDAnalysisSession }> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/rd-analysis/parse/${sessionId}?use_ai=${useAI}`, {
+  const response = await fetch(`${getApiUrl()}/api/rd-analysis/parse/${sessionId}?use_ai=${useAI}`, {
     method: "POST",
     headers,
   });
@@ -2097,7 +2097,7 @@ export async function getRDSession(sessionId: string): Promise<{
 }> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/rd-analysis/session/${sessionId}`, {
+  const response = await fetch(`${getApiUrl()}/api/rd-analysis/session/${sessionId}`, {
     headers,
   });
 
@@ -2116,7 +2116,7 @@ export async function evaluateRDProject(
   const headers = await getAuthHeaders();
   
   const response = await fetch(
-    `${API_URL}/api/rd-analysis/session/${sessionId}/evaluate-project/${projectId}?additional_context=${encodeURIComponent(additionalContext)}`,
+    `${getApiUrl()}/api/rd-analysis/session/${sessionId}/evaluate-project/${projectId}?additional_context=${encodeURIComponent(additionalContext)}`,
     {
       method: "POST",
       headers,
@@ -2160,7 +2160,7 @@ export async function uploadRDGapDocumentation(
   });
   
   const response = await fetch(
-    `${API_URL}/api/rd-analysis/session/${sessionId}/upload-gap/${gapId}`,
+    `${getApiUrl()}/api/rd-analysis/session/${sessionId}/upload-gap/${gapId}`,
     {
       method: "POST",
       headers,
@@ -2185,7 +2185,7 @@ export type AIStatus = {
 export async function getAIStatus(): Promise<AIStatus> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/rd-analysis/ai-status`, {
+  const response = await fetch(`${getApiUrl()}/api/rd-analysis/ai-status`, {
     headers,
   });
 
@@ -2204,7 +2204,7 @@ export async function getAIStatus(): Promise<AIStatus> {
 export async function downloadRDReport(sessionId: string): Promise<Blob> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/rd-analysis/session/${sessionId}/download`, {
+  const response = await fetch(`${getApiUrl()}/api/rd-analysis/session/${sessionId}/download`, {
     headers,
   });
 
@@ -2218,7 +2218,7 @@ export async function downloadRDReport(sessionId: string): Promise<Blob> {
 export async function deleteRDSession(sessionId: string): Promise<{ message: string }> {
   const headers = await getAuthHeaders();
   
-  const response = await fetch(`${API_URL}/api/rd-analysis/session/${sessionId}`, {
+  const response = await fetch(`${getApiUrl()}/api/rd-analysis/session/${sessionId}`, {
     method: "DELETE",
     headers,
   });
