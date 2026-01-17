@@ -755,33 +755,31 @@ Evidence should show: hypothesis → test → evaluate → refine cycle
 """
 
 
-# Model configuration - use gemini-2.0-flash (fast and reliable)
-RD_MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+# Model configuration
+RD_MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
 
 # Initialize model (same approach as chatbot_agent)
 _rd_model = None
-_rd_model_error = None
 _gemini_configured = False
 
 def _get_gemini_model():
-    """Get or create Gemini model (singleton pattern)"""
-    global _rd_model, _rd_model_error, _gemini_configured
+    """Get or create Gemini model (singleton pattern, retries on error)"""
+    global _rd_model, _gemini_configured
     
+    # Return cached model if available
     if _rd_model is not None:
         return _rd_model
     
-    if _rd_model_error is not None:
-        raise ValueError(_rd_model_error)
-    
+    # Check dependencies
     if not GEMINI_AVAILABLE:
-        _rd_model_error = "google-generativeai package not installed. Run: pip install google-generativeai"
-        raise ValueError(_rd_model_error)
+        raise ValueError("google-generativeai package not installed. Run: pip install google-generativeai")
     
+    # Check API key
     api_key = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
-        _rd_model_error = "GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY not set"
-        raise ValueError(_rd_model_error)
+        raise ValueError("GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY not set")
     
+    # Try to initialize model (don't cache errors - allow retry)
     try:
         if not _gemini_configured:
             genai.configure(api_key=api_key)
@@ -790,8 +788,9 @@ def _get_gemini_model():
         logger.info(f"R&D Gemini model initialized: {RD_MODEL_NAME}")
         return _rd_model
     except Exception as e:
-        _rd_model_error = f"Failed to initialize Gemini model: {str(e)}"
-        raise ValueError(_rd_model_error)
+        # Don't cache the error - allow retry on next call
+        logger.error(f"Failed to initialize Gemini model: {e}")
+        raise ValueError(f"Failed to initialize Gemini model: {str(e)}")
 
 # Backwards-compatible alias
 def _get_gemini_client():

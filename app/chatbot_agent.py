@@ -13,29 +13,37 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Get API key - supports multiple env var names
-API_KEY = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-
-# Model configuration - use gemini-2.0-flash (fast and reliable)
-MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+# Model configuration
+MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
 TEMPERATURE = float(os.environ.get("GEMINI_TEMPERATURE", "0.2"))
 
-# Initialize model with error handling
-model = None
-client_error = None
+# Lazy-initialized model (don't cache errors to allow retry)
+_model = None
+_gemini_configured = False
 
-try:
-    if not API_KEY:
-        client_error = "Missing API key. Please set GOOGLE_CLOUD_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY in your environment."
-        logger.error(client_error)
-    else:
-        logger.info(f"Initializing Gemini model: {MODEL_NAME}")
-        genai.configure(api_key=API_KEY)
-        model = genai.GenerativeModel(MODEL_NAME)
-        logger.info("Gemini model initialized successfully")
-except Exception as e:
-    client_error = f"Failed to initialize Gemini model: {str(e)}"
-    logger.error(client_error, exc_info=True)
+def _get_model():
+    """Get or create Gemini model (lazy init, retries on error)"""
+    global _model, _gemini_configured
+    
+    if _model is not None:
+        return _model
+    
+    # Get API key - supports multiple env var names
+    api_key = os.environ.get("GOOGLE_CLOUD_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    
+    if not api_key:
+        raise ValueError("Missing API key. Please set GOOGLE_CLOUD_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY in your environment.")
+    
+    try:
+        if not _gemini_configured:
+            genai.configure(api_key=api_key)
+            _gemini_configured = True
+        _model = genai.GenerativeModel(MODEL_NAME)
+        logger.info(f"Gemini model initialized: {MODEL_NAME}")
+        return _model
+    except Exception as e:
+        logger.error(f"Failed to initialize Gemini model: {e}")
+        raise ValueError(f"Failed to initialize Gemini model: {str(e)}")
 
 SYSTEM_PROMPT = """You are an expert R&D Tax Credit Auditor and a Portal Guide for the TaxScape Pro platform. 
 
@@ -161,9 +169,11 @@ def get_chat_response(messages: List[Dict[str, str]], user_context: Optional[str
     Returns:
         Response text from Gemini or error message
     """
-    # Check if model is available
-    if model is None:
-        error_msg = client_error or "Gemini model not initialized"
+    # Get model (lazy initialization with retry on error)
+    try:
+        model = _get_model()
+    except ValueError as e:
+        error_msg = str(e)
         logger.error(f"Cannot get chat response: {error_msg}")
         return f"I'm currently unable to connect to the AI service. Error: {error_msg}\n\nPlease ensure the GOOGLE_CLOUD_API_KEY environment variable is set correctly."
     
@@ -237,7 +247,7 @@ def get_chat_response(messages: List[Dict[str, str]], user_context: Optional[str
         elif "400" in error_msg or "INVALID_ARGUMENT" in error_msg:
             return f"Invalid Request: There was an issue with the request format.\n\nDetails: {error_msg}"
         elif "404" in error_msg or "NOT_FOUND" in error_msg:
-            return f"Model Not Found: The model '{MODEL_NAME}' is not available. Try setting GEMINI_MODEL=gemini-2.0-flash.\n\nDetails: {error_msg}"
+            return f"Model Not Found: The model '{MODEL_NAME}' is not available. Try setting GEMINI_MODEL=gemini-3-flash-preview.\n\nDetails: {error_msg}"
         elif "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
             return "Rate Limit: Too many requests. Please wait a moment and try again."
         elif "quota" in error_msg.lower():
