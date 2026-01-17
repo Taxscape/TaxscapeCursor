@@ -650,7 +650,7 @@ export default function Portal() {
       // Check if user qualifies for onboarding redirect:
       // - CPA role
       // - Has not seen onboarding OR has incomplete onboarding session
-      const isCpaUser = profile.role === "cpa";
+      const isCpaUser = profile.role_level === "cpa";
       const hasNotSeenOnboarding = profile.has_seen_onboarding === false;
       const hasIncompleteOnboarding = profile.onboarding_session_id && !profile.has_seen_onboarding;
       
@@ -663,7 +663,7 @@ export default function Portal() {
   // Check if user has incomplete onboarding (for "Continue onboarding" button)
   const hasIncompleteOnboarding = useMemo(() => {
     if (!profile) return false;
-    return profile.role === "cpa" && 
+    return profile.role_level === "cpa" && 
            profile.onboarding_session_id && 
            profile.has_seen_onboarding === false;
   }, [profile]);
