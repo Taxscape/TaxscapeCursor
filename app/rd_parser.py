@@ -755,12 +755,19 @@ Evidence should show: hypothesis → test → evaluate → refine cycle
 """
 
 
-# Model configuration
+# Model configuration - use gemini-3-flash-preview (latest as of Jan 2026)
 RD_MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
 
-# Initialize model (same approach as chatbot_agent)
+# Initialize model
 _rd_model = None
 _gemini_configured = False
+
+def reset_gemini_model():
+    """Reset the Gemini model singleton to allow re-initialization"""
+    global _rd_model, _gemini_configured
+    _rd_model = None
+    _gemini_configured = False
+    logger.info("Gemini model singleton reset")
 
 def _get_gemini_model():
     """Get or create Gemini model (singleton pattern, retries on error)"""
@@ -781,14 +788,15 @@ def _get_gemini_model():
     
     # Try to initialize model (don't cache errors - allow retry)
     try:
-        if not _gemini_configured:
-            genai.configure(api_key=api_key)
-            _gemini_configured = True
+        # Always reconfigure to ensure fresh state
+        genai.configure(api_key=api_key)
+        _gemini_configured = True
         _rd_model = genai.GenerativeModel(RD_MODEL_NAME)
         logger.info(f"R&D Gemini model initialized: {RD_MODEL_NAME}")
         return _rd_model
     except Exception as e:
-        # Don't cache the error - allow retry on next call
+        # Reset state to allow retry
+        _rd_model = None
         logger.error(f"Failed to initialize Gemini model: {e}")
         raise ValueError(f"Failed to initialize Gemini model: {str(e)}")
 

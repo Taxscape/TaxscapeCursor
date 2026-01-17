@@ -13,13 +13,20 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Model configuration
+# Model configuration - use gemini-3-flash-preview (latest as of Jan 2026)
 MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
 TEMPERATURE = float(os.environ.get("GEMINI_TEMPERATURE", "0.2"))
 
 # Lazy-initialized model (don't cache errors to allow retry)
 _model = None
 _gemini_configured = False
+
+def reset_model():
+    """Reset the model singleton to allow re-initialization"""
+    global _model, _gemini_configured
+    _model = None
+    _gemini_configured = False
+    logger.info("Chatbot model singleton reset")
 
 def _get_model():
     """Get or create Gemini model (lazy init, retries on error)"""
@@ -35,13 +42,15 @@ def _get_model():
         raise ValueError("Missing API key. Please set GOOGLE_CLOUD_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY in your environment.")
     
     try:
-        if not _gemini_configured:
-            genai.configure(api_key=api_key)
-            _gemini_configured = True
+        # Always reconfigure to ensure fresh state
+        genai.configure(api_key=api_key)
+        _gemini_configured = True
         _model = genai.GenerativeModel(MODEL_NAME)
         logger.info(f"Gemini model initialized: {MODEL_NAME}")
         return _model
     except Exception as e:
+        # Reset state to allow retry
+        _model = None
         logger.error(f"Failed to initialize Gemini model: {e}")
         raise ValueError(f"Failed to initialize Gemini model: {str(e)}")
 

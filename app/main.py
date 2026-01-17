@@ -3327,6 +3327,50 @@ async def get_ai_status(user: dict = Depends(get_current_user)):
     return status
 
 
+@rd_router.post("/ai-reset")
+async def reset_ai_model(user: dict = Depends(get_current_user)):
+    """Reset the AI model singleton to allow re-initialization"""
+    from app.rd_parser import reset_gemini_model, check_ai_available
+    
+    reset_gemini_model()
+    
+    # Try to re-initialize and return status
+    status = check_ai_available()
+    return {
+        "reset": True,
+        "status": status
+    }
+
+
+@rd_router.post("/ai-test")
+async def test_ai_model(user: dict = Depends(get_current_user)):
+    """Test the AI model with a simple prompt"""
+    from app.rd_parser import generate_ai_content, reset_gemini_model
+    
+    try:
+        # Reset first to ensure fresh state
+        reset_gemini_model()
+        
+        # Try a simple test
+        response = generate_ai_content(
+            "Reply with exactly: AI_TEST_OK",
+            temperature=0.1,
+            max_output_tokens=50
+        )
+        
+        return {
+            "success": True,
+            "response": response.strip(),
+            "test_passed": "AI_TEST_OK" in response
+        }
+    except Exception as e:
+        logger.error(f"AI test failed: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
 @rd_router.get("/session/{session_id}/download")
 async def download_rd_report(
     session_id: str,
