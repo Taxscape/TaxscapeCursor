@@ -3474,9 +3474,9 @@ export default function Portal() {
                         <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Tech Nature</p>
                         <span className="text-sm font-medium">{project.four_part_test.technological_nature ? '✓ Pass' : '✗ Fail'}</span>
                       </div>
-                      <div className={`p-3 rounded-lg ${project.four_part_test.elimination_of_uncertainty ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'} border`}>
+                      <div className={`p-3 rounded-lg ${project.four_part_test.elimination_uncertainty ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'} border`}>
                         <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Uncertainty</p>
-                        <span className="text-sm font-medium">{project.four_part_test.elimination_of_uncertainty ? '✓ Pass' : '✗ Fail'}</span>
+                        <span className="text-sm font-medium">{project.four_part_test.elimination_uncertainty ? '✓ Pass' : '✗ Fail'}</span>
                       </div>
                       <div className={`p-3 rounded-lg ${project.four_part_test.process_experimentation ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'} border`}>
                         <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Experimentation</p>
