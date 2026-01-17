@@ -755,8 +755,8 @@ Evidence should show: hypothesis → test → evaluate → refine cycle
 """
 
 
-# Model configuration (same as chatbot_agent)
-RD_MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+# Model configuration - use gemini-2.0-flash (fast and reliable)
+RD_MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 
 # Initialize model (same approach as chatbot_agent)
 _rd_model = None
