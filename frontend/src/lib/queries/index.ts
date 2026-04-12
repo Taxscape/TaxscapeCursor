@@ -181,11 +181,12 @@ export function useContractors(clientId: string | null, taxYear?: string) {
 // DASHBOARD
 // ============================================================================
 
-export function useDashboard(clientId: string | null) {
+export function useDashboard(clientId: string | null, taxYear?: number) {
+  const currentYear = taxYear || new Date().getFullYear();
   return useQuery({
     queryKey: clientId ? CACHE_KEYS.dashboard(clientId) : ['dashboard'],
-    queryFn: () => getDashboard(),
-    enabled: true, // Always try to fetch dashboard
+    queryFn: () => getDashboard(clientId!, currentYear),
+    enabled: !!clientId, // Only fetch if clientId is available
     staleTime: 1000 * 60 * 2, // 2 minutes for dashboard
   });
 }
@@ -509,6 +510,12 @@ export type {
   QuestionnaireItem,
   StalenessCheck,
 };
+
+// ============================================================================
+// BACKGROUND JOBS
+// ============================================================================
+
+export * from './jobs';
 
 
 

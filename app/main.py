@@ -74,6 +74,7 @@ production_origins = [
     "https://www.taxscape.ai",
     "https://app.taxscape.ai",
     "https://taxscape-frontend.vercel.app",
+    "https://taxscape-cursor.vercel.app",
 ]
 
 # Development allowed origins
@@ -94,8 +95,9 @@ allowed_origins = production_origins if IS_PRODUCTION else ["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex="https://taxscape-cursor-.*\.vercel\.app" if IS_PRODUCTION else None,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-Request-ID"],
 )
@@ -2682,13 +2684,24 @@ async def create_contractor(contractor: ContractorCreate, user: dict = Depends(g
 
 
 @api_router.post("/upload_payroll")
-async def upload_payroll(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+async def upload_payroll(
+    file: UploadFile = File(...), 
+    client_id: Optional[str] = Query(None),
+    user: dict = Depends(get_current_user)
+):
     """Upload payroll data from CSV/Excel."""
     supabase = get_supabase()
     if not supabase:
         raise HTTPException(status_code=503, detail="Database not available")
     
-    print(f"Upload payroll initiated by user {user['id']}, file: {file.filename}")
+    # If client_id not provided, try to get it from profile
+    if not client_id:
+        profile = get_user_profile(user["id"])
+        if profile and profile.get("selected_client_id"):
+            client_id = profile["selected_client_id"]
+            logger.info(f"Using client_id {client_id} from user profile for payroll upload")
+
+    print(f"Upload payroll initiated by user {user['id']}, client: {client_id}, file: {file.filename}")
     
     # Validate file extension
     filename = (file.filename or "").lower()
@@ -2717,6 +2730,17 @@ async def upload_payroll(file: UploadFile = File(...), user: dict = Depends(get_
     
     count = 0
     errors = []
+    
+    # Get tax year from client if possible, default to 2024
+    tax_year = 2024
+    if client_id:
+        try:
+            client_data = supabase.table("client_companies").select("tax_year").eq("id", client_id).single().execute()
+            if client_data.data:
+                tax_year = int(client_data.data.get("tax_year", 2024))
+        except:
+            pass
+
     for idx, row in df.iterrows():
         name = row.get('name') or row.get('employee name') or row.get('employee')
         if not name or pd.isna(name):
@@ -2739,14 +2763,20 @@ async def upload_payroll(file: UploadFile = File(...), user: dict = Depends(get_
             if pd.isna(state):
                 state = 'Unknown'
             
-            supabase.table("employees").insert({
+            insert_data = {
                 "user_id": user["id"],
                 "name": str(name),
                 "title": str(title),
                 "state": str(state),
                 "total_wages": float(wages),
                 "qualified_percent": float(qualified_pct),
-            }).execute()
+                "tax_year": tax_year
+            }
+            
+            if client_id:
+                insert_data["client_company_id"] = client_id
+                
+            supabase.table("employees").insert(insert_data).execute()
             count += 1
         except Exception as e:
             error_msg = f"Row {idx}: {str(e)}"
@@ -2754,18 +2784,29 @@ async def upload_payroll(file: UploadFile = File(...), user: dict = Depends(get_
             errors.append(error_msg)
     
     print(f"Upload complete. Inserted {count} employees, {len(errors)} errors")
-    await trigger_workflow_event("payroll_uploaded", user, payload={"count": count, "errors_count": len(errors)})
+    await trigger_workflow_event("payroll_uploaded", user, payload={"count": count, "errors_count": len(errors), "client_id": client_id})
     return {"message": f"Uploaded {count} employees.", "count": count, "errors": errors[:5] if errors else []}
 
 
 @api_router.post("/upload_contractors")
-async def upload_contractors(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+async def upload_contractors(
+    file: UploadFile = File(...), 
+    client_id: Optional[str] = Query(None),
+    user: dict = Depends(get_current_user)
+):
     """Upload contractor data from CSV/Excel."""
     supabase = get_supabase()
     if not supabase:
         raise HTTPException(status_code=503, detail="Database not available")
     
-    print(f"Upload contractors initiated by user {user['id']}, file: {file.filename}")
+    # If client_id not provided, try to get it from profile
+    if not client_id:
+        profile = get_user_profile(user["id"])
+        if profile and profile.get("selected_client_id"):
+            client_id = profile["selected_client_id"]
+            logger.info(f"Using client_id {client_id} from user profile for contractor upload")
+
+    print(f"Upload contractors initiated by user {user['id']}, client: {client_id}, file: {file.filename}")
     
     # Validate file extension
     filename = (file.filename or "").lower()
@@ -2794,6 +2835,16 @@ async def upload_contractors(file: UploadFile = File(...), user: dict = Depends(
     
     count = 0
     errors = []
+    # Get tax year from client if possible, default to 2024
+    tax_year = 2024
+    if client_id:
+        try:
+            client_data = supabase.table("client_companies").select("tax_year").eq("id", client_id).single().execute()
+            if client_data.data:
+                tax_year = int(client_data.data.get("tax_year", 2024))
+        except:
+            pass
+
     for idx, row in df.iterrows():
         name = row.get('name') or row.get('contractor') or row.get('vendor')
         if not name or pd.isna(name):
@@ -2821,14 +2872,20 @@ async def upload_contractors(file: UploadFile = File(...), user: dict = Depends(
             if pd.isna(notes):
                 notes = ''
             
-            supabase.table("contractors").insert({
+            insert_data = {
                 "user_id": user["id"],
                 "name": str(name),
                 "cost": cost,
                 "is_qualified": qualified,
                 "location": str(location),
                 "notes": str(notes) if notes else None,
-            }).execute()
+                "tax_year": tax_year
+            }
+            
+            if client_id:
+                insert_data["client_company_id"] = client_id
+                
+            supabase.table("contractors").insert(insert_data).execute()
             count += 1
         except Exception as e:
             error_msg = f"Row {idx}: {str(e)}"
@@ -2836,7 +2893,7 @@ async def upload_contractors(file: UploadFile = File(...), user: dict = Depends(
             errors.append(error_msg)
     
     print(f"Upload complete. Inserted {count} contractors, {len(errors)} errors")
-    await trigger_workflow_event("contractors_uploaded", user, payload={"count": count, "errors_count": len(errors)})
+    await trigger_workflow_event("contractors_uploaded", user, payload={"count": count, "errors_count": len(errors), "client_id": client_id})
     return {"message": f"Uploaded {count} contractors.", "count": count, "errors": errors[:5] if errors else []}
 
 

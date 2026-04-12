@@ -252,15 +252,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (organization?.id) {
         dispatch({ type: 'SET_ORG', payload: organization.id });
       }
-      // Restore previously selected client from profile (if not already set by URL)
+      
+      // Try to restore from profile FIRST
       if (profile?.selected_client_id && !state.clientId) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace-context.tsx:initEffect',message:'Restoring client from profile',data:{selectedClientId:profile.selected_client_id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-        // #endregion
         dispatch({ type: 'SET_CLIENT', payload: { 
           clientId: profile.selected_client_id 
         }});
+      } 
+      // Fallback: try to restore from localStorage if profile hasn't loaded or doesn't have it
+      else if (typeof window !== 'undefined' && !state.clientId) {
+        const savedClientId = localStorage.getItem('taxscape_selected_client_id');
+        if (savedClientId) {
+          dispatch({ type: 'SET_CLIENT', payload: { clientId: savedClientId } });
+        }
       }
+      
       dispatch({ type: 'SET_INITIALIZED', payload: true });
       dispatch({ type: 'SET_LOADING', payload: false });
     }
@@ -305,22 +311,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, []);
   
   const setClient = useCallback((clientId: string | null, taxYear?: string) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace-context.tsx:setClient',message:'setClient called',data:{clientId,taxYear},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
     dispatch({ type: 'SET_CLIENT', payload: { clientId, taxYear } });
+    
+    // Persist to localStorage for immediate availability on reload
+    if (typeof window !== 'undefined') {
+      if (clientId) {
+        localStorage.setItem('taxscape_selected_client_id', clientId);
+      } else {
+        localStorage.removeItem('taxscape_selected_client_id');
+      }
+    }
     
     // Persist selection to backend so it survives page refreshes
     if (clientId) {
-      setSelectedClient(clientId).then(() => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace-context.tsx:setClient',message:'setSelectedClient API success',data:{clientId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-        // #endregion
-      }).catch(err => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace-context.tsx:setClient',message:'setSelectedClient API error',data:{error:err?.message||String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-        // #endregion
-        console.error('Failed to persist client selection:', err);
+      setSelectedClient(clientId).catch(err => {
+        console.error('Failed to persist client selection to backend:', err);
       });
     }
     

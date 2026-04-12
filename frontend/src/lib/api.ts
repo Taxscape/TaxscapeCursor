@@ -570,18 +570,35 @@ export async function sendChatMessage(
   return await response.json();
 }
 
-export async function getDashboard(): Promise<DashboardData> {
+export async function getDashboard(clientId?: string, taxYear?: number): Promise<DashboardData> {
   const headers = await getAuthHeaders();
+  const apiUrl = getApiUrl();
   
-  const response = await fetch(`${API_URL}/api/dashboard`, {
+  const params = new URLSearchParams();
+  if (clientId) params.set("client_company_id", clientId);
+  if (taxYear) params.set("tax_year", String(taxYear));
+  
+  const response = await fetch(`${apiUrl}/api/dashboard/client-summary?${params}`, {
     headers,
   });
 
   if (!response.ok) {
-    throw new Error("Failed to fetch dashboard data");
+    // Fallback to old dashboard if new one fails or doesn't exist yet
+    const fallbackResponse = await fetch(`${apiUrl}/api/dashboard`, { headers });
+    if (!fallbackResponse.ok) throw new Error("Failed to fetch dashboard data");
+    return await fallbackResponse.json();
   }
 
-  return await response.json();
+  const data = await response.json();
+  // Map new dashboard format to old DashboardData type if needed
+  return {
+    project_count: data.projects_count,
+    qualified_projects: data.qualified_projects_count,
+    employee_count: data.employees_count,
+    total_wages: data.total_qre / 0.8, // Approximation if not provided
+    total_credit: data.estimated_credit,
+    ...data
+  };
 }
 
 export async function getUserContext(): Promise<UserContext> {
@@ -598,36 +615,56 @@ export async function getUserContext(): Promise<UserContext> {
   return await response.json();
 }
 
-export async function getProjects(): Promise<Project[]> {
+export async function getProjects(clientId?: string, taxYear?: number): Promise<Project[]> {
   const headers = await getAuthHeaders();
   const apiUrl = getApiUrl();
   
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getProjects',message:'Fetching projects',data:{apiUrl},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'P1'})}).catch(()=>{});
-  // #endregion
+  if (clientId) {
+    const params = new URLSearchParams({
+      client_id: clientId,
+      tax_year: String(taxYear || 2024),
+    });
+    
+    try {
+      const workspaceResponse = await fetch(`${apiUrl}/api/workspace-data/projects-extended?${params}`, { headers });
+      if (workspaceResponse.ok) {
+        const data = await workspaceResponse.json();
+        return data.data || [];
+      }
+    } catch (e) {
+      console.warn("Workspace API failed, falling back to old API", e);
+    }
+  }
   
   const response = await fetch(`${apiUrl}/api/projects`, {
     headers,
   });
 
   if (!response.ok) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getProjects',message:'Projects fetch failed',data:{status:response.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'P1'})}).catch(()=>{});
-    // #endregion
     throw new Error("Failed to fetch projects");
   }
 
   const data = await response.json();
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getProjects',message:'Projects fetched',data:{count:data.projects?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'P1'})}).catch(()=>{});
-  // #endregion
   return data.projects;
 }
 
-export async function createProject(project: Partial<Project>): Promise<Project> {
+export async function createProject(project: Partial<Project>, clientId?: string): Promise<Project> {
   const headers = await getAuthHeaders();
+  const apiUrl = getApiUrl();
   
-  const response = await fetch(`${API_URL}/api/projects`, {
+  if (clientId) {
+    const response = await fetch(`${apiUrl}/api/workspace-data/projects-extended?client_id=${clientId}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(project),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return data.data;
+    }
+  }
+  
+  const response = await fetch(`${apiUrl}/api/projects`, {
     method: "POST",
     headers,
     body: JSON.stringify(project),
@@ -641,36 +678,58 @@ export async function createProject(project: Partial<Project>): Promise<Project>
   return data.project;
 }
 
-export async function getEmployees(): Promise<Employee[]> {
+export async function getEmployees(clientId?: string, taxYear?: number): Promise<Employee[]> {
   const headers = await getAuthHeaders();
   const apiUrl = getApiUrl();
   
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getEmployees',message:'Fetching employees',data:{apiUrl},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E1'})}).catch(()=>{});
-  // #endregion
+  // If we have clientId, use the extended/client-aware endpoint
+  if (clientId) {
+    const params = new URLSearchParams({
+      client_id: clientId,
+      tax_year: String(taxYear || 2024),
+    });
+    
+    try {
+      const workspaceResponse = await fetch(`${apiUrl}/api/workspace-data/employees-extended?${params}`, { headers });
+      if (workspaceResponse.ok) {
+        const data = await workspaceResponse.json();
+        return data.data || [];
+      }
+    } catch (e) {
+      console.warn("Workspace API failed, falling back to old API", e);
+    }
+  }
   
   const response = await fetch(`${apiUrl}/api/employees`, {
     headers,
   });
 
   if (!response.ok) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getEmployees',message:'Employees fetch failed',data:{status:response.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E1'})}).catch(()=>{});
-    // #endregion
     throw new Error("Failed to fetch employees");
   }
 
   const data = await response.json();
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getEmployees',message:'Employees fetched',data:{count:data.employees?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E1'})}).catch(()=>{});
-  // #endregion
   return data.employees;
 }
 
-export async function createEmployee(employee: Partial<Employee>): Promise<Employee> {
+export async function createEmployee(employee: Partial<Employee>, clientId?: string): Promise<Employee> {
   const headers = await getAuthHeaders();
+  const apiUrl = getApiUrl();
   
-  const response = await fetch(`${API_URL}/api/employees`, {
+  // Use extended endpoint if clientId is provided
+  if (clientId) {
+    const response = await fetch(`${apiUrl}/api/workspace-data/employees-extended?client_id=${clientId}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(employee),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return data.data;
+    }
+  }
+  
+  const response = await fetch(`${apiUrl}/api/employees`, {
     method: "POST",
     headers,
     body: JSON.stringify(employee),
@@ -784,13 +843,18 @@ export async function getSessionMessages(sessionId: string): Promise<{ session: 
   return await response.json();
 }
 
-export async function uploadPayroll(file: File): Promise<{ message: string; count: number }> {
+export async function uploadPayroll(file: File, clientId?: string): Promise<{ message: string; count: number }> {
   const headers = await getAuthHeadersForUpload();
   
   const formData = new FormData();
   formData.append("file", file);
   
-  const response = await fetch(`${API_URL}/api/upload_payroll`, {
+  const apiUrl = getApiUrl();
+  const url = clientId 
+    ? `${apiUrl}/api/upload_payroll?client_id=${clientId}`
+    : `${apiUrl}/api/upload_payroll`;
+    
+  const response = await fetch(url, {
     method: "POST",
     headers,
     body: formData,
@@ -804,13 +868,18 @@ export async function uploadPayroll(file: File): Promise<{ message: string; coun
   return await response.json();
 }
 
-export async function uploadContractors(file: File): Promise<{ message: string; count: number }> {
+export async function uploadContractors(file: File, clientId?: string): Promise<{ message: string; count: number }> {
   const headers = await getAuthHeadersForUpload();
   
   const formData = new FormData();
   formData.append("file", file);
   
-  const response = await fetch(`${API_URL}/api/upload_contractors`, {
+  const apiUrl = getApiUrl();
+  const url = clientId 
+    ? `${apiUrl}/api/upload_contractors?client_id=${clientId}`
+    : `${apiUrl}/api/upload_contractors`;
+    
+  const response = await fetch(url, {
     method: "POST",
     headers,
     body: formData,

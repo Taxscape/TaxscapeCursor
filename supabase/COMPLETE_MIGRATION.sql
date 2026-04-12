@@ -1292,7 +1292,316 @@ SELECT * FROM (VALUES
 WHERE NOT EXISTS (SELECT 1 FROM authority_library LIMIT 1);
 
 -- ============================================================================
+-- PART 18: BACKGROUND JOBS SYSTEM
+-- ============================================================================
+-- Implements reliability + performance infrastructure for background tasks
+
+-- Job type enum
+DO $$ BEGIN
+    CREATE TYPE background_job_type AS ENUM (
+        'rd_parse_session',
+        'ai_evaluate_projects',
+        'ai_evaluate_single_project',
+        'generate_excel_report',
+        'generate_credit_estimate_export',
+        'generate_study_artifacts',
+        'generate_defense_pack',
+        'evidence_reprocessing',
+        'sync_expected_inputs',
+        'intake_file_processing',
+        'bulk_import',
+        'other'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Job status enum
+DO $$ BEGIN
+    CREATE TYPE background_job_status AS ENUM (
+        'queued',
+        'running',
+        'completed',
+        'failed',
+        'cancelled',
+        'cancellation_requested'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Job event type enum
+DO $$ BEGIN
+    CREATE TYPE job_event_type AS ENUM (
+        'progress_update',
+        'stage_change',
+        'log',
+        'warning',
+        'error',
+        'heartbeat',
+        'child_job_created',
+        'retry_scheduled'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Background jobs table
+CREATE TABLE IF NOT EXISTS background_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    client_company_id UUID REFERENCES client_companies(id) ON DELETE SET NULL,
+    tax_year INTEGER,
+    
+    job_type background_job_type NOT NULL,
+    priority INTEGER DEFAULT 5 CHECK (priority >= 1 AND priority <= 10),
+    idempotency_key TEXT NOT NULL,
+    
+    status background_job_status DEFAULT 'queued' NOT NULL,
+    params JSONB DEFAULT '{}' NOT NULL,
+    progress JSONB DEFAULT '{"percent": 0, "stage": "queued", "detail": null, "counters": null, "last_heartbeat_at": null}' NOT NULL,
+    result JSONB,
+    error JSONB,
+    
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    
+    parent_job_id UUID REFERENCES background_jobs(id) ON DELETE SET NULL,
+    retry_of_job_id UUID REFERENCES background_jobs(id) ON DELETE SET NULL,
+    retry_count INTEGER DEFAULT 0,
+    max_retries INTEGER DEFAULT 3,
+    
+    worker_id TEXT,
+    last_heartbeat_at TIMESTAMPTZ,
+    heartbeat_timeout_seconds INTEGER DEFAULT 300,
+    
+    created_by_user_id UUID NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    
+    CONSTRAINT background_jobs_idempotency_unique UNIQUE (organization_id, idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_background_jobs_org_status ON background_jobs(organization_id, status);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_client_year_status ON background_jobs(client_company_id, tax_year, status);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_type_status ON background_jobs(job_type, status);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_queued_priority ON background_jobs(priority DESC, created_at ASC) WHERE status = 'queued';
+CREATE INDEX IF NOT EXISTS idx_background_jobs_running_heartbeat ON background_jobs(last_heartbeat_at) WHERE status = 'running';
+
+-- Job events table
+CREATE TABLE IF NOT EXISTS job_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES background_jobs(id) ON DELETE CASCADE,
+    event_type job_event_type NOT NULL,
+    message TEXT NOT NULL,
+    data JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_events_job_id_created ON job_events(job_id, created_at DESC);
+
+-- Job locks table
+CREATE TABLE IF NOT EXISTS job_locks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lock_key TEXT NOT NULL UNIQUE,
+    job_id UUID NOT NULL REFERENCES background_jobs(id) ON DELETE CASCADE,
+    acquired_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    released_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    lock_reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_locks_active ON job_locks(lock_key) WHERE released_at IS NULL;
+
+-- Updated timestamp trigger for background_jobs
+DROP TRIGGER IF EXISTS trigger_background_jobs_updated_at ON background_jobs;
+CREATE TRIGGER trigger_background_jobs_updated_at
+    BEFORE UPDATE ON background_jobs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Function to claim next queued job (for worker)
+CREATE OR REPLACE FUNCTION claim_next_job(
+    p_worker_id TEXT,
+    p_job_types background_job_type[] DEFAULT NULL
+) RETURNS UUID AS $$
+DECLARE
+    claimed_job_id UUID;
+BEGIN
+    UPDATE background_jobs
+    SET 
+        status = 'running',
+        worker_id = p_worker_id,
+        started_at = NOW(),
+        last_heartbeat_at = NOW(),
+        progress = jsonb_set(progress, '{stage}', '"starting"')
+    WHERE id = (
+        SELECT id FROM background_jobs
+        WHERE status = 'queued'
+        AND (p_job_types IS NULL OR job_type = ANY(p_job_types))
+        ORDER BY priority DESC, created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+    )
+    RETURNING id INTO claimed_job_id;
+    
+    RETURN claimed_job_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to mark stuck jobs as failed
+CREATE OR REPLACE FUNCTION mark_stuck_jobs_failed()
+RETURNS INTEGER AS $$
+DECLARE
+    stuck_count INTEGER;
+BEGIN
+    WITH stuck_jobs AS (
+        UPDATE background_jobs
+        SET 
+            status = 'failed',
+            completed_at = NOW(),
+            error = jsonb_build_object(
+                'error_type', 'worker_lost',
+                'message', 'Job worker stopped responding',
+                'hint', 'The worker processing this job may have crashed or restarted. You can retry this job.',
+                'last_heartbeat', last_heartbeat_at
+            )
+        WHERE status = 'running'
+        AND last_heartbeat_at < NOW() - (heartbeat_timeout_seconds || ' seconds')::INTERVAL
+        RETURNING id
+    )
+    SELECT COUNT(*) INTO stuck_count FROM stuck_jobs;
+    
+    RETURN stuck_count;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to acquire a lock
+CREATE OR REPLACE FUNCTION acquire_job_lock(
+    p_lock_key TEXT,
+    p_job_id UUID,
+    p_expires_in_seconds INTEGER DEFAULT 3600,
+    p_lock_reason TEXT DEFAULT NULL
+) RETURNS BOOLEAN AS $$
+DECLARE
+    lock_acquired BOOLEAN := FALSE;
+BEGIN
+    INSERT INTO job_locks (lock_key, job_id, expires_at, lock_reason)
+    VALUES (
+        p_lock_key, 
+        p_job_id, 
+        NOW() + (p_expires_in_seconds || ' seconds')::INTERVAL,
+        p_lock_reason
+    )
+    ON CONFLICT (lock_key) DO UPDATE
+    SET 
+        job_id = EXCLUDED.job_id,
+        acquired_at = NOW(),
+        released_at = NULL,
+        expires_at = EXCLUDED.expires_at,
+        lock_reason = EXCLUDED.lock_reason
+    WHERE 
+        job_locks.released_at IS NOT NULL 
+        OR job_locks.expires_at < NOW();
+    
+    SELECT EXISTS (
+        SELECT 1 FROM job_locks 
+        WHERE lock_key = p_lock_key 
+        AND job_id = p_job_id 
+        AND released_at IS NULL
+    ) INTO lock_acquired;
+    
+    RETURN lock_acquired;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to release a lock
+CREATE OR REPLACE FUNCTION release_job_lock(
+    p_lock_key TEXT,
+    p_job_id UUID
+) RETURNS BOOLEAN AS $$
+DECLARE
+    released BOOLEAN := FALSE;
+BEGIN
+    UPDATE job_locks
+    SET released_at = NOW()
+    WHERE lock_key = p_lock_key
+    AND job_id = p_job_id
+    AND released_at IS NULL
+    RETURNING TRUE INTO released;
+    
+    RETURN COALESCE(released, FALSE);
+END;
+$$ LANGUAGE plpgsql;
+
+-- RLS policies for background_jobs
+ALTER TABLE background_jobs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view jobs in their organization" ON background_jobs;
+CREATE POLICY "Users can view jobs in their organization"
+    ON background_jobs FOR SELECT
+    USING (
+        organization_id IN (
+            SELECT organization_id FROM profiles WHERE id = auth.uid()
+        )
+    );
+
+DROP POLICY IF EXISTS "Users can create jobs in their organization" ON background_jobs;
+CREATE POLICY "Users can create jobs in their organization"
+    ON background_jobs FOR INSERT
+    WITH CHECK (
+        organization_id IN (
+            SELECT organization_id FROM profiles WHERE id = auth.uid()
+        )
+    );
+
+DROP POLICY IF EXISTS "Users can update jobs they created or are admin" ON background_jobs;
+CREATE POLICY "Users can update jobs they created or are admin"
+    ON background_jobs FOR UPDATE
+    USING (
+        created_by_user_id = auth.uid()
+        OR EXISTS (
+            SELECT 1 FROM profiles 
+            WHERE id = auth.uid() 
+            AND (is_admin = TRUE OR role IN ('executive', 'cpa'))
+        )
+    );
+
+-- RLS for job_events
+ALTER TABLE job_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view events for jobs in their org" ON job_events;
+CREATE POLICY "Users can view events for jobs in their org"
+    ON job_events FOR SELECT
+    USING (
+        job_id IN (
+            SELECT id FROM background_jobs 
+            WHERE organization_id IN (
+                SELECT organization_id FROM profiles WHERE id = auth.uid()
+            )
+        )
+    );
+
+DROP POLICY IF EXISTS "System can insert job events" ON job_events;
+CREATE POLICY "System can insert job events"
+    ON job_events FOR INSERT
+    WITH CHECK (TRUE);
+
+-- RLS for job_locks
+ALTER TABLE job_locks ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view locks for jobs in their org" ON job_locks;
+CREATE POLICY "Users can view locks for jobs in their org"
+    ON job_locks FOR SELECT
+    USING (
+        job_id IN (
+            SELECT id FROM background_jobs 
+            WHERE organization_id IN (
+                SELECT organization_id FROM profiles WHERE id = auth.uid()
+            )
+        )
+    );
+
+-- Enable realtime for jobs
+ALTER PUBLICATION supabase_realtime ADD TABLE background_jobs;
+ALTER PUBLICATION supabase_realtime ADD TABLE job_events;
+
+-- ============================================================================
 -- DONE!
 -- ============================================================================
 
-SELECT 'COMPLETE_MIGRATION finished successfully - ALL Prompts 7-15 applied!' AS status;
+SELECT 'COMPLETE_MIGRATION finished successfully - ALL Prompts 7-15 + Background Jobs applied!' AS status;

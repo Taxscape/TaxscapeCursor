@@ -870,8 +870,8 @@ export default function Portal() {
     setUploadStatus("Uploading...");
     try {
       const result = type === "payroll"
-        ? await uploadPayroll(file)
-        : await uploadContractors(file);
+        ? await uploadPayroll(file, selectedClient?.id)
+        : await uploadContractors(file, selectedClient?.id);
 
       setUploadStatus(`${result.message}`);
       await fetchData();
