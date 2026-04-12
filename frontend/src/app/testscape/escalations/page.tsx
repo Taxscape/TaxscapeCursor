@@ -59,7 +59,7 @@ export default function EscalationsPage() {
   // Resolve mutation
   const resolveMutation = useMutation({
     mutationFn: (data: { id: string; decision: string; reason: string }) =>
-      resolveEscalation(data.id, data.decision as any, data.reason),
+      resolveEscalation(data.id, data.decision as any, 'other', data.reason),
     onSuccess: () => {
       setSelectedEscalation(null);
       queryClient.invalidateQueries({ queryKey: ['escalations'] });

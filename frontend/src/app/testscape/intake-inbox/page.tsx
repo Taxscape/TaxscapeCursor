@@ -62,6 +62,15 @@ const Icons = {
   ),
 };
 
+const SESSION_STATUS_COLORS: Record<string, string> = {
+  open: 'bg-blue-500/20 text-blue-400',
+  awaiting_client: 'bg-yellow-500/20 text-yellow-400',
+  received_partial: 'bg-orange-500/20 text-orange-400',
+  processing: 'bg-blue-500/20 text-blue-400',
+  needs_mapping: 'bg-purple-500/20 text-purple-400',
+  complete: 'bg-green-500/20 text-green-400',
+};
+
 // ============================================================================
 // Main Component
 // ============================================================================
@@ -234,7 +243,7 @@ export default function IntakeInboxPage() {
         </div>
         <div className="flex items-center gap-3">
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-            STATUS_COLORS[session.status] || 'bg-gray-500/20 text-gray-400'
+            SESSION_STATUS_COLORS[session.status] || 'bg-gray-500/20 text-gray-400'
           }`}>
             {session.status.replace(/_/g, ' ')}
           </span>
@@ -250,19 +259,19 @@ export default function IntakeInboxPage() {
         <div className="bg-[#12121a] border border-white/10 rounded-xl p-4">
           <p className="text-sm text-gray-400 mb-1">Processed</p>
           <p className="text-2xl font-bold text-green-400">
-            {files.filter(f => f.status === 'processed').length}
+            {files.filter(f => f.status === 'parsed').length}
           </p>
         </div>
         <div className="bg-[#12121a] border border-white/10 rounded-xl p-4">
           <p className="text-sm text-gray-400 mb-1">Pending</p>
           <p className="text-2xl font-bold text-yellow-400">
-            {files.filter(f => f.status === 'pending' || f.status === 'uploaded').length}
+            {files.filter(f => f.status === 'uploaded' || f.status === 'classifying' || f.status === 'parsing' || f.status === 'needs_mapping').length}
           </p>
         </div>
         <div className="bg-[#12121a] border border-white/10 rounded-xl p-4">
           <p className="text-sm text-gray-400 mb-1">Errors</p>
           <p className="text-2xl font-bold text-red-400">
-            {files.filter(f => f.status === 'error').length}
+            {files.filter(f => f.status === 'failed').length}
           </p>
         </div>
       </div>
@@ -314,7 +323,7 @@ export default function IntakeInboxPage() {
             <div key={domain} className="bg-[#12121a] border border-white/10 rounded-xl overflow-hidden">
               <div className="px-4 py-3 bg-white/5 border-b border-white/10 flex items-center justify-between">
                 <span className="font-medium text-white">
-                  {DOMAIN_LABELS[domain] || domain}
+                   {(DOMAIN_LABELS as any)[domain] || domain}
                 </span>
                 <span className="text-sm text-gray-400">{domainFiles.length} file(s)</span>
               </div>
@@ -326,13 +335,13 @@ export default function IntakeInboxPage() {
                       <div>
                         <p className="text-white text-sm">{file.original_filename}</p>
                         <p className="text-xs text-gray-500">
-                          {file.row_count ? `${file.row_count} rows` : 'Processing...'}
+                           {file.parse_summary?.rows_parsed ? `${file.parse_summary.rows_parsed} rows` : 'Processing...'}
                         </p>
                       </div>
                     </div>
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      file.status === 'processed' ? 'bg-green-500/20 text-green-400' :
-                      file.status === 'error' ? 'bg-red-500/20 text-red-400' :
+                      file.status === 'parsed' ? 'bg-green-500/20 text-green-400' :
+                      file.status === 'failed' ? 'bg-red-500/20 text-red-400' :
                       'bg-yellow-500/20 text-yellow-400'
                     }`}>
                       {file.status}
@@ -384,7 +393,7 @@ export default function IntakeInboxPage() {
         </button>
         <button
           onClick={() => finalizeMutation.mutate()}
-          disabled={finalizeMutation.isPending || session.status !== 'processing_complete'}
+          disabled={finalizeMutation.isPending || session.status === 'complete' || session.status === 'processing'}
           className="flex-1 py-3 bg-green-500 text-white rounded-xl font-medium hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {Icons.check}

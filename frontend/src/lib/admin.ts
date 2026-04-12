@@ -87,6 +87,8 @@ export interface AuditExport {
   storage_path?: string;
   sha256?: string;
   file_size_bytes?: number;
+  client_company_id: string;
+  tax_year: number;
   metadata: Record<string, unknown>;
   download_url?: string;
   created_at: string;

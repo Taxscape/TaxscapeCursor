@@ -54,7 +54,10 @@ export default function FinalizeStudyPage() {
         client_company_id: clientId!,
         tax_year: parseInt(taxYear),
         allow_overrides: data.allowOverrides,
-        override_reasons: Object.values(data.overrideReasons),
+        override_reasons: Object.entries(data.overrideReasons).map(([check_id, reason]) => ({
+          check_id,
+          reason
+        })),
       }),
     onSuccess: () => {
       refetchStatus();
@@ -64,7 +67,10 @@ export default function FinalizeStudyPage() {
   
   // Complete mutation
   const completeMutation = useMutation({
-    mutationFn: () => completeStudy(studyStatus!.study_id!),
+    mutationFn: () => completeStudy(studyStatus!.id!, {
+      reason_code: 'final_review_complete',
+      note: 'Study completed via Testscape UI'
+    }),
     onSuccess: () => {
       refetchStatus();
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -177,14 +183,21 @@ export default function FinalizeStudyPage() {
                     {check.message}
                   </p>
                   {check.remediation && check.status !== 'pass' && (
-                    <p className="text-sm text-gray-400 mt-1">
-                      {check.remediation}
-                    </p>
+                    <div className="text-sm text-gray-400 mt-1">
+                      {check.remediation.target && (
+                        <span>Action: {check.remediation.target} </span>
+                      )}
+                      {check.remediation.href && (
+                        <a href={check.remediation.href} className="text-blue-400 hover:underline">
+                          Fix this
+                        </a>
+                      )}
+                    </div>
                   )}
                 </div>
-                {check.link && (
+                {check.remediation?.href && (
                   <Link
-                    href={check.link}
+                    href={check.remediation.href as any}
                     className="px-3 py-1 text-sm text-blue-400 hover:text-blue-300"
                   >
                     Fix →

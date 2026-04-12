@@ -2340,6 +2340,12 @@ import type {
   AutomatedReviewItem, QRESummary, ImportPreview, RecomputeResult, StalenessCheck
 } from "./types";
 
+export type {
+  Timesheet, Vendor, Contract, APTransaction, Supply,
+  EmployeeExtended, ProjectExtended, QuestionnaireItem, Section174Entry,
+  AutomatedReviewItem, QRESummary, ImportPreview, RecomputeResult, StalenessCheck
+} from "./types";
+
 const WORKSPACE_API = `${API_URL}/api/workspace-data`;
 
 // --- TIMESHEETS ---

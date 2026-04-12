@@ -72,6 +72,7 @@ export interface Project {
   technical_uncertainty?: string;
   process_of_experimentation?: string;
   qualification_status: 'pending' | 'qualified' | 'not_qualified';
+  total_qre?: number;
   organization_id?: string;
   client_company_id?: string;
   created_at: string;
@@ -97,6 +98,10 @@ export interface Employee {
 export interface Contractor {
   id: string;
   name: string;
+  company?: string;
+  services_description?: string;
+  total_payments: number;
+  qualified_percent: number;
   cost: number;
   is_qualified: boolean;
   location?: string;

@@ -227,7 +227,7 @@ function WorkflowStep({ step, title, description, href, status }: {
   
   return (
     <Link
-      href={href}
+      href={href as any}
       className={`block p-4 rounded-xl border ${statusStyles[status]} hover:bg-white/5 transition-colors`}
     >
       <div className="flex items-center gap-3 mb-2">
@@ -253,7 +253,7 @@ function QuickAction({ title, description, href, icon }: {
 }) {
   return (
     <Link
-      href={href}
+      href={href as any}
       className="block bg-[#12121a] border border-white/10 rounded-xl p-5 hover:bg-white/5 hover:border-white/20 transition-all group"
     >
       <div className="flex items-start gap-4">

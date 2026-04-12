@@ -32,7 +32,9 @@ export default function ReviewPage() {
   
   // Resolve mutation
   const resolveMutation = useMutation({
-    mutationFn: (finding: ReviewFinding) => resolveFinding(finding.id, resolveNote),
+    mutationFn: (finding: ReviewFinding) => resolveFinding(finding.id, 'verified_no_change', {
+      resolutionNote: resolveNote
+    }),
     onSuccess: () => {
       refetch();
       setSelectedFinding(null);
@@ -42,7 +44,7 @@ export default function ReviewPage() {
   
   // Dismiss mutation
   const dismissMutation = useMutation({
-    mutationFn: (finding: ReviewFinding) => dismissFinding(finding.id, resolveNote),
+    mutationFn: (finding: ReviewFinding) => dismissFinding(finding.id, 'other', resolveNote),
     onSuccess: () => {
       refetch();
       setSelectedFinding(null);
@@ -169,7 +171,7 @@ export default function ReviewPage() {
                       </span>
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
                         finding.status === 'open' ? 'bg-white/10 text-white' :
-                        finding.status === 'resolved' ? 'bg-green-500/20 text-green-400' :
+                        finding.status.startsWith('resolved') ? 'bg-green-500/20 text-green-400' :
                         'bg-gray-500/20 text-gray-400'
                       }`}>
                         {finding.status}
@@ -177,9 +179,9 @@ export default function ReviewPage() {
                     </div>
                     <p className="text-white font-medium">{finding.title}</p>
                     <p className="text-sm text-gray-400 mt-1">{finding.description}</p>
-                    {finding.remediation && (
+                    {finding.recommended_actions?.[0] && (
                       <p className="text-sm text-blue-400 mt-2">
-                        Remediation: {finding.remediation}
+                        Recommendation: {finding.recommended_actions[0].description}
                       </p>
                     )}
                   </div>
@@ -212,10 +214,10 @@ export default function ReviewPage() {
             <h3 className="text-lg font-semibold text-white mb-2">{selectedFinding.title}</h3>
             <p className="text-gray-400 mb-4">{selectedFinding.description}</p>
             
-            {selectedFinding.remediation && (
+            {selectedFinding.recommended_actions?.[0] && (
               <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-4">
                 <p className="text-sm text-blue-400 font-medium mb-1">Recommended Remediation</p>
-                <p className="text-sm text-blue-300">{selectedFinding.remediation}</p>
+                <p className="text-sm text-blue-300">{selectedFinding.recommended_actions[0].description}</p>
               </div>
             )}
             

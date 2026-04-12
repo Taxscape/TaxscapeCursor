@@ -39,6 +39,8 @@ export default function RDAnalysisPage() {
     );
   }
   
+  const qreData = summary?.data;
+  
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -51,25 +53,25 @@ export default function RDAnalysisPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <AnalysisCard
           title="Wage QRE"
-          value={formatCurrency(summary?.wage_qre || 0)}
+          value={formatCurrency(qreData?.wage_qre || 0)}
           icon={<UsersIcon />}
           color="blue"
         />
         <AnalysisCard
           title="Supply QRE"
-          value={formatCurrency(summary?.supply_qre || 0)}
+          value={formatCurrency(qreData?.supply_qre || 0)}
           icon={<PackageIcon />}
           color="purple"
         />
         <AnalysisCard
           title="Contract QRE"
-          value={formatCurrency(summary?.contract_qre || 0)}
+          value={formatCurrency(qreData?.contract_qre || 0)}
           icon={<BuildingIcon />}
           color="indigo"
         />
         <AnalysisCard
           title="Total QRE"
-          value={formatCurrency(summary?.total_qre || 0)}
+          value={formatCurrency(qreData?.total_qre || 0)}
           icon={<TrendingUpIcon />}
           color="green"
         />

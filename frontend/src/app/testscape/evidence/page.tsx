@@ -40,9 +40,8 @@ export default function EvidencePage() {
     mutationFn: (data: typeof newRequest) => createEvidenceRequest({
       client_company_id: clientId!,
       tax_year: parseInt(taxYear),
-      description: data.description,
-      entity_type: data.entity_type,
-      entity_id: data.entity_id || undefined,
+      reason: data.description,
+      request_type: (data.entity_type === 'project' ? 'project_narrative_support' : 'other') as any,
     }),
     onSuccess: () => {
       refetch();
@@ -84,7 +83,7 @@ export default function EvidencePage() {
   }
   
   const pendingRequests = requests.filter((r: EvidenceRequest) => r.status === 'sent' || r.status === 'awaiting_upload').length;
-  const completedRequests = requests.filter((r: EvidenceRequest) => r.status === 'completed' || r.status === 'verified').length;
+  const completedRequests = requests.filter((r: EvidenceRequest) => r.status === 'completed' || r.status === 'received').length;
   
   return (
     <div className="space-y-6">
@@ -146,7 +145,7 @@ export default function EvidencePage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        request.status === 'completed' || request.status === 'verified' 
+                        request.status === 'completed' || request.status === 'received' 
                           ? 'bg-green-500/20 text-green-400' 
                           : request.status === 'sent' || request.status === 'awaiting_upload'
                           ? 'bg-yellow-500/20 text-yellow-400'
@@ -154,16 +153,16 @@ export default function EvidencePage() {
                       }`}>
                         {request.status.replace(/_/g, ' ')}
                       </span>
-                      <span className="text-xs text-gray-500">
-                        {request.entity_type}
-                      </span>
-                    </div>
-                    <p className="text-white font-medium">{request.description}</p>
-                    {request.file_count !== undefined && (
-                      <p className="text-sm text-gray-400 mt-1">
-                        {request.file_count} file(s) uploaded
-                      </p>
-                    )}
+                       <span className="text-xs text-gray-500">
+                         {request.request_type.replace(/_/g, ' ')}
+                       </span>
+                     </div>
+                     <p className="text-white font-medium">{request.reason}</p>
+                     {request.files_count !== undefined && (
+                       <p className="text-sm text-gray-400 mt-1">
+                         {request.files_count} file(s) uploaded
+                       </p>
+                     )}
                   </div>
                   <ChevronRightIcon />
                 </div>
@@ -230,7 +229,7 @@ export default function EvidencePage() {
           <div className="bg-[#1a1a22] border border-white/10 rounded-2xl p-6 w-full max-w-lg">
             <div className="flex items-start justify-between mb-4">
               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                selectedRequest.status === 'completed' || selectedRequest.status === 'verified' 
+                selectedRequest.status === 'completed' || selectedRequest.status === 'received' 
                   ? 'bg-green-500/20 text-green-400' 
                   : 'bg-yellow-500/20 text-yellow-400'
               }`}>
@@ -244,10 +243,9 @@ export default function EvidencePage() {
               </button>
             </div>
             
-            <h3 className="text-lg font-semibold text-white mb-2">{selectedRequest.description}</h3>
+            <h3 className="text-lg font-semibold text-white mb-2">{selectedRequest.reason}</h3>
             <p className="text-sm text-gray-400 mb-4">
-              Entity: {selectedRequest.entity_type}
-              {selectedRequest.entity_id && ` (${selectedRequest.entity_id})`}
+              Type: {selectedRequest.request_type.replace(/_/g, ' ')}
             </p>
             
             {/* Upload Section */}

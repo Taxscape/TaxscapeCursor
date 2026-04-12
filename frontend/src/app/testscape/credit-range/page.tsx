@@ -175,7 +175,7 @@ export default function TestscapeCreditRangePage() {
           clientId={clientId!}
           taxYear={taxYear}
           onClose={() => setShowDraftModal(false)}
-          onCreated={(id) => {
+          onCreated={(id: string) => {
             setShowDraftModal(false);
             setSelectedEstimateId(id);
             queryClient.invalidateQueries({ queryKey: ['credit-estimates'] });
@@ -480,7 +480,7 @@ function EstimateDetailPanel({
             exports={exports}
             canExport={canExport}
             canMarkSent={canMarkSent}
-            onExport={(type) => exportMutation.mutate(type)}
+            onExport={(type: "pdf" | "docx") => exportMutation.mutate(type)}
             onShowEmail={() => setShowEmailModal(true)}
             onMarkSent={() => markSentMutation.mutate()}
             isExporting={exportMutation.isPending}

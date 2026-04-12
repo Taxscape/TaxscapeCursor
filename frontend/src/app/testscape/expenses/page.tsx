@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getExpenses, createExpense, getSupplies, createSupply, type Expense, type Supply } from '@/lib/api';
 
 export default function ExpensesPage() {
-  const { clientId, taxYear } = useActiveContext();
+  const { clientId, taxYear, orgId } = useActiveContext();
   const queryClient = useQueryClient();
   
   const [activeTab, setActiveTab] = useState<'expenses' | 'supplies'>('expenses');
@@ -21,20 +21,28 @@ export default function ExpensesPage() {
   // Fetch expenses
   const { data: expenses = [], isLoading: expensesLoading } = useQuery({
     queryKey: ['expenses', clientId],
-    queryFn: () => getExpenses(),
-    enabled: !!clientId,
+    queryFn: () => getExpenses(orgId!),
+    enabled: !!clientId && !!orgId,
   });
   
   // Fetch supplies
-  const { data: supplies = [], isLoading: suppliesLoading } = useQuery({
+  const { data: suppliesData, isLoading: suppliesLoading } = useQuery({
     queryKey: ['supplies', clientId],
-    queryFn: () => getSupplies(),
+    queryFn: () => getSupplies(clientId!, parseInt(taxYear)),
     enabled: !!clientId,
   });
   
+  const supplies = suppliesData?.data || [];
+  
   // Create expense mutation
   const createExpenseMutation = useMutation({
-    mutationFn: (data: typeof newItem) => createExpense(data),
+    mutationFn: (data: typeof newItem) => createExpense(orgId!, {
+      description: data.description,
+      amount: data.amount,
+      category: data.category,
+      vendor_name: data.vendor,
+      expense_date: new Date().toISOString().split('T')[0],
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['expenses', clientId] });
       setShowCreateModal(false);
@@ -44,7 +52,13 @@ export default function ExpensesPage() {
   
   // Create supply mutation
   const createSupplyMutation = useMutation({
-    mutationFn: (data: typeof newItem) => createSupply(data),
+    mutationFn: (data: typeof newItem) => createSupply(clientId!, {
+      item_description: data.description,
+      amount: data.amount,
+      category: data.category,
+      tax_year: parseInt(taxYear),
+      is_qre_eligible: true,
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['supplies', clientId] });
       setShowCreateModal(false);

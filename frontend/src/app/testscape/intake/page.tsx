@@ -486,7 +486,9 @@ export default function IntakePackagePage() {
           <div className="bg-[#12121a] border border-white/10 rounded-xl p-6">
             <div className="mb-4">
               <p className="text-sm text-gray-400 mb-1">To:</p>
-              <p className="text-white">{emailDraft.to_email}</p>
+              <p className="text-white">
+                {emailDraft.to_recipients.map(r => r.email).join(', ')}
+              </p>
             </div>
             <div className="mb-4">
               <p className="text-sm text-gray-400 mb-1">Subject:</p>
@@ -495,14 +497,14 @@ export default function IntakePackagePage() {
             <div>
               <p className="text-sm text-gray-400 mb-1">Body:</p>
               <div className="bg-white/5 rounded-lg p-4 whitespace-pre-wrap text-gray-300 text-sm">
-                {emailDraft.body}
+                {emailDraft.body_text}
               </div>
             </div>
           </div>
 
           <div className="flex gap-4">
             <button
-              onClick={() => copyToClipboard(`Subject: ${emailDraft.subject}\n\n${emailDraft.body}`, "email")}
+              onClick={() => copyToClipboard(`Subject: ${emailDraft.subject}\n\n${emailDraft.body_text}`, "email")}
               className="flex-1 py-3 bg-white/5 text-white rounded-xl font-medium hover:bg-white/10 flex items-center justify-center gap-2"
             >
               {copiedEmail ? Icons.check : Icons.copy}
