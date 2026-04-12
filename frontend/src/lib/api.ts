@@ -743,10 +743,28 @@ export async function createEmployee(employee: Partial<Employee>, clientId?: str
   return data.employee;
 }
 
-export async function getContractors(): Promise<Contractor[]> {
+export async function getContractors(clientId?: string, taxYear?: number): Promise<Contractor[]> {
   const headers = await getAuthHeaders();
+  const apiUrl = getApiUrl();
   
-  const response = await fetch(`${API_URL}/api/contractors`, {
+  if (clientId) {
+    const params = new URLSearchParams({
+      client_id: clientId,
+      tax_year: String(taxYear || 2024),
+    });
+    
+    try {
+      const workspaceResponse = await fetch(`${apiUrl}/api/workspace-data/vendors?${params}`, { headers });
+      if (workspaceResponse.ok) {
+        const data = await workspaceResponse.json();
+        return data.data || [];
+      }
+    } catch (e) {
+      console.warn("Workspace API failed, falling back to old API", e);
+    }
+  }
+  
+  const response = await fetch(`${apiUrl}/api/contractors`, {
     headers,
   });
 
@@ -758,10 +776,23 @@ export async function getContractors(): Promise<Contractor[]> {
   return data.contractors;
 }
 
-export async function createContractor(contractor: Partial<Contractor>): Promise<Contractor> {
+export async function createContractor(contractor: Partial<Contractor>, clientId?: string): Promise<Contractor> {
   const headers = await getAuthHeaders();
+  const apiUrl = getApiUrl();
   
-  const response = await fetch(`${API_URL}/api/contractors`, {
+  if (clientId) {
+    const response = await fetch(`${apiUrl}/api/workspace-data/vendors?client_id=${clientId}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(contractor),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return data.data;
+    }
+  }
+  
+  const response = await fetch(`${apiUrl}/api/contractors`, {
     method: "POST",
     headers,
     body: JSON.stringify(contractor),
