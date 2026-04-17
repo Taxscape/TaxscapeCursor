@@ -61,7 +61,13 @@ export default function ProjectsPage() {
   };
   
   const qualifiedProjects = projects.filter((p: Project) => p.qualification_status === 'qualified').length;
-  const pendingProjects = projects.filter((p: Project) => p.qualification_status === 'pending' || !p.qualification_status).length;
+  const needsDetailsProjects = projects.filter((p: Project) =>
+    p.qualification_status === 'needs_review'
+    || p.qualification_status === 'pending_review'
+    || p.qualification_status === 'pending'
+    || !p.qualification_status
+  ).length;
+  const notQualifiedProjects = projects.filter((p: Project) => p.qualification_status === 'not_qualified').length;
   
   return (
     <div className="space-y-6">
@@ -81,7 +87,7 @@ export default function ProjectsPage() {
       </div>
       
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <div className="bg-[#12121a] border border-white/10 rounded-xl p-4">
           <p className="text-sm text-gray-400 mb-1">Total Projects</p>
           <p className="text-2xl font-bold text-white">{projects.length}</p>
@@ -91,8 +97,12 @@ export default function ProjectsPage() {
           <p className="text-2xl font-bold text-green-400">{qualifiedProjects}</p>
         </div>
         <div className="bg-[#12121a] border border-white/10 rounded-xl p-4">
-          <p className="text-sm text-gray-400 mb-1">Pending Review</p>
-          <p className="text-2xl font-bold text-yellow-400">{pendingProjects}</p>
+          <p className="text-sm text-gray-400 mb-1">Open for More Details</p>
+          <p className="text-2xl font-bold text-amber-400">{needsDetailsProjects}</p>
+        </div>
+        <div className="bg-[#12121a] border border-white/10 rounded-xl p-4">
+          <p className="text-sm text-gray-400 mb-1">Not Qualified</p>
+          <p className="text-2xl font-bold text-red-400">{notQualifiedProjects}</p>
         </div>
       </div>
       
@@ -133,15 +143,26 @@ export default function ProjectsPage() {
                     </p>
                   </td>
                   <td className="py-3 px-4">
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      project.qualification_status === 'qualified' 
-                        ? 'bg-green-500/20 text-green-400'
-                        : project.qualification_status === 'not_qualified'
-                        ? 'bg-red-500/20 text-red-400'
-                        : 'bg-yellow-500/20 text-yellow-400'
-                    }`}>
-                      {project.qualification_status || 'Pending'}
-                    </span>
+                    {(() => {
+                      const s = project.qualification_status;
+                      let label = 'Open for More Details';
+                      let cls = 'bg-amber-500/20 text-amber-300';
+                      if (s === 'qualified') {
+                        label = 'Qualified';
+                        cls = 'bg-green-500/20 text-green-400';
+                      } else if (s === 'not_qualified') {
+                        label = 'Not Qualified';
+                        cls = 'bg-red-500/20 text-red-400';
+                      } else if (s === 'pending') {
+                        label = 'Pending';
+                        cls = 'bg-yellow-500/20 text-yellow-400';
+                      }
+                      return (
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${cls}`}>
+                          {label}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="py-3 px-4 text-right">
                     <p className="text-white font-medium">

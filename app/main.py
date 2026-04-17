@@ -673,6 +673,7 @@ class ClientCompanyUpdate(BaseModel):
 
 class SelectedClientRequest(BaseModel):
     client_id: Optional[str] = None
+    tax_year: Optional[int] = None
 
 
 # --- Organization Router ---
@@ -692,6 +693,66 @@ def get_user_organization(user: dict) -> Optional[Dict]:
             return org.data
     except Exception as e:
         logger.error(f"Error getting user organization: {e}")
+    return None
+
+
+def ensure_client_for_user(user: dict, default_name: str = "My Company", tax_year: int = 2024) -> Optional[str]:
+    """Ensure the user has at least one selected client_company.
+    
+    Returns the client_company_id, creating a default one if necessary.
+    This prevents orphan uploads (rows with no client_company_id) which would
+    be invisible to scoped list endpoints like /workspace-data/employees-extended.
+    """
+    supabase = get_supabase()
+    if not supabase:
+        return None
+
+    try:
+        # Check existing profile
+        profile = get_user_profile(user["id"])
+        if profile and profile.get("selected_client_id"):
+            return profile["selected_client_id"]
+
+        # Need an organization to attach the client to
+        org = get_user_organization(user)
+        if not org:
+            return None
+
+        org_id = org["id"]
+
+        # Reuse first existing active client for this org if any
+        existing = supabase.table("client_companies")\
+            .select("id")\
+            .eq("organization_id", org_id)\
+            .eq("status", "active")\
+            .limit(1)\
+            .execute()
+        if existing.data:
+            client_id = existing.data[0]["id"]
+            supabase.table("profiles").update({"selected_client_id": client_id}).eq("id", user["id"]).execute()
+            return client_id
+
+        # Otherwise create a default one
+        slug = default_name.lower().replace(" ", "-")
+        slug = "".join(c for c in slug if c.isalnum() or c == "-") or "default-client"
+        created = supabase.table("client_companies").insert({
+            "organization_id": org_id,
+            "name": default_name,
+            "slug": slug,
+            "tax_year": str(tax_year),
+            "status": "active",
+            "created_by": user["id"],
+        }).execute()
+
+        if created.data:
+            client_id = created.data[0]["id"]
+            try:
+                supabase.table("profiles").update({"selected_client_id": client_id}).eq("id", user["id"]).execute()
+            except Exception:
+                pass
+            return client_id
+    except Exception as e:
+        logger.error(f"ensure_client_for_user failed: {e}")
     return None
 
 
@@ -1375,8 +1436,12 @@ async def set_selected_client(req: SelectedClientRequest, user: dict = Depends(g
                 if not client_check.data:
                     raise HTTPException(status_code=404, detail="Client company not found")
         
+        update_payload: Dict[str, Any] = {"selected_client_id": req.client_id}
+        if req.tax_year is not None:
+            update_payload["selected_tax_year"] = req.tax_year
+
         supabase.table("profiles")\
-            .update({"selected_client_id": req.client_id})\
+            .update(update_payload)\
             .eq("id", user["id"])\
             .execute()
         
@@ -1385,7 +1450,16 @@ async def set_selected_client(req: SelectedClientRequest, user: dict = Depends(g
         raise
     except Exception as e:
         logger.error(f"Error setting selected client: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Graceful degradation: if the selected_tax_year column doesn't exist yet
+        # (migration not applied) still try to persist just the client_id.
+        try:
+            supabase.table("profiles")\
+                .update({"selected_client_id": req.client_id})\
+                .eq("id", user["id"])\
+                .execute()
+            return {"success": True, "warning": "tax_year column not available"}
+        except Exception:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- Task Management ---
@@ -2687,6 +2761,7 @@ async def create_contractor(contractor: ContractorCreate, user: dict = Depends(g
 async def upload_payroll(
     file: UploadFile = File(...), 
     client_id: Optional[str] = Query(None),
+    tax_year: Optional[int] = Query(None),
     user: dict = Depends(get_current_user)
 ):
     """Upload payroll data from CSV/Excel."""
@@ -2700,6 +2775,13 @@ async def upload_payroll(
         if profile and profile.get("selected_client_id"):
             client_id = profile["selected_client_id"]
             logger.info(f"Using client_id {client_id} from user profile for payroll upload")
+
+    # Last-resort fallback: auto-create a client so the row is never orphaned
+    if not client_id:
+        fallback_name = (file.filename or "My Company").rsplit('.', 1)[0][:100] or "My Company"
+        client_id = ensure_client_for_user(user, default_name=fallback_name, tax_year=tax_year or 2024)
+        if client_id:
+            logger.info(f"Auto-created/selected client {client_id} for payroll upload")
 
     print(f"Upload payroll initiated by user {user['id']}, client: {client_id}, file: {file.filename}")
     
@@ -2731,15 +2813,29 @@ async def upload_payroll(
     count = 0
     errors = []
     
-    # Get tax year from client if possible, default to 2024
-    tax_year = 2024
-    if client_id:
+    # Determine effective tax_year: explicit query param > client record > default
+    effective_tax_year = tax_year
+    if effective_tax_year is None and client_id:
         try:
             client_data = supabase.table("client_companies").select("tax_year").eq("id", client_id).single().execute()
             if client_data.data:
-                tax_year = int(client_data.data.get("tax_year", 2024))
-        except:
+                try:
+                    effective_tax_year = int(str(client_data.data.get("tax_year", "2024")))
+                except (ValueError, TypeError):
+                    effective_tax_year = 2024
+        except Exception:
             pass
+    if effective_tax_year is None:
+        effective_tax_year = 2024
+
+    # Keep client's tax_year in sync if user explicitly set a different one
+    if client_id and tax_year is not None:
+        try:
+            supabase.table("client_companies").update({"tax_year": str(tax_year)}).eq("id", client_id).execute()
+        except Exception:
+            pass
+
+    tax_year = effective_tax_year  # reuse downstream variable name
 
     for idx, row in df.iterrows():
         name = row.get('name') or row.get('employee name') or row.get('employee')
@@ -2792,6 +2888,7 @@ async def upload_payroll(
 async def upload_contractors(
     file: UploadFile = File(...), 
     client_id: Optional[str] = Query(None),
+    tax_year: Optional[int] = Query(None),
     user: dict = Depends(get_current_user)
 ):
     """Upload contractor data from CSV/Excel."""
@@ -2805,6 +2902,13 @@ async def upload_contractors(
         if profile and profile.get("selected_client_id"):
             client_id = profile["selected_client_id"]
             logger.info(f"Using client_id {client_id} from user profile for contractor upload")
+
+    # Last-resort fallback: auto-create a client so the row is never orphaned
+    if not client_id:
+        fallback_name = (file.filename or "My Company").rsplit('.', 1)[0][:100] or "My Company"
+        client_id = ensure_client_for_user(user, default_name=fallback_name, tax_year=tax_year or 2024)
+        if client_id:
+            logger.info(f"Auto-created/selected client {client_id} for contractor upload")
 
     print(f"Upload contractors initiated by user {user['id']}, client: {client_id}, file: {file.filename}")
     
@@ -2835,15 +2939,29 @@ async def upload_contractors(
     
     count = 0
     errors = []
-    # Get tax year from client if possible, default to 2024
-    tax_year = 2024
-    if client_id:
+    # Determine effective tax_year: explicit query param > client record > default
+    effective_tax_year = tax_year
+    if effective_tax_year is None and client_id:
         try:
             client_data = supabase.table("client_companies").select("tax_year").eq("id", client_id).single().execute()
             if client_data.data:
-                tax_year = int(client_data.data.get("tax_year", 2024))
-        except:
+                try:
+                    effective_tax_year = int(str(client_data.data.get("tax_year", "2024")))
+                except (ValueError, TypeError):
+                    effective_tax_year = 2024
+        except Exception:
             pass
+    if effective_tax_year is None:
+        effective_tax_year = 2024
+
+    # Keep client's tax_year in sync if user explicitly set a different one
+    if client_id and tax_year is not None:
+        try:
+            supabase.table("client_companies").update({"tax_year": str(tax_year)}).eq("id", client_id).execute()
+        except Exception:
+            pass
+
+    tax_year = effective_tax_year
 
     for idx, row in df.iterrows():
         name = row.get('name') or row.get('contractor') or row.get('vendor')

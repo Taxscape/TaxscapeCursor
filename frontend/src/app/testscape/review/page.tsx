@@ -1,18 +1,32 @@
 "use client";
 
 import React, { useState } from 'react';
-import { useActiveContext } from '@/context/workspace-context';
+import { useActiveContext, useWorkspace } from '@/context/workspace-context';
+import { useAuth } from '@/context/auth-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { listFindings, resolveFinding, dismissFinding, type ReviewFinding } from '@/lib/review';
+import { listFindings, resolveFinding, dismissFinding, escalateFinding, type ReviewFinding } from '@/lib/review';
+import { getOrganizationMembers } from '@/lib/api';
 
 export default function ReviewPage() {
   const { clientId, taxYear } = useActiveContext();
+  const { state } = useWorkspace();
+  const { organization } = useAuth();
+  const orgId = organization?.id || state.organizationId;
   const queryClient = useQueryClient();
   
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('open');
   const [selectedFinding, setSelectedFinding] = useState<ReviewFinding | null>(null);
   const [resolveNote, setResolveNote] = useState('');
+  const [assignToUserId, setAssignToUserId] = useState<string>('');
+
+  // Fetch organization members for assignment dropdown
+  const { data: members = [] } = useQuery({
+    queryKey: ['org-members', orgId],
+    queryFn: () => (orgId ? getOrganizationMembers(orgId) : Promise.resolve([])),
+    enabled: !!orgId,
+    staleTime: 1000 * 60 * 5,
+  });
   
   // Fetch findings
   const { data: findingsData, isLoading, refetch } = useQuery({
@@ -49,6 +63,19 @@ export default function ReviewPage() {
       refetch();
       setSelectedFinding(null);
       setResolveNote('');
+    },
+  });
+
+  // Assign mutation: escalates the finding to the selected user, creating a task
+  const assignMutation = useMutation({
+    mutationFn: (args: { finding: ReviewFinding; userId: string; note: string }) =>
+      escalateFinding(args.finding.id, args.note || `Assigned for follow-up`, args.userId),
+    onSuccess: () => {
+      refetch();
+      setSelectedFinding(null);
+      setResolveNote('');
+      setAssignToUserId('');
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
   });
   
@@ -233,15 +260,53 @@ export default function ReviewPage() {
             {selectedFinding.status === 'open' && (
               <>
                 <div className="mb-4">
-                  <label className="block text-sm text-gray-400 mb-2">Resolution Note</label>
+                  <label className="block text-sm text-gray-400 mb-2">Resolution / Assignment Note</label>
                   <textarea
                     value={resolveNote}
                     onChange={(e) => setResolveNote(e.target.value)}
                     className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white h-24"
-                    placeholder="Explain how this finding was addressed..."
+                    placeholder="Explain how this finding was addressed, or a note for the assignee..."
                   />
                 </div>
-                
+
+                {/* Assignment Section */}
+                <div className="mb-4 p-3 rounded-lg border border-white/10 bg-white/5">
+                  <label className="block text-sm text-gray-400 mb-2">Assign to team member</label>
+                  <div className="flex gap-2">
+                    <select
+                      value={assignToUserId}
+                      onChange={(e) => setAssignToUserId(e.target.value)}
+                      className="flex-1 px-3 py-2 bg-[#0f0f14] border border-white/10 rounded-lg text-white text-sm"
+                    >
+                      <option value="">Select teammate...</option>
+                      {members.map((m) => (
+                        <option key={m.user_id} value={m.user_id}>
+                          {m.name || m.email || m.user_id} ({m.role})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => {
+                        if (!assignToUserId) return;
+                        assignMutation.mutate({
+                          finding: selectedFinding,
+                          userId: assignToUserId,
+                          note: resolveNote,
+                        });
+                      }}
+                      disabled={!assignToUserId || assignMutation.isPending}
+                      className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 text-sm font-medium"
+                    >
+                      {assignMutation.isPending ? 'Assigning...' : 'Assign'}
+                    </button>
+                  </div>
+                  {members.length === 0 && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      No teammates available. Invite members from Settings → Team.
+                    </p>
+                  )}
+                </div>
+
                 <div className="flex gap-3">
                   <button
                     onClick={() => dismissMutation.mutate(selectedFinding)}

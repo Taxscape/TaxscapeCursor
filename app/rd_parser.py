@@ -68,7 +68,13 @@ class FourPartTestResult(BaseModel):
         tests = [self.permitted_purpose, self.elimination_uncertainty, 
                  self.process_experimentation, self.technological_nature]
         return sum(1 for t in tests if t == TestStatus.PASS)
-    
+
+    @property
+    def fail_count(self) -> int:
+        tests = [self.permitted_purpose, self.elimination_uncertainty,
+                 self.process_experimentation, self.technological_nature]
+        return sum(1 for t in tests if t == TestStatus.FAIL)
+
     @property
     def total_tests(self) -> int:
         return 4
@@ -351,7 +357,20 @@ def extract_projects(sheets: Dict[str, pd.DataFrame]) -> List[RDProject]:
                     fpt.technological_nature = TestStatus.FAIL
             
             project.four_part_test = fpt
-            project.qualified = fpt.pass_count == 4
+            # Smart default qualification (pre-AI):
+            # - If project has a substantive description (>=40 chars), lean qualified
+            # - Otherwise leave qualified=False (needs review) but mark needs_review hint
+            has_detail = (project.description and len(project.description.strip()) >= 40)
+            if fpt.fail_count >= 2:
+                project.qualified = False
+            elif fpt.pass_count >= 2 and fpt.fail_count == 0:
+                project.qualified = True
+            else:
+                project.qualified = bool(has_detail)
+                if not has_detail:
+                    project.missing_info = (project.missing_info or []) + [
+                        "Open for more details: expand the project description."
+                    ]
             
             projects.append(project)
         except Exception as e:
@@ -1057,9 +1076,23 @@ Respond in this EXACT JSON format (no markdown, just raw JSON):
         project.confidence_score = float(result.get("confidence_score", 0.5))
         project.ai_summary = result.get("summary", "Evaluation completed")
         project.missing_info = result.get("missing_info", [])
-        project.qualified = fpt.pass_count == 4
-        
-        logger.info(f"AI evaluated project {project.project_id}: {fpt.pass_count}/4 tests pass, qualified={project.qualified}")
+        # Smart qualification: 2+ passes with no hard fail = qualified (provisional);
+        # 2+ fails = not qualified; otherwise depends on whether there's meaningful content.
+        if fpt.fail_count >= 2:
+            project.qualified = False
+        elif fpt.pass_count >= 2 and fpt.fail_count == 0:
+            project.qualified = True
+        else:
+            # Ambiguous - treat as "open for more details" but don't silently fail the project
+            project.qualified = bool(
+                (project.description and len(project.description.strip()) >= 40)
+                and fpt.pass_count >= 1
+            )
+
+        logger.info(
+            f"AI evaluated project {project.project_id}: "
+            f"{fpt.pass_count} pass / {fpt.fail_count} fail, qualified={project.qualified}"
+        )
         
     except Exception as e:
         error_msg = str(e)
@@ -1248,9 +1281,10 @@ def create_analysis_session(
                 session.projects[i] = evaluate_project_with_ai(project, additional_context)
             except Exception as e:
                 logger.error(f"AI evaluation failed for project {project.project_id}: {e}")
-        
-        session.qualified_projects = len([p for p in session.projects if p.qualified])
     
+    # Always recompute qualified_projects count, whether AI ran or not
+    session.qualified_projects = len([p for p in session.projects if p.qualified])
+
     # Identify gaps
     session.gaps = identify_gaps(session)
     

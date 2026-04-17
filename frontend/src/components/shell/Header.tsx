@@ -247,9 +247,17 @@ export function Header() {
         </button>
         
         {/* User Menu */}
-        <div className="flex items-center gap-2 pl-3 border-l border-border">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-medium">
+        <div className="flex items-center gap-3 pl-3 border-l border-border">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-medium shrink-0">
             {profile?.full_name?.[0] || user?.email?.[0]?.toUpperCase() || 'U'}
+          </div>
+          <div className="hidden sm:flex flex-col leading-tight max-w-[160px]">
+            <span className="text-sm font-medium text-foreground truncate">
+              {profile?.full_name || user?.email || 'Signed in'}
+            </span>
+            <span className="text-xs text-muted-foreground truncate">
+              {profile?.full_name && user?.email ? user.email : (profile?.role || '')}
+            </span>
           </div>
         </div>
       </div>

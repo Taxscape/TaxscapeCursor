@@ -5,7 +5,7 @@ import { useWorkspace } from '@/context/workspace-context';
 import { useAuth } from '@/context/auth-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CACHE_KEYS } from '@/lib/query-client';
-import { createClientSimple, getMyClients, getClientCompanies } from '@/lib/api';
+import { createClientSimple, getMyClients, getClientCompanies, getClientCompany } from '@/lib/api';
 import type { ClientCompany } from '@/lib/api';
 
 export function TestscapeHeader() {
@@ -54,11 +54,29 @@ export function TestscapeHeader() {
   });
   
   const clients = clientsData || [];
-  
+
   // Derive activeClient from fetched clients data and current clientId
-  const activeClient = useMemo(() => {
+  const activeClientFromList = useMemo(() => {
     return clients.find(c => c.id === state.clientId) || null;
   }, [clients, state.clientId]);
+
+  // Fallback: if clientId is set but not in current list (e.g. across org),
+  // fetch the single client by id so the header still shows the right name.
+  const [fallbackClient, setFallbackClient] = useState<ClientCompany | null>(null);
+  useEffect(() => {
+    if (!state.clientId || activeClientFromList) {
+      setFallbackClient(null);
+      return;
+    }
+    if (!orgId) return;
+    let cancelled = false;
+    getClientCompany(orgId, state.clientId).then((c) => {
+      if (!cancelled) setFallbackClient(c ?? null);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [orgId, state.clientId, activeClientFromList]);
+
+  const activeClient = activeClientFromList || fallbackClient;
   
   // Handle adding a new client
   const handleAddClient = async (e: React.FormEvent) => {
@@ -214,9 +232,17 @@ export function TestscapeHeader() {
         </div>
         
         {/* User Menu */}
-        <div className="flex items-center gap-2 pl-3 border-l border-white/10">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-medium">
+        <div className="flex items-center gap-3 pl-3 border-l border-white/10">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-medium shrink-0">
             {profile?.full_name?.[0] || user?.email?.[0]?.toUpperCase() || 'U'}
+          </div>
+          <div className="flex flex-col leading-tight max-w-[160px]">
+            <span className="text-sm font-medium text-white truncate">
+              {profile?.full_name || user?.email || 'Signed in'}
+            </span>
+            <span className="text-xs text-gray-500 truncate">
+              {profile?.full_name && user?.email ? user.email : (profile?.role || '')}
+            </span>
           </div>
         </div>
       </div>

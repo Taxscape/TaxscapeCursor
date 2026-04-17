@@ -874,17 +874,28 @@ export async function getSessionMessages(sessionId: string): Promise<{ session: 
   return await response.json();
 }
 
-export async function uploadPayroll(file: File, clientId?: string): Promise<{ message: string; count: number }> {
+function buildUploadUrl(base: string, clientId?: string, taxYear?: number): string {
+  const params: string[] = [];
+  if (clientId) params.push(`client_id=${encodeURIComponent(clientId)}`);
+  if (typeof taxYear === 'number' && Number.isFinite(taxYear)) {
+    params.push(`tax_year=${taxYear}`);
+  }
+  return params.length ? `${base}?${params.join('&')}` : base;
+}
+
+export async function uploadPayroll(
+  file: File,
+  clientId?: string,
+  taxYear?: number
+): Promise<{ message: string; count: number }> {
   const headers = await getAuthHeadersForUpload();
-  
+
   const formData = new FormData();
   formData.append("file", file);
-  
+
   const apiUrl = getApiUrl();
-  const url = clientId 
-    ? `${apiUrl}/api/upload_payroll?client_id=${clientId}`
-    : `${apiUrl}/api/upload_payroll`;
-    
+  const url = buildUploadUrl(`${apiUrl}/api/upload_payroll`, clientId, taxYear);
+
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -899,17 +910,19 @@ export async function uploadPayroll(file: File, clientId?: string): Promise<{ me
   return await response.json();
 }
 
-export async function uploadContractors(file: File, clientId?: string): Promise<{ message: string; count: number }> {
+export async function uploadContractors(
+  file: File,
+  clientId?: string,
+  taxYear?: number
+): Promise<{ message: string; count: number }> {
   const headers = await getAuthHeadersForUpload();
-  
+
   const formData = new FormData();
   formData.append("file", file);
-  
+
   const apiUrl = getApiUrl();
-  const url = clientId 
-    ? `${apiUrl}/api/upload_contractors?client_id=${clientId}`
-    : `${apiUrl}/api/upload_contractors`;
-    
+  const url = buildUploadUrl(`${apiUrl}/api/upload_contractors`, clientId, taxYear);
+
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -1975,13 +1988,21 @@ export async function deleteClientCompany(orgId: string, clientId: string): Prom
   return await response.json();
 }
 
-export async function setSelectedClient(clientId: string | null): Promise<{ success: boolean }> {
+export async function setSelectedClient(
+  clientId: string | null,
+  taxYear?: number
+): Promise<{ success: boolean }> {
   const headers = await getAuthHeaders();
-  
+
+  const body: Record<string, unknown> = { client_id: clientId };
+  if (typeof taxYear === "number" && Number.isFinite(taxYear)) {
+    body.tax_year = taxYear;
+  }
+
   const response = await fetch(`${API_URL}/api/profile/selected-client`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ client_id: clientId }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {

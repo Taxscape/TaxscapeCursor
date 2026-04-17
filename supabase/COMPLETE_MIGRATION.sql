@@ -1601,7 +1601,21 @@ ALTER PUBLICATION supabase_realtime ADD TABLE background_jobs;
 ALTER PUBLICATION supabase_realtime ADD TABLE job_events;
 
 -- ============================================================================
+-- PROFILE STATE PERSISTENCE (for TS04: client + tax_year survive logins)
+-- ============================================================================
+
+-- Selected client company (restored on login)
+ALTER TABLE public.profiles
+ADD COLUMN IF NOT EXISTS selected_client_id UUID REFERENCES public.client_companies(id) ON DELETE SET NULL;
+
+-- Selected tax year (restored on login)
+ALTER TABLE public.profiles
+ADD COLUMN IF NOT EXISTS selected_tax_year INTEGER;
+
+CREATE INDEX IF NOT EXISTS idx_profiles_selected_client_id ON public.profiles(selected_client_id);
+
+-- ============================================================================
 -- DONE!
 -- ============================================================================
 
-SELECT 'COMPLETE_MIGRATION finished successfully - ALL Prompts 7-15 + Background Jobs applied!' AS status;
+SELECT 'COMPLETE_MIGRATION finished successfully - ALL Prompts 7-15 + Background Jobs + Profile State applied!' AS status;

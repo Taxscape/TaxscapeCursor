@@ -71,7 +71,7 @@ export interface Project {
   description?: string;
   technical_uncertainty?: string;
   process_of_experimentation?: string;
-  qualification_status: 'pending' | 'qualified' | 'not_qualified';
+  qualification_status: 'pending' | 'pending_review' | 'needs_review' | 'qualified' | 'not_qualified';
   total_qre?: number;
   organization_id?: string;
   client_company_id?: string;

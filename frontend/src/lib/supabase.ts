@@ -169,6 +169,8 @@ export type Profile = {
   company_name: string | null;
   organization_id: string | null;
   selected_client_id: string | null;
+  selected_tax_year: number | null;
+  role: string | null;
   is_admin: boolean;
   // Onboarding fields from Prompt 7
   has_seen_onboarding: boolean | null;

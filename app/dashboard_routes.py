@@ -269,10 +269,11 @@ def _gather_dashboard_data(supabase, client_id: str, tax_year: int) -> Dict[str,
     data["high_wage_flags_count"] = 0
     
     try:
-        # Projects - use organization_id since projects don't have client_company_id
+        # Projects - scope by client_company_id so counts match the project list
         try:
             projects = supabase.table("projects")\
                 .select("id, name, updated_at")\
+                .eq("client_company_id", client_id)\
                 .execute()
             data["projects"] = projects.data or []
             data["projects_count"] = len(data["projects"])
@@ -284,20 +285,22 @@ def _gather_dashboard_data(supabase, client_id: str, tax_year: int) -> Dict[str,
         except Exception as e:
             logger.warning(f"Projects query failed: {e}")
         
-        # Employees
+        # Employees - scope by client + tax_year to match /workspace-data/employees-extended
         try:
             employees = supabase.table("employees")\
                 .select("id", count="exact")\
                 .eq("client_company_id", client_id)\
+                .eq("tax_year", tax_year)\
                 .execute()
             data["employees_count"] = employees.count or 0
         except Exception as e:
             logger.warning(f"Employees query failed: {e}")
         
-        # Contractors (formerly vendors)
+        # Contractors - scope by client_company_id
         try:
             contractors = supabase.table("contractors")\
                 .select("id, location", count="exact")\
+                .eq("client_company_id", client_id)\
                 .execute()
             data["vendors_count"] = contractors.count or 0
             data["foreign_vendor_flags_count"] = len([

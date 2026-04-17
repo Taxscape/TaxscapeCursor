@@ -18,18 +18,18 @@ export default function ContractorsPage() {
     qualified_percent: 65, // Default 65% rule
   });
   
-  // Fetch contractors
+  // Fetch contractors (scoped to client + tax_year)
   const { data: contractors = [], isLoading } = useQuery({
-    queryKey: ['contractors', clientId],
-    queryFn: () => getContractors(),
+    queryKey: ['contractors', clientId, taxYear],
+    queryFn: () => getContractors(clientId!, Number(taxYear)),
     enabled: !!clientId,
   });
   
   // Create mutation
   const createMutation = useMutation({
-    mutationFn: (data: typeof newContractor) => createContractor(data),
+    mutationFn: (data: typeof newContractor) => createContractor(data, clientId ?? undefined),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['contractors', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['contractors', clientId, taxYear] });
       setShowCreateModal(false);
       setNewContractor({ name: '', company: '', services_description: '', total_payments: 0, qualified_percent: 65 });
     },

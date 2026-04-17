@@ -712,12 +712,15 @@ export default function Portal() {
         return;
       }
 
+      const scopedClientId = selectedClient?.id;
+      const scopedTaxYear = selectedClient?.tax_year ? Number(selectedClient.tax_year) : 2024;
+
       const [dashboardData, projectsData, sessionsData, employeesData, contractorsData] = await Promise.all([
-        getDashboard().catch((e) => { console.error("Dashboard error:", e); return null; }),
-        getProjects().catch((e) => { console.error("Projects error:", e); return []; }),
+        getDashboard(scopedClientId, scopedTaxYear).catch((e) => { console.error("Dashboard error:", e); return null; }),
+        getProjects(scopedClientId, scopedTaxYear).catch((e) => { console.error("Projects error:", e); return []; }),
         getChatSessions().catch((e) => { console.error("Sessions error:", e); return []; }),
-        getEmployees().catch((e) => { console.error("Employees error:", e); return []; }),
-        getContractors().catch((e) => { console.error("Contractors error:", e); return []; }),
+        getEmployees(scopedClientId, scopedTaxYear).catch((e) => { console.error("Employees error:", e); return []; }),
+        getContractors(scopedClientId, scopedTaxYear).catch((e) => { console.error("Contractors error:", e); return []; }),
       ]);
 
       if (dashboardData) setDashboard(dashboardData);
@@ -751,9 +754,20 @@ export default function Portal() {
         setClientCompanies(clientsData);
         if (workflowData) setWorkflowSummary(workflowData);
         
-        // Auto-select first client if none selected
-        if (clientsData.length > 0 && !selectedClient) {
-          setSelectedClientState(clientsData[0]);
+        // Restore profile.selected_client_id FIRST, then fall back to the first client.
+        if (!selectedClient && clientsData.length > 0) {
+          const profileSelectedId = (profile as any)?.selected_client_id as string | undefined;
+          let picked = profileSelectedId
+            ? clientsData.find((c) => c.id === profileSelectedId)
+            : undefined;
+          if (!picked) picked = clientsData[0];
+          setSelectedClientState(picked);
+          // Persist to backend so next login has a stable selection
+          if (picked && picked.id !== profileSelectedId) {
+            setSelectedClient(picked.id).catch((e) =>
+              console.error("Failed to persist default client selection:", e)
+            );
+          }
         }
       }
     } catch (error) {
@@ -916,33 +930,24 @@ export default function Portal() {
       setShowClientSelector(false);
       return;
     }
-    
-    // Clear all existing data to show loading state for new client workspace
-    setDashboard(null);
-    setProjects([]);
-    setEmployees([]);
-    setContractors([]);
+
+    // Set new client (do NOT clear previous data eagerly - let the refetch replace it,
+    // so the UI shows stale-while-revalidate instead of a flash of empty state).
+    setSelectedClientState(client);
+    setShowClientSelector(false);
+    // Clear only R&D session (it's client-specific and shouldn't leak across clients)
     setRdSession(null);
     setRdSessionId(null);
     setRdError(null);
-    setTasks([]);
-    setBudgets([]);
-    setExpenses([]);
-    setEngineeringTasks([]);
-    setTimeLogs([]);
-    setWorkflowSummary(null);
-    
-    // Set new client
-    setSelectedClientState(client);
-    setShowClientSelector(false);
-    
+
     // Persist selection to backend
     try {
-      await setSelectedClient(client.id);
+      const yearNum = client.tax_year ? Number(client.tax_year) : undefined;
+      await setSelectedClient(client.id, Number.isFinite(yearNum as number) ? (yearNum as number) : undefined);
     } catch (e) {
       console.error("Error persisting client selection:", e);
     }
-    
+
     // Data will be refetched via useEffect watching selectedClient
   };
 
@@ -1034,7 +1039,41 @@ export default function Portal() {
       const parseResult = await parseRDSession(uploadResult.session_id, true);
       console.log("[R&D] Analysis complete:", parseResult);
       setRdSession(parseResult.session);
-      
+
+      // If this upload revealed a company_name but there's no selected client,
+      // auto-create a client_companies row and select it so the header + data
+      // scoping works on subsequent screens.
+      try {
+        const companyName = (parseResult.session as any)?.company_name as string | undefined;
+        const uploadTaxYear = (parseResult.session as any)?.tax_year as number | undefined;
+        if (companyName && organization?.id && !selectedClient) {
+          const existing = clientCompanies.find(
+            (c) => c.name?.trim().toLowerCase() === companyName.trim().toLowerCase()
+          );
+          let picked: ClientCompany | null = existing ?? null;
+          if (!picked) {
+            const created = await createClientCompany(organization.id, {
+              name: companyName,
+              tax_year: uploadTaxYear ? String(uploadTaxYear) : "2024",
+            });
+            picked = created as any;
+            // Refresh the local client list
+            try {
+              const refreshed = await getClientCompanies(organization.id);
+              setClientCompanies(refreshed);
+            } catch {}
+          }
+          if (picked) {
+            setSelectedClientState(picked);
+            try {
+              await setSelectedClient(picked.id, uploadTaxYear);
+            } catch {}
+          }
+        }
+      } catch (linkErr) {
+        console.warn("[R&D] Failed to auto-link client:", linkErr);
+      }
+
       // Check AI status after parsing
       try {
         const status = await getAIStatus();
@@ -3640,7 +3679,11 @@ export default function Portal() {
                    currentView.charAt(0).toUpperCase() + currentView.slice(1).replace(/-/g, ' ')}
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  {selectedClient ? `${selectedClient.name} • FY${selectedClient.tax_year}` : `FY${new Date().getFullYear()} R&D Tax Credit Study`}
+                  {selectedClient
+                    ? `${selectedClient.name} • FY${selectedClient.tax_year}`
+                    : rdSession?.company_name
+                      ? `${rdSession.company_name} • FY${rdSession.tax_year || new Date().getFullYear()}`
+                      : `FY${new Date().getFullYear()} R&D Tax Credit Study`}
                 </p>
               </div>
             </div>
@@ -3699,10 +3742,10 @@ export default function Portal() {
                 >
                   {Icons.building}
                   <span className="max-w-[150px] truncate">
-                    {selectedClient?.name || "Select Client"}
+                    {selectedClient?.name || rdSession?.company_name || "Select Client"}
                   </span>
                   <span className="badge badge-glass ml-1">
-                    FY{selectedClient?.tax_year || new Date().getFullYear()}
+                    FY{selectedClient?.tax_year || rdSession?.tax_year || new Date().getFullYear()}
                   </span>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="m6 9 6 6 6-6"/>
@@ -3766,12 +3809,27 @@ export default function Portal() {
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-warning" />
               </button>
 
-              {/* User */}
-              <button onClick={handleLogout} className="btn btn-ghost btn-icon rounded-full">
-                <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center">
-                  {Icons.user}
+              {/* User identity + logout */}
+              <div className="flex items-center gap-3 pl-3 border-l border-border">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-sm font-medium shrink-0">
+                  {profile?.full_name?.[0] || user?.email?.[0]?.toUpperCase() || 'U'}
                 </div>
-              </button>
+                <div className="hidden md:flex flex-col leading-tight max-w-[180px]">
+                  <span className="text-sm font-medium text-foreground truncate">
+                    {profile?.full_name || user?.email || 'Signed in'}
+                  </span>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {profile?.full_name && user?.email ? user.email : (profile?.role || '')}
+                  </span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="btn btn-ghost btn-sm"
+                  title="Sign out"
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
           </div>
         </header>

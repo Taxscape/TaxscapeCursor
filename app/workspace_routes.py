@@ -318,7 +318,7 @@ async def list_vendors(
     offset: int = Query(default=0, ge=0),
     user: dict = Depends(get_current_user)
 ):
-    """List vendors with filtering."""
+    """List vendors scoped to client, with legacy NULL-client fallback."""
     supabase = get_supabase()
     
     query = supabase.table("contractors").select("*").eq("client_company_id", client_id)
@@ -329,8 +329,24 @@ async def list_vendors(
     query = query.order("name").range(offset, offset + limit - 1)
     
     result = query.execute()
-    
-    return {"data": result.data}
+    rows = result.data or []
+
+    # Grace-period fallback: surface legacy contractors with no client_company_id
+    try:
+        legacy = supabase.table("contractors")\
+            .select("*")\
+            .is_("client_company_id", "null")\
+            .eq("user_id", user["id"])\
+            .execute()
+        legacy_rows = legacy.data or []
+        if qualified_only:
+            legacy_rows = [r for r in legacy_rows if r.get("is_qualified")]
+        existing_ids = {r.get("id") for r in rows}
+        rows.extend([r for r in legacy_rows if r.get("id") not in existing_ids])
+    except Exception:
+        pass
+
+    return {"data": rows}
 
 @router.post("/vendors")
 async def create_vendor(
@@ -598,19 +614,41 @@ async def list_employees_extended(
     offset: int = Query(default=0, ge=0),
     user: dict = Depends(get_current_user)
 ):
-    """List employees with extended payroll fields."""
+    """List employees with extended payroll fields.
+
+    Returns rows that match client + tax_year, and as a grace-period fallback
+    also includes legacy rows that belong to this user but have NULL
+    client_company_id (from uploads before client selection was wired up).
+    """
     supabase = get_supabase()
-    
+
     query = supabase.table("employees").select("*").eq("client_company_id", client_id).eq("tax_year", tax_year)
-    
+
     if rd_eligibility:
         query = query.eq("rd_eligibility", rd_eligibility)
-    
+
     query = query.order("name").range(offset, offset + limit - 1)
-    
+
     result = query.execute()
-    
-    return {"data": result.data}
+    rows = result.data or []
+
+    # Grace-period fallback: surface legacy rows uploaded before client scoping
+    try:
+        legacy = supabase.table("employees")\
+            .select("*")\
+            .is_("client_company_id", "null")\
+            .eq("user_id", user["id"])\
+            .execute()
+        legacy_rows = legacy.data or []
+        if rd_eligibility:
+            legacy_rows = [r for r in legacy_rows if r.get("rd_eligibility") == rd_eligibility]
+        # Avoid duplicates on id
+        existing_ids = {r.get("id") for r in rows}
+        rows.extend([r for r in legacy_rows if r.get("id") not in existing_ids])
+    except Exception:
+        pass
+
+    return {"data": rows}
 
 @router.post("/employees-extended")
 async def create_employee_extended(
@@ -667,23 +705,33 @@ async def list_projects_extended(
     offset: int = Query(default=0, ge=0),
     user: dict = Depends(get_current_user)
 ):
-    """List projects with extended blueprint fields."""
+    """List projects with extended blueprint fields, scoped to client + tax_year."""
     supabase = get_supabase()
-    
-    # Projects don't have tax_year or client_company_id - filter by organization_id
-    org_id = get_user_org_id(user["id"]) if "user" in dir() else None
-    query = supabase.table("projects").select("*")
-    if org_id:
-        query = query.eq("organization_id", org_id)
-    
+
+    # Primary: filter by client_company_id
+    query = supabase.table("projects").select("*").eq("client_company_id", client_id)
     if qualification_status:
         query = query.eq("qualification_status", qualification_status)
-    
     query = query.order("name").range(offset, offset + limit - 1)
-    
     result = query.execute()
-    
-    return {"data": result.data}
+    rows = result.data or []
+
+    # Grace-period fallback: surface legacy projects (no client_company_id) for this user
+    try:
+        legacy = supabase.table("projects")\
+            .select("*")\
+            .is_("client_company_id", "null")\
+            .eq("user_id", user["id"])\
+            .execute()
+        legacy_rows = legacy.data or []
+        if qualification_status:
+            legacy_rows = [r for r in legacy_rows if r.get("qualification_status") == qualification_status]
+        existing_ids = {r.get("id") for r in rows}
+        rows.extend([r for r in legacy_rows if r.get("id") not in existing_ids])
+    except Exception:
+        pass
+
+    return {"data": rows}
 
 @router.post("/projects-extended")
 async def create_project_extended(

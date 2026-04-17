@@ -4,7 +4,11 @@ import React, { createContext, useContext, useReducer, useEffect, useCallback, u
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useAuth } from './auth-context';
 import { queryClient, CACHE_KEYS } from '@/lib/query-client';
-import { setSelectedClient } from '@/lib/api';
+import { setSelectedClient, getClientCompanies, getMyClients } from '@/lib/api';
+
+const CLIENT_LS_KEY = 'taxscape_selected_client_id';
+const TAX_YEAR_LS_KEY = 'taxscape_tax_year';
+const DEFAULT_TAX_YEAR = '2024';
 
 // ============================================================================
 // TYPES
@@ -89,10 +93,29 @@ type WorkspaceAction =
 // INITIAL STATE
 // ============================================================================
 
+// Read saved taxYear synchronously so the initial render is already scoped
+function readInitialTaxYear(): string {
+  if (typeof window === 'undefined') return DEFAULT_TAX_YEAR;
+  try {
+    const saved = localStorage.getItem(TAX_YEAR_LS_KEY);
+    if (saved) return saved;
+  } catch {}
+  return DEFAULT_TAX_YEAR;
+}
+
+function readInitialClientId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(CLIENT_LS_KEY);
+  } catch {
+    return null;
+  }
+}
+
 const initialState: WorkspaceState = {
   organizationId: null,
-  clientId: null,
-  taxYear: new Date().getFullYear().toString(),
+  clientId: readInitialClientId(),
+  taxYear: readInitialTaxYear(),
   activeModule: 'dashboard',
   selectedProjectId: null,
   selectedEmployeeId: null,
@@ -114,12 +137,14 @@ const initialState: WorkspaceState = {
 function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState {
   switch (action.type) {
     case 'SET_ORG':
+      if (state.organizationId === action.payload) return state;
       return {
         ...state,
         organizationId: action.payload,
-        // Reset client when org changes
-        clientId: null,
-        clients: [],
+        // Only reset client if we're actually changing organizations, 
+        // not when we're initializing the first one.
+        clientId: state.organizationId ? null : state.clientId,
+        clients: state.organizationId ? [] : state.clients,
         selectedProjectId: null,
         selectedEmployeeId: null,
         selectedContractorId: null,
@@ -245,32 +270,63 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   // Initialize from auth context
   // -------------------------------------------------------------------------
   useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/d1c882a9-ae18-45fd-a697-d3989b46f318',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspace-context.tsx:initEffect',message:'Init effect running',data:{authLoading,hasOrg:!!organization?.id,profileSelectedClientId:profile?.selected_client_id,profileKeys:profile?Object.keys(profile):[],stateClientId:state.clientId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-    // #endregion
-    if (!authLoading) {
-      if (organization?.id) {
-        dispatch({ type: 'SET_ORG', payload: organization.id });
-      }
-      
-      // Try to restore from profile FIRST
-      if (profile?.selected_client_id && !state.clientId) {
-        dispatch({ type: 'SET_CLIENT', payload: { 
-          clientId: profile.selected_client_id 
-        }});
-      } 
-      // Fallback: try to restore from localStorage if profile hasn't loaded or doesn't have it
-      else if (typeof window !== 'undefined' && !state.clientId) {
-        const savedClientId = localStorage.getItem('taxscape_selected_client_id');
-        if (savedClientId) {
-          dispatch({ type: 'SET_CLIENT', payload: { clientId: savedClientId } });
-        }
-      }
-      
-      dispatch({ type: 'SET_INITIALIZED', payload: true });
-      dispatch({ type: 'SET_LOADING', payload: false });
+    if (authLoading) return;
+    if (organization?.id) {
+      dispatch({ type: 'SET_ORG', payload: organization.id });
     }
-  }, [authLoading, organization?.id, profile?.selected_client_id, state.clientId]);
+
+    // Prefer profile.selected_client_id (server source of truth); fall back to localStorage
+    const profileClient = (profile as any)?.selected_client_id as string | undefined | null;
+    const profileTaxYear = (profile as any)?.selected_tax_year;
+
+    if (profileClient && profileClient !== state.clientId) {
+      dispatch({ type: 'SET_CLIENT', payload: {
+        clientId: profileClient,
+        taxYear: profileTaxYear ? String(profileTaxYear) : undefined,
+      }});
+    }
+
+    if (profileTaxYear && String(profileTaxYear) !== state.taxYear) {
+      dispatch({ type: 'SET_TAX_YEAR', payload: String(profileTaxYear) });
+    }
+
+    dispatch({ type: 'SET_INITIALIZED', payload: true });
+    dispatch({ type: 'SET_LOADING', payload: false });
+  }, [authLoading, organization?.id, profile?.selected_client_id, (profile as any)?.selected_tax_year]);
+
+  // -------------------------------------------------------------------------
+  // Load client list into state and validate saved clientId
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (authLoading) return;
+    let cancelled = false;
+    const loadClients = async () => {
+      try {
+        let list: ClientCompany[] = [];
+        if (organization?.id) {
+          list = (await getClientCompanies(organization.id)) as unknown as ClientCompany[];
+        } else {
+          const r = await getMyClients();
+          list = ((r?.clients || []) as unknown) as ClientCompany[];
+        }
+        if (cancelled) return;
+        dispatch({ type: 'SET_CLIENTS', payload: list });
+
+        // Validate saved clientId - if it points to something not in the list, clear it
+        if (state.clientId && list.length > 0 && !list.find(c => c.id === state.clientId)) {
+          console.warn(`[workspace] saved clientId ${state.clientId} not in fetched list; clearing`);
+          dispatch({ type: 'SET_CLIENT', payload: { clientId: null } });
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem(CLIENT_LS_KEY);
+          }
+        }
+      } catch (err) {
+        console.error('[workspace] failed to load clients:', err);
+      }
+    };
+    loadClients();
+    return () => { cancelled = true; };
+  }, [authLoading, organization?.id, state.clientId]);
   
   // -------------------------------------------------------------------------
   // URL Synchronization - Read from URL on mount
@@ -316,18 +372,20 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     // Persist to localStorage for immediate availability on reload
     if (typeof window !== 'undefined') {
       if (clientId) {
-        localStorage.setItem('taxscape_selected_client_id', clientId);
+        localStorage.setItem(CLIENT_LS_KEY, clientId);
       } else {
-        localStorage.removeItem('taxscape_selected_client_id');
+        localStorage.removeItem(CLIENT_LS_KEY);
+      }
+      if (taxYear) {
+        localStorage.setItem(TAX_YEAR_LS_KEY, taxYear);
       }
     }
     
     // Persist selection to backend so it survives page refreshes
-    if (clientId) {
-      setSelectedClient(clientId).catch(err => {
-        console.error('Failed to persist client selection to backend:', err);
-      });
-    }
+    const yearNum = taxYear ? parseInt(taxYear, 10) : undefined;
+    setSelectedClient(clientId, Number.isFinite(yearNum) ? yearNum : undefined).catch(err => {
+      console.error('Failed to persist client selection to backend:', err);
+    });
     
     // Invalidate client-specific caches
     queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -338,12 +396,26 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     queryClient.invalidateQueries({ queryKey: ['workflow'] });
     
-    // Sync to URL
     syncToUrl(clientId, taxYear || state.taxYear, state.activeModule);
   }, [state.taxYear, state.activeModule, syncToUrl]);
   
   const setTaxYear = useCallback((year: string) => {
     dispatch({ type: 'SET_TAX_YEAR', payload: year });
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(TAX_YEAR_LS_KEY, year);
+    }
+    // Persist to backend when a client is selected so profile stays in sync
+    const yearNum = parseInt(year, 10);
+    if (state.clientId && Number.isFinite(yearNum)) {
+      setSelectedClient(state.clientId, yearNum).catch(err => {
+        console.error('Failed to persist tax year:', err);
+      });
+    }
+    // Re-fetch data scoped to the new tax year
+    queryClient.invalidateQueries({ queryKey: ['projects'] });
+    queryClient.invalidateQueries({ queryKey: ['employees'] });
+    queryClient.invalidateQueries({ queryKey: ['contractors'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     syncToUrl(state.clientId, year, state.activeModule);
   }, [state.clientId, state.activeModule, syncToUrl]);
   

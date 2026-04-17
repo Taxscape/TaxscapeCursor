@@ -477,20 +477,26 @@ async def evaluate_project(
         
         raise HTTPException(status_code=500, detail=f"AI evaluation failed: {str(e)}")
     
-    # Determine qualified status
-    status_map = {"pass": True, "fail": False, "needs_review": None, "missing_data": None}
-    
+    # Determine qualified status (smart heuristic: 2+ passes and no fails = qualified)
     tests_passed = 0
+    tests_failed = 0
     needs_review = False
     for test_key in ["permitted_purpose", "elimination_uncertainty", "process_experimentation", "technological_nature"]:
         test_result = result.get(test_key, {})
         status = test_result.get("status", "missing_data")
         if status == "pass":
             tests_passed += 1
-        elif status == "needs_review" or status == "missing_data":
+        elif status == "fail":
+            tests_failed += 1
+        elif status in ("needs_review", "missing_data"):
             needs_review = True
-    
-    qualified = tests_passed == 4
+
+    if tests_failed >= 2:
+        qualified = False
+    elif tests_passed >= 2 and tests_failed == 0:
+        qualified = True
+    else:
+        qualified = False  # stays "needs_review" per status below
     
     # Build four_part_test_json
     four_part_json = {}
@@ -527,12 +533,22 @@ async def evaluate_project(
     
     supabase.table("project_ai_evaluations").insert(evaluation_record).execute()
     
-    # Update project status
+    # Update project status - write to BOTH fields so Testscape UI (which reads
+    # qualification_status) and audit (ai_qualification_status) stay in sync.
     ai_status = "qualified" if qualified else ("needs_review" if needs_review else "not_qualified")
-    supabase.table("projects").update({
+    project_update: Dict[str, Any] = {
         "ai_qualification_status": ai_status,
-        "last_ai_evaluation_at": datetime.utcnow().isoformat()
-    }).eq("id", request.project_id).execute()
+        "qualification_status": ai_status,
+        "last_ai_evaluation_at": datetime.utcnow().isoformat(),
+    }
+    try:
+        supabase.table("projects").update(project_update).eq("id", request.project_id).execute()
+    except Exception as e:
+        logger.warning(f"Failed to update qualification_status, falling back to ai_qualification_status only: {e}")
+        supabase.table("projects").update({
+            "ai_qualification_status": ai_status,
+            "last_ai_evaluation_at": datetime.utcnow().isoformat(),
+        }).eq("id", request.project_id).execute()
     
     # Generate gaps
     gaps = generate_gaps_from_evaluation(

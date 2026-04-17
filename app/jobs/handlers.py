@@ -198,6 +198,17 @@ async def handle_rd_parse_session(ctx: JobContext) -> Dict[str, Any]:
         if session.projects:
             project_records = []
             for proj in session.projects:
+                # Map parser's qualified flag to a UI-friendly status.
+                # - True  -> "qualified"
+                # - False + failed tests    -> "not_qualified"
+                # - Ambiguous (mixed/missing) -> "needs_review"
+                fpt = getattr(proj, "four_part_test", None)
+                if getattr(proj, "qualified", False):
+                    q_status = "qualified"
+                elif fpt and getattr(fpt, "fail_count", 0) >= 2:
+                    q_status = "not_qualified"
+                else:
+                    q_status = "needs_review"
                 project_records.append({
                     "organization_id": ctx.organization_id,
                     "client_company_id": client_id,
@@ -205,8 +216,8 @@ async def handle_rd_parse_session(ctx: JobContext) -> Dict[str, Any]:
                     "name": proj.project_name,
                     "description": proj.description,
                     "category": proj.category,
-                    "qualification_status": "pending_review",
-                    "source_session_id": session_id
+                    "qualification_status": q_status,
+                    "source_session_id": session_id,
                 })
             
             supabase.table("projects")\

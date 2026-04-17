@@ -57,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // If RLS recursion error, return minimal profile to keep app working
       if (error.message?.includes("infinite recursion")) {
         console.warn("RLS recursion detected - using minimal profile. Run FIX_PROFILES_RLS_V2.sql in Supabase to fix.");
-        return { id: userId, email: "", full_name: null, company_name: null, organization_id: null, selected_client_id: null, is_admin: false, created_at: "", updated_at: "", last_active_at: "" } as Profile;
+        return { id: userId, email: "", full_name: null, company_name: null, organization_id: null, selected_client_id: null, selected_tax_year: null, role: null, is_admin: false, created_at: "", updated_at: "", last_active_at: "" } as Profile;
       }
       return null;
     }
@@ -322,6 +322,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(null);
     setOrganization(null);
     setUserRole(null);
+
+    // Clear workspace-level localStorage so the next login doesn't inherit state
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('taxscape_selected_client_id');
+        localStorage.removeItem('taxscape_tax_year');
+        localStorage.removeItem('taxscape_workspace_layout');
+      } catch {}
+    }
   };
 
   const value = {

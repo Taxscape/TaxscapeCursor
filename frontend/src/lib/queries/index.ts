@@ -100,11 +100,11 @@ export function useCreateClient(orgId: string) {
 export function useProjects(clientId: string | null, taxYear?: string) {
   return useQuery({
     queryKey: clientId ? CACHE_KEYS.projects(clientId, taxYear) : ['projects-disabled'],
-    queryFn: () => getProjects(),
+    queryFn: () => getProjects(clientId!, taxYear ? Number(taxYear) : undefined),
     enabled: !!clientId,
     staleTime: 1000 * 60 * 5,
     select: (data: Project[]) => {
-      // Filter by client if needed (backend should handle this, but safety filter)
+      // Safety: filter out rows that belong to another client
       if (clientId) {
         return data.filter(p => !p.client_company_id || p.client_company_id === clientId);
       }
@@ -133,7 +133,7 @@ export function useCreateProject() {
 export function useEmployees(clientId: string | null, taxYear?: string) {
   return useQuery({
     queryKey: clientId ? CACHE_KEYS.employees(clientId, taxYear) : ['employees-disabled'],
-    queryFn: () => getEmployees(),
+    queryFn: () => getEmployees(clientId!, taxYear ? Number(taxYear) : undefined),
     enabled: !!clientId,
     staleTime: 1000 * 60 * 5,
     select: (data: Employee[]) => {
@@ -165,7 +165,7 @@ export function useCreateEmployee() {
 export function useContractors(clientId: string | null, taxYear?: string) {
   return useQuery({
     queryKey: clientId ? CACHE_KEYS.contractors(clientId, taxYear) : ['contractors-disabled'],
-    queryFn: () => getContractors(),
+    queryFn: () => getContractors(clientId!, taxYear ? Number(taxYear) : undefined),
     enabled: !!clientId,
     staleTime: 1000 * 60 * 5,
     select: (data: Contractor[]) => {
@@ -182,12 +182,12 @@ export function useContractors(clientId: string | null, taxYear?: string) {
 // ============================================================================
 
 export function useDashboard(clientId: string | null, taxYear?: number) {
-  const currentYear = taxYear || new Date().getFullYear();
+  const currentYear = taxYear || 2024;
   return useQuery({
-    queryKey: clientId ? CACHE_KEYS.dashboard(clientId) : ['dashboard'],
+    queryKey: clientId ? [...CACHE_KEYS.dashboard(clientId), currentYear] : ['dashboard'],
     queryFn: () => getDashboard(clientId!, currentYear),
-    enabled: !!clientId, // Only fetch if clientId is available
-    staleTime: 1000 * 60 * 2, // 2 minutes for dashboard
+    enabled: !!clientId,
+    staleTime: 1000 * 60 * 2,
   });
 }
 
