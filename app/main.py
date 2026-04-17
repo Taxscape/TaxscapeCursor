@@ -2880,6 +2880,21 @@ async def upload_payroll(
             errors.append(error_msg)
     
     print(f"Upload complete. Inserted {count} employees, {len(errors)} errors")
+
+    # CRITICAL: Persist the client_id + tax_year to the user's profile so that
+    # on next login / page refresh the workspace restores to this context and
+    # the uploaded data is immediately visible. Without this, a user who
+    # uploads under client X can come back to find profile pointing at client Y.
+    if client_id and count > 0:
+        try:
+            payload = {"selected_client_id": client_id, "selected_tax_year": tax_year}
+            supabase.table("profiles").update(payload).eq("id", user["id"]).execute()
+        except Exception:
+            try:
+                supabase.table("profiles").update({"selected_client_id": client_id}).eq("id", user["id"]).execute()
+            except Exception as e:
+                logger.warning(f"Could not update profile.selected_client_id after payroll upload: {e}")
+
     await trigger_workflow_event("payroll_uploaded", user, payload={"count": count, "errors_count": len(errors), "client_id": client_id})
     return {"message": f"Uploaded {count} employees.", "count": count, "errors": errors[:5] if errors else []}
 
@@ -3011,6 +3026,19 @@ async def upload_contractors(
             errors.append(error_msg)
     
     print(f"Upload complete. Inserted {count} contractors, {len(errors)} errors")
+
+    # Persist the client_id + tax_year to user's profile so the next login
+    # restores this context and shows the uploaded data.
+    if client_id and count > 0:
+        try:
+            payload = {"selected_client_id": client_id, "selected_tax_year": tax_year}
+            supabase.table("profiles").update(payload).eq("id", user["id"]).execute()
+        except Exception:
+            try:
+                supabase.table("profiles").update({"selected_client_id": client_id}).eq("id", user["id"]).execute()
+            except Exception as e:
+                logger.warning(f"Could not update profile.selected_client_id after contractor upload: {e}")
+
     await trigger_workflow_event("contractors_uploaded", user, payload={"count": count, "errors_count": len(errors), "client_id": client_id})
     return {"message": f"Uploaded {count} contractors.", "count": count, "errors": errors[:5] if errors else []}
 

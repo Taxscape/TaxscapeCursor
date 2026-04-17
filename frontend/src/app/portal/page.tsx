@@ -1040,31 +1040,45 @@ export default function Portal() {
       console.log("[R&D] Analysis complete:", parseResult);
       setRdSession(parseResult.session);
 
-      // If this upload revealed a company_name but there's no selected client,
-      // auto-create a client_companies row and select it so the header + data
-      // scoping works on subsequent screens.
+      // If this upload revealed a company_name, make sure we have a client to
+      // attach uploads to. We prefer (in order):
+      //   1. The currently selected client (don't create phantom clients).
+      //   2. An existing client whose name matches the parsed company_name.
+      //   3. The first existing client for this organization (reuse, not create).
+      //   4. Create a new client as a last resort.
       try {
         const companyName = (parseResult.session as any)?.company_name as string | undefined;
         const uploadTaxYear = (parseResult.session as any)?.tax_year as number | undefined;
-        if (companyName && organization?.id && !selectedClient) {
-          const existing = clientCompanies.find(
-            (c) => c.name?.trim().toLowerCase() === companyName.trim().toLowerCase()
-          );
-          let picked: ClientCompany | null = existing ?? null;
-          if (!picked) {
+        if (organization?.id) {
+          let picked: ClientCompany | null = selectedClient;
+
+          if (!picked && companyName) {
+            picked = clientCompanies.find(
+              (c) => c.name?.trim().toLowerCase() === companyName.trim().toLowerCase()
+            ) ?? null;
+          }
+
+          if (!picked && clientCompanies.length > 0) {
+            picked = clientCompanies[0];
+          }
+
+          if (!picked && companyName) {
+            // Truly nothing exists; create a single client for this user.
             const created = await createClientCompany(organization.id, {
               name: companyName,
               tax_year: uploadTaxYear ? String(uploadTaxYear) : "2024",
             });
             picked = created as any;
-            // Refresh the local client list
             try {
               const refreshed = await getClientCompanies(organization.id);
               setClientCompanies(refreshed);
             } catch {}
           }
+
           if (picked) {
             setSelectedClientState(picked);
+            // If the parsed upload says a different tax_year than the client,
+            // keep the client record in sync so future queries match.
             try {
               await setSelectedClient(picked.id, uploadTaxYear);
             } catch {}
